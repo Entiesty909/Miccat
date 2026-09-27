@@ -12,34 +12,24 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
 
 fn register_1(ui: &MainWindow, state: &AppState) {
     let app_config = state.app_config.clone();
-    let preview = state.preview.clone();
+    let engine = state.engine.clone();
     {
         let save_queue = state.save_queue.clone();
-        let preview = preview.clone();
+        let engine = engine.clone();
         let app_config = app_config.clone();
         ui.on_preview_enabled_toggled(move |enabled| {
+            engine.set_monitor_default(enabled);
             app_config.borrow_mut().preview_enabled = enabled;
-            if enabled && preview.lock().ok().is_some_and(|p| p.is_none()) {
-                *preview.lock().unwrap() =
-                    crate::audio::preview::PreviewEngine::open_default().ok();
-            }
-            if !enabled {
-                preview.lock().ok().and_then(|mut p| p.take());
-            }
             save_queue.schedule();
         });
     }
     {
         let save_queue = state.save_queue.clone();
-        let preview = preview.clone();
+        let engine = engine.clone();
         let app_config = app_config.clone();
         ui.on_preview_volume_edited(move |v| {
             let value = (v / 100.0).clamp(0.0, 1.0);
-            if let Ok(guard) = preview.lock() {
-                if let Some(engine) = guard.as_ref() {
-                    engine.set_volume(value);
-                }
-            }
+            engine.set_monitor_volume(value);
             app_config.borrow_mut().preview_volume = value;
             save_queue.schedule();
         });

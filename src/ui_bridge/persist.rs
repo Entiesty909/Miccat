@@ -106,7 +106,7 @@ pub(super) fn hydrate_audio_durations(app_config: &Rc<RefCell<config::AppConfig>
         if entry.duration_hns != 0 {
             continue;
         }
-        if let Ok(info) = crate::audio::decode::validate_file(std::path::Path::new(&entry.path)) {
+        if let Ok(info) = crate::library::validate_file(std::path::Path::new(&entry.path)) {
             entry.duration_hns = info.duration_hns;
             changed = true;
         }

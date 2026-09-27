@@ -5,6 +5,7 @@ mod config;
 mod engine;
 mod error;
 mod hotkey;
+mod library;
 mod process;
 mod ui_bridge;
 mod vbcable;

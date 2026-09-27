@@ -165,6 +165,17 @@ impl PreviewEngine {
             let _ = source.join.join();
         }
     }
+
+    /// 请求停止试听源，并把等待工作移到后台回收线程。
+    pub fn request_stop_source(&self) {
+        let source = self.source.lock().ok().and_then(|mut slot| slot.take());
+        if let Some(source) = source {
+            source.stop.store(true, Ordering::Release);
+            thread::spawn(move || {
+                let _ = source.join.join();
+            });
+        }
+    }
 }
 
 /// 试听流源：把解码块重采样进 `ring`，积压超过 `lead` 就退让，节拍交给 render 线程。

@@ -360,14 +360,12 @@ dev/ ──► 任意（仅调试）
 
 ### S2 — 领域门面：UI 不再绕过引擎
 
-- `engine/monitor.rs`：`PreviewEngine` 收归引擎，UI 只调 `set_monitor(Option<device_id>)`、
-  `set_monitor_volume(v)`、播放流交给引擎。
-- `engine/playback.rs`：`play_file(entry, start_hns)` / `stop_file()` / `seek_file(hns)` /
-  `file_state()`；取消标志、解码线程、SFX 通道全部收进引擎，UI 不再 `thread::spawn`。
-- 新建 `library.rs`：分类路径语义（含 `全部`/`未分类`）、重命名、递归删除、时长补全，
-  与 UI 无关、带单测；`ui_bridge` 只调它。
-- 验收：`git grep` 证明 `ui_bridge/` 无 `audio::{decode,sfx,preview}`；
-  播放/试听/进度/热键全回归；CLI `--capture`、`--route` 回归。
+- 已完成：`engine/monitor.rs` 收归试听目标与音量，UI 只调 `AudioEngine` 安全 API。
+- 已完成：`engine/playback.rs` 收归文件播放、取消、解码流、SFX/试听分发和播放状态。
+- 已完成：根 `library.rs` 集中分类路径语义、递归重命名/删除、可见索引与文件验证，含单测。
+- 已完成：`ui_bridge/` 不再直接引用 `audio::decode`、`audio::sfx`、`audio::preview`。
+- 未完成：`seek_file(hns)` 尚以停止后重新 `play_file` 实现，S4 音频原语拆分未开始。
+- 验收：构建、2 个领域单测、设备/进程/UI 快照冒烟通过；真实桌面音频交互未自动化。
 
 ### S3 — Slint 结构重构 + 契约收窄
 

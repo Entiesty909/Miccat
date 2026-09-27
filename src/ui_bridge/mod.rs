@@ -3,7 +3,6 @@
 use slint::{ModelRc, VecModel};
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
 
 use crate::config;
 use crate::engine::AudioEngine;
@@ -20,7 +19,6 @@ mod input;
 mod library;
 mod lists;
 mod persist;
-mod playback;
 mod state;
 mod status;
 mod window;
@@ -39,7 +37,6 @@ use persist::{
     SaveQueue, hydrate_audio_durations, persist_config, restore_default_mics,
     restore_saved_selection,
 };
-use playback::start_playback;
 use state::AppState;
 use status::{set_wave, start_status_timer};
 use window::fit_window_to_screen;
@@ -73,16 +70,8 @@ pub fn run_ui() -> Result<(), Error> {
     let capture_hist = Rc::new(RefCell::new(vec![0.0f32; WAVE_BARS]));
     let mic_hist = Rc::new(RefCell::new(vec![0.0f32; WAVE_BARS]));
     let render_hist = Rc::new(RefCell::new(vec![0.0f32; WAVE_BARS]));
-    let preview = Arc::new(Mutex::new(if persisted.preview_enabled {
-        crate::audio::preview::PreviewEngine::open_default().ok()
-    } else {
-        None
-    }));
-    if let Ok(guard) = preview.lock() {
-        if let Some(p) = guard.as_ref() {
-            p.set_volume(persisted.preview_volume);
-        }
-    }
+    engine.set_monitor_default(persisted.preview_enabled);
+    engine.set_monitor_volume(persisted.preview_volume);
     let hotkey = Rc::new(RefCell::new(persisted.hotkeys.toggle_route));
     if let Some(action) = persisted.playback_key {
         ui.set_playback_key_label(action.key.label().into());
@@ -122,7 +111,6 @@ pub fn run_ui() -> Result<(), Error> {
         hotkey_server: hotkey_server.clone(),
         app_config: app_config.clone(),
         save_queue: save_queue.clone(),
-        preview: preview.clone(),
         capture_hist: capture_hist.clone(),
         mic_hist: mic_hist.clone(),
         render_hist: render_hist.clone(),

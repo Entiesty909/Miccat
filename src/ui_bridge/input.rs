@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::hotkey::HotkeyServer;
+use std::sync::Arc;
 
 /// 启动安全系统热键服务。全局 hook 模式在 S6 另行启用。
 pub(super) fn start_hotkey(ui: &MainWindow, hotkey: &Rc<RefCell<config::Hotkey>>) -> HotkeyServer {

@@ -2,7 +2,6 @@
 
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
 
 use crate::config;
 use crate::engine::AudioEngine;
@@ -28,8 +27,6 @@ pub(super) struct AppState {
     pub(super) app_config: Rc<RefCell<config::AppConfig>>,
     /// 延迟写入与退出 flush 的配置队列。
     pub(super) save_queue: Rc<SaveQueue>,
-    /// 可选的本机试听引擎。
-    pub(super) preview: Arc<Mutex<Option<crate::audio::preview::PreviewEngine>>>,
     /// 进程捕获电平历史。
     pub(super) capture_hist: Rc<RefCell<Vec<f32>>>,
     /// 麦克风捕获电平历史。

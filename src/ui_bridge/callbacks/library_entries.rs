@@ -20,7 +20,7 @@ fn register_1(ui: &MainWindow, state: &AppState) {
             let Some(path) = select_audio_file() else {
                 return;
             };
-            let validate_info = match crate::audio::decode::validate_file(&path) {
+            let validate_info = match crate::library::validate_file(&path) {
                 Ok(info) => info,
                 Err(error) => {
                     if let Some(ui) = ui_weak.upgrade() {

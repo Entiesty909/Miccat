@@ -1,7 +1,5 @@
 //! Slint 桥接层仅缓存派生视图状态。
 
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
 use std::time::Instant;
 
 use crate::audio::device::DestDevice;
@@ -19,13 +17,13 @@ pub(super) struct UiCache {
     pub(super) dests: Vec<DestDevice>,
     /// 麦克风设备 ID，下标 0 是「不混入麦克风」。
     pub(super) mic_ids: Vec<String>,
-    /// 麦克风显示名，与 mic_ids 对齐。
+    /// 麦克风显示名，与 `mic_ids` 对齐。
     pub(super) mic_names: Vec<String>,
     /// 进程筛选关键字。
     pub(super) filter: String,
     /// 输出列表是否包含物理播放设备。
     pub(super) all_devices: bool,
-    /// 多输出选择状态，与 dests 对齐。
+    /// 多输出选择状态，与 `dests` 对齐。
     pub(super) device_selected: Vec<bool>,
     /// 当前已加入混音的进程 PID。
     pub(super) selected_pids: Vec<u32>,
@@ -49,23 +47,4 @@ pub(super) struct UiCache {
     pub(super) audio_search: String,
     /// 等待设置热键的音频可见下标。
     pub(super) audio_hotkey_index: Option<usize>,
-    /// 当前解码任务；切换音频时取消旧任务。
-    pub(super) audio_cancel: Option<Arc<AtomicBool>>,
-    /// 正在播放的条目；拖动进度条时按它重新起流。
-    pub(super) audio_playing: Option<PlayingEntry>,
-    /// 播放起点：锚点时刻与对应的媒体位置（100 ns）。
-    pub(super) audio_anchor: Option<(Instant, u64)>,
-}
-
-/// 当前播放条目快照，用于拖动进度条后重建播放源。
-#[derive(Clone)]
-pub(super) struct PlayingEntry {
-    /// 文件路径。
-    pub(super) path: String,
-    /// 显示名。
-    pub(super) name: String,
-    /// 是否循环。
-    pub(super) looped: bool,
-    /// 媒体总时长，100 ns 为单位。
-    pub(super) duration_hns: u64,
 }

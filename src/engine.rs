@@ -1,5 +1,8 @@
 //! 音频引擎：多进程源 + 物理麦 + SFX，fan-out 到多个独立输出设备。
 
+mod monitor;
+mod playback;
+
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -65,6 +68,8 @@ pub struct AudioEngine {
     render_peak: Arc<AtomicU32>,
     running: Arc<AtomicBool>,
     status: Arc<Mutex<EngineStatus>>,
+    monitor: monitor::SharedMonitor,
+    playback: Arc<Mutex<playback::PlaybackControl>>,
     output: Mutex<Option<OutputState>>,
     sources: Mutex<SourceThreads>,
 }
@@ -89,6 +94,8 @@ impl AudioEngine {
             status: Arc::new(Mutex::new(EngineStatus::Idle)),
             output: Mutex::new(None),
             sources: Mutex::new(SourceThreads::default()),
+            monitor: monitor::shared(),
+            playback: playback::shared(),
         }
     }
     pub fn is_running(&self) -> bool {
@@ -320,7 +327,7 @@ impl AudioEngine {
         self.set_mic_source(mic_id)?;
         Ok(())
     }
-    pub fn sfx_sender(
+    pub(crate) fn sfx_sender(
         &self,
     ) -> Result<std::sync::mpsc::Sender<crate::audio::sfx::SfxCommand>, Error> {
         self.sources
@@ -331,6 +338,7 @@ impl AudioEngine {
             .ok_or(Error::RenderInit("sfx is closed"))
     }
     pub fn stop(&self) {
+        self.stop_file();
         self.stop_process_source();
         self.stop_mic_source();
         self.stop_sfx_source();

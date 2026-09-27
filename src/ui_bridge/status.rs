@@ -1,4 +1,4 @@
-//! 轮询引擎状态、电平、播放进度与设备标签。
+//! 轮询引擎状态、电平、文件播放进度与设备标签。
 
 use super::*;
 use crate::engine::EngineStatus;
@@ -95,40 +95,23 @@ fn update_audio_levels(ui: &MainWindow, state: &AppState) {
 }
 
 fn update_player_progress(ui: &MainWindow, state: &AppState) {
-    if !ui.get_player_playing() || ui.get_audio_seeking_progress() {
+    let file = state.engine.file_state();
+    if let Some(error) = file.error {
+        ui.set_player_playing(false);
+        ui.set_error_text(error.into());
         return;
     }
-    let duration_seconds = ui.get_audio_duration_seconds();
-    let anchor = state.cache.borrow().audio_anchor;
-    let looped = state
-        .cache
-        .borrow()
-        .audio_playing
-        .as_ref()
-        .is_some_and(|playing| playing.looped);
-    if let (true, Some((start, offset_hns))) = (duration_seconds > 0.0, anchor) {
-        let duration_hns = (f64::from(duration_seconds) * 10_000_000.0) as u64;
-        let elapsed_hns = (start.elapsed().as_nanos() / 100) as u64;
-        let played_hns = offset_hns + elapsed_hns;
-        let ended = played_hns >= duration_hns;
-        if ended && !looped {
-            ui.set_player_playing(false);
-        }
-        let shown_hns = if ended && !looped {
-            duration_hns
-        } else if duration_hns == 0 {
-            0
-        } else {
-            played_hns % duration_hns
-        };
-        let progress = if duration_hns == 0 {
-            0.0
-        } else {
-            shown_hns as f32 / duration_hns as f32
-        };
-        ui.set_audio_progress(progress.clamp(0.0, 1.0));
-        ui.set_audio_current_position(format_hns_position(shown_hns, duration_hns).into());
+    if !file.playing && ui.get_player_playing() {
+        ui.set_player_playing(false);
     }
+    if file.duration_hns == 0 || ui.get_audio_seeking_progress() {
+        return;
+    }
+    ui.set_audio_current_name(file.name.into());
+    ui.set_audio_duration_seconds(file.duration_hns as f32 / 10_000_000.0);
+    let progress = file.position_hns as f32 / file.duration_hns as f32;
+    ui.set_audio_progress(progress.clamp(0.0, 1.0));
+    ui.set_audio_current_position(format_hns_position(file.position_hns, file.duration_hns).into());
 }
 
 fn update_device_labels(

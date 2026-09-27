@@ -46,21 +46,16 @@ fn register_1(ui: &MainWindow, state: &AppState) {
         let app_config = app_config.clone();
         ui.on_audio_category_new(move || {
             let (categories, new_path) = {
-                let paths = category_paths(&cache);
-                let selected = cache.borrow().audio_category.clone();
-                let base = (selected != "全部" && selected != "未分类").then_some(selected);
-                let prefix = base.map(|path| format!("{path}/"));
-                let mut number = 1;
-                let new_path = loop {
-                    let candidate = format!("{}新分类 {number}", prefix.as_deref().unwrap_or(""));
-                    if !paths.contains(&candidate) {
-                        break candidate;
-                    }
-                    number += 1;
-                };
-                let mut c = cache.borrow_mut();
-                c.audio_categories.push(new_path.clone());
-                (c.audio_categories.clone(), new_path)
+                let cache_state = cache.borrow();
+                let new_path = crate::library::new_category(
+                    &cache_state.audio_categories,
+                    &cache_state.audio_entries,
+                    &cache_state.audio_category,
+                );
+                drop(cache_state);
+                let mut cache_state = cache.borrow_mut();
+                cache_state.audio_categories.push(new_path.clone());
+                (cache_state.audio_categories.clone(), new_path)
             };
             {
                 let mut cfg = app_config.borrow_mut();
@@ -111,17 +106,12 @@ fn register_2(ui: &MainWindow, state: &AppState) {
                 .unwrap_or(leaf);
             let (categories, entries) = {
                 let mut c = cache.borrow_mut();
-                for cat in &mut c.audio_categories {
-                    if *cat == old || cat.starts_with(&format!("{old}/")) {
-                        *cat = format!("{new_path}{}", &cat[old.len()..]);
-                    }
-                }
-                for entry in &mut c.audio_entries {
-                    if entry.category == old || entry.category.starts_with(&format!("{old}/")) {
-                        entry.category = format!("{new_path}{}", &entry.category[old.len()..]);
-                    }
-                }
-                (c.audio_categories.clone(), c.audio_entries.clone())
+                let mut categories = c.audio_categories.clone();
+                let mut entries = c.audio_entries.clone();
+                crate::library::rename_category(&mut categories, &mut entries, &old, &new_path);
+                c.audio_categories = categories.clone();
+                c.audio_entries = entries.clone();
+                (categories, entries)
             };
             let mut cfg = app_config.borrow_mut();
             cfg.audio_categories = categories;
@@ -154,18 +144,15 @@ fn register_3(ui: &MainWindow, state: &AppState) {
             if index < 2 {
                 return;
             }
-            let prefix = format!("{name}/");
             let (categories, entries) = {
                 let mut c = cache.borrow_mut();
-                c.audio_categories
-                    .retain(|v| v != &name && !v.starts_with(&prefix));
-                for entry in &mut c.audio_entries {
-                    if entry.category == name || entry.category.starts_with(&prefix) {
-                        entry.category = "未分类".into();
-                    }
-                }
+                let mut categories = c.audio_categories.clone();
+                let mut entries = c.audio_entries.clone();
+                crate::library::delete_category(&mut categories, &mut entries, &name);
+                c.audio_categories = categories.clone();
+                c.audio_entries = entries.clone();
                 c.audio_category = "全部".into();
-                (c.audio_categories.clone(), c.audio_entries.clone())
+                (categories, entries)
             };
             let mut cfg = app_config.borrow_mut();
             cfg.audio_categories = categories;
