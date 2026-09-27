@@ -19,8 +19,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::Interface;
 use windows_core::BOOL;
 
-use crate::audio::com;
 use crate::error::Error;
+use crate::platform::com;
 
 /// 一条可被 UI 选中的进程。
 #[derive(Clone, Debug)]

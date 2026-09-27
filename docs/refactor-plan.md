@@ -401,6 +401,10 @@ dev/ ──► 任意（仅调试）
 
 ### S5 — 入口与基础设施
 
+- 已完成：CLI 派发、帮助、设备/进程/capture/route 和 probe 迁移到 `src/cli/mod.rs`，`main.rs` 收敛为组合根。
+- 已完成：新增 `platform/com.rs`，`process.rs` 不再直接依赖 `audio::com`。
+- 未完成：`config.rs` 的 model/store/single-instance 拆分。
+- 验收：构建、设备/进程 CLI 与 UI 快照冒烟通过。
 - `main.rs` → 纯组合根；CLI 拆到 `cli/`；`probe_playback` → `dev/probe.rs`（保留，它是本仓唯一的音频链路自动验证器）。
 - 新建 `platform/`：`process.rs` 改用 `platform::com`（消除 `process → audio` 反向依赖）；
   `ui_bridge` 的 Win32 对话框/工作区查询/热键捕获搬进 `platform` 与 `ui_bridge/input.rs`。
