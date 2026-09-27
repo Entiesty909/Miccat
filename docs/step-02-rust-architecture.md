@@ -32,12 +32,12 @@ C# 源码已移除，分析结论见 `docs/step-01-architecture-analysis.md`，�
 Cargo.toml
 build.rs
 ui/
-  main.slint
+  app-window.slint
   theme.slint
   components/
   pages/
 src/
-  main.rs              CLI + UI 入口
+  main.rs              DPI、日志与 CLI/UI 组合根
   error.rs             统一错误
   process.rs           进程枚举
   audio/
@@ -50,6 +50,9 @@ src/
     render.rs          WASAPI render 线程与三路 ring 混音
     wav.rs             开发验证：PCM16 WAV 写出
   engine.rs            常驻输出、动态源、Start/Stop 兼容入口
+  cli/                  CLI 派发与播放探针
+  config/               配置模型、JSON 存储、单实例
+  platform/             跨层 COM 基础设施
   ui_bridge/
     mod.rs              窗口启动、组装与退出
     state.rs             桥接共享状态
@@ -236,17 +239,14 @@ UI 已按三页拆分，避免把路由、音频库、设置塞进单文件：
 
 ```text
 ui/
-  main.slint                 窗口、顶栏页签、页面路由、常驻状态栏
-  theme.slint                颜色、间距、字号 token
-  components/                卡片、按钮、页签、声纹、滑条、热键字段、空态
-  pages/
-    route.slint              进程/麦/输出路由
-    player.slint             音频库：分类树、音频列表、迷你播放条
-    settings.slint           设备、混音、热键、全局播放时按键
+  app-window.slint       窗口、顶栏页签、页面路由、常驻状态栏与菜单装配
+  theme.slint            颜色、间距、字号 token
+  overlays/context-menu.slint 右键菜单遮罩、钳制与动作
+  components/            卡片、按钮、页签、声纹、滑条、热键字段、空态
+  pages/                 route、player、settings 页面
 ```
 
-当前三页为：路由 / 音频库 / 设置。音频库统一承担 Soundpad 与播放器职责，
-不再单独保留声板页；全局播放时按键只出现在设置页。
+当前三页为：路由 / 音频库 / 设置。音频库统一承担 Soundpad 与播放器职责；未接线的全局播放按键设置已在 S6 删除。
 
 - 进程列表：`出声 · exe  [pid]  title`，有窗口的排前面；三张路由卡片等比例伸缩，长文本在控件内部截断
 - 音频库：左侧按 `/` 路径展开的嵌套分类树，右侧当前分类音频列表，双击播放到当前目标

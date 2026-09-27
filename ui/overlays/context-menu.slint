@@ -16,8 +16,6 @@ export component ContextMenu inherits Rectangle {
     callback category-delete();
     callback entry-play(int);
     callback entry-remove();
-    callback entry-hotkey();
-    callback entry-remove-hotkey();
     callback entry-explorer();
     callback entry-edit-file();
 
@@ -118,14 +116,6 @@ export component ContextMenu inherits Rectangle {
                 label: "移除";
                 danger: true;
                 clicked => { root.entry-remove(); root.entry-open = false; }
-            }
-            MenuItem {
-                label: "设置热键";
-                clicked => { root.entry-hotkey(); root.entry-open = false; }
-            }
-            MenuItem {
-                label: "移除热键";
-                clicked => { root.entry-remove-hotkey(); root.entry-open = false; }
             }
             MenuItem {
                 label: "在资源管理器中显示";

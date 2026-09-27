@@ -172,14 +172,6 @@ impl Converter {
         }
     }
 
-    /// 采样率、声道、类型都一致时，convert 只做 memcpy 语义。
-    pub fn passthrough(&self) -> bool {
-        self.src.sample_rate == self.dst.sample_rate
-            && self.src.channels == self.dst.channels
-            && self.src.kind == SampleKind::F32
-            && self.dst.kind == SampleKind::F32
-    }
-
     /// 把一包 PCM 转成 dst 格式的 f32。`out` 先 clear。
     pub fn convert(&mut self, bytes: &[u8], frames: usize, silent: bool, out: &mut Vec<f32>) {
         out.clear();
@@ -242,24 +234,24 @@ fn decode_to_f32(bytes: &[u8], frames: usize, fmt: AudioFormat, out: &mut Vec<f3
     out.reserve(frames * ch);
     match fmt.kind {
         SampleKind::F32 => {
-            for chunk in bytes.chunks_exact(4).take(frames * ch) {
+            for chunk in bytes.as_chunks::<4>().0.iter().take(frames * ch) {
                 out.push(f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
             }
         }
         SampleKind::I16 => {
-            for chunk in bytes.chunks_exact(2).take(frames * ch) {
+            for chunk in bytes.as_chunks::<2>().0.iter().take(frames * ch) {
                 let v = i16::from_le_bytes([chunk[0], chunk[1]]);
                 out.push(f32::from(v) / 32768.0);
             }
         }
         SampleKind::I32 => {
-            for chunk in bytes.chunks_exact(4).take(frames * ch) {
+            for chunk in bytes.as_chunks::<4>().0.iter().take(frames * ch) {
                 let v = i32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
                 out.push(v as f32 / 2147483648.0);
             }
         }
         SampleKind::I24 => {
-            for chunk in bytes.chunks_exact(3).take(frames * ch) {
+            for chunk in bytes.as_chunks::<3>().0.iter().take(frames * ch) {
                 let mut b = [0u8; 4];
                 b[0] = chunk[0];
                 b[1] = chunk[1];

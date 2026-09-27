@@ -8,10 +8,8 @@ use std::time::Duration;
 
 use crate::audio::buffer::SpscRing;
 use crate::audio::com;
-use crate::audio::device;
 use crate::audio::format::AudioFormat;
 use crate::audio::render::{open_render_device, run_render_loop};
-use crate::audio::wav::WavData;
 use crate::error::Error;
 
 /// 独立本机试听输出。
@@ -74,64 +72,10 @@ impl PreviewEngine {
         })
     }
 
-    /// 打开系统默认播放设备试听。
-    pub fn open_default() -> Result<Self, Error> {
-        Self::open(&device::default_render_id()?)
-    }
     /// 设置本地试听音量 0..=1。
     pub fn set_volume(&self, value: f32) {
         self.volume
             .store(value.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
-    }
-
-    /// 异步播放已解码音频，避免阻塞 UI。
-    pub fn play(&self, data: Arc<WavData>, looped: bool) {
-        self.stop_source();
-        self.ring.clear();
-        let stop = Arc::new(AtomicBool::new(false));
-        let stop_thread = stop.clone();
-        let ring = self.ring.clone();
-        let target = self.target;
-        let join = thread::Builder::new()
-            .name("preview-source".into())
-            .spawn(move || {
-                let src_channels = usize::from(data.channels.max(1));
-                let dst_channels = usize::from(target.channels.max(1));
-                let src_frames = data.samples.len() / src_channels;
-                let step = f64::from(data.sample_rate) / f64::from(target.sample_rate);
-                let chunk_frames = (target.sample_rate as usize / 50).max(64);
-                // 最多领先 render 端 5 块（约 100 ms），超出就退让；节拍由 render 决定。
-                let lead = chunk_frames * dst_channels * 5;
-                let mut pos = 0.0f64;
-                let mut out = Vec::with_capacity(chunk_frames * dst_channels);
-                while !stop_thread.load(Ordering::Acquire) {
-                    out.clear();
-                    for _ in 0..chunk_frames {
-                        let frame = pos.floor() as usize;
-                        if frame >= src_frames {
-                            if looped {
-                                pos = 0.0;
-                                continue;
-                            }
-                            break;
-                        }
-                        for ch in 0..dst_channels {
-                            out.push(data.samples[frame * src_channels + ch.min(src_channels - 1)]);
-                        }
-                        pos += step;
-                    }
-                    if out.is_empty() {
-                        break;
-                    }
-                    ring.push_paced(&out, lead, &stop_thread);
-                }
-            })
-            .ok();
-        if let Some(join) = join {
-            if let Ok(mut slot) = self.source.lock() {
-                *slot = Some(SourceThread { stop, join });
-            }
-        }
     }
 
     /// 播放后台解码的有界音频块。
@@ -151,10 +95,10 @@ impl PreviewEngine {
             .name("preview-stream".into())
             .spawn(move || run_stream_source(ring, target, info, rx, looped, stop_thread))
             .ok();
-        if let Some(join) = join {
-            if let Ok(mut slot) = self.source.lock() {
-                *slot = Some(SourceThread { stop, join });
-            }
+        if let Some(join) = join
+            && let Ok(mut slot) = self.source.lock()
+        {
+            *slot = Some(SourceThread { stop, join });
         }
     }
     /// 停止当前试听源。
@@ -248,10 +192,10 @@ impl Drop for PreviewEngine {
     fn drop(&mut self) {
         self.stop_source();
         self.stop_render.store(true, Ordering::Release);
-        if let Ok(mut render) = self.render.lock() {
-            if let Some(join) = render.take() {
-                let _ = join.join();
-            }
+        if let Ok(mut render) = self.render.lock()
+            && let Some(join) = render.take()
+        {
+            let _ = join.join();
         }
     }
 }

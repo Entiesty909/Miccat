@@ -66,10 +66,10 @@ fn selected_route(ui: &MainWindow, state: &AppState) -> Option<RouteSelection> {
         .copied()
         .filter(|pid| *pid != 0);
     let mut selected = cache.selected_pids.clone();
-    if selected.is_empty() {
-        if let Some(pid) = pid {
-            selected.push(pid);
-        }
+    if selected.is_empty()
+        && let Some(pid) = pid
+    {
+        selected.push(pid);
     }
     let primary_pid = selected.first().copied().or(pid)?;
     let extra_pids = selected.iter().skip(1).copied().collect();

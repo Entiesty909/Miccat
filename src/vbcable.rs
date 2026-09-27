@@ -173,7 +173,7 @@ fn run_as_admin(setup: &Path) -> Result<(), Error> {
         fMask: SEE_MASK_NOCLOSEPROCESS,
         lpVerb: w!("runas"),
         lpFile: PCWSTR(wide.as_ptr()),
-        nShow: SW_SHOWNORMAL.0 as i32,
+        nShow: SW_SHOWNORMAL.0,
         ..Default::default()
     };
     unsafe {

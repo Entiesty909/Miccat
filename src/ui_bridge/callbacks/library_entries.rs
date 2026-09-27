@@ -40,7 +40,6 @@ fn register_1(ui: &MainWindow, state: &AppState) {
                 category: "未分类".into(),
                 duration_hns: validate_info.duration_hns,
                 loop_playback: false,
-                hotkey: None,
             };
             cache.borrow_mut().audio_entries.push(entry);
             let entries = cache.borrow().audio_entries.clone();

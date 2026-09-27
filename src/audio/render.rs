@@ -99,6 +99,7 @@ pub fn open_render_device(device_id: &str) -> Result<RenderClient, Error> {
 }
 
 /// 渲染线程：消费多个进程 ring、麦 ring、SFX ring，再写一个输出设备。
+#[allow(clippy::too_many_arguments)]
 pub fn run_render_loop(
     session: RenderClient,
     process_rings: Vec<Arc<SpscRing>>,
@@ -173,7 +174,7 @@ pub fn run_render_loop(
             let mn = mic.pop(&mut mic_tmp[..samples]);
             mic_tmp[mn..samples].fill(0.0);
             for i in 0..samples {
-                tmp[i] = tmp[i] + mic_tmp[i] * mic_vol;
+                tmp[i] += mic_tmp[i] * mic_vol;
             }
         }
         if let Some(sfx) = &sfx_ring {
@@ -183,7 +184,7 @@ pub fn run_render_loop(
             let sn = sfx.pop(&mut sfx_tmp[..samples]);
             sfx_tmp[sn..samples].fill(0.0);
             for i in 0..samples {
-                tmp[i] = tmp[i] + sfx_tmp[i] * sfx_vol;
+                tmp[i] += sfx_tmp[i] * sfx_vol;
             }
         }
         for sample in &mut tmp[..samples] {

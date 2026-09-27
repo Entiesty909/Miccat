@@ -37,7 +37,6 @@ struct OutputState {
     stop: Arc<AtomicBool>,
     process_rings: Vec<Arc<SpscRing>>,
     mic_ring: Arc<SpscRing>,
-    sfx_ring: Arc<SpscRing>,
     render_format: AudioFormat,
     mix_format: windows::Win32::Media::Audio::WAVEFORMATEX,
     fanout: JoinHandle<()>,
@@ -45,7 +44,6 @@ struct OutputState {
 }
 
 struct ProcessThread {
-    slot: usize,
     stop: Arc<AtomicBool>,
     thread: JoinHandle<()>,
 }
@@ -115,10 +113,6 @@ impl AudioEngine {
     }
     pub fn set_mic_volume(&self, v: f32) {
         self.mic_volume
-            .store(v.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
-    }
-    pub fn set_sfx_volume(&self, v: f32) {
-        self.sfx_volume
             .store(v.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
     }
     pub fn set_master_volume(&self, v: f32) {
@@ -229,7 +223,6 @@ impl AudioEngine {
                 stop,
                 process_rings,
                 mic_ring,
-                sfx_ring,
                 render_format: canonical,
                 mix_format,
                 fanout,
@@ -287,7 +280,7 @@ impl AudioEngine {
             })
             .map_err(|_| Error::CaptureInit("spawn capture thread"))?;
         if let Ok(mut sources) = self.sources.lock() {
-            sources.process.push(ProcessThread { slot, stop, thread });
+            sources.process.push(ProcessThread { stop, thread });
         }
         Ok(())
     }
@@ -356,6 +349,7 @@ impl AudioEngine {
             self.set_status(EngineStatus::Idle);
         }
     }
+    #[allow(clippy::type_complexity)]
     fn output_routing(
         &self,
     ) -> Result<

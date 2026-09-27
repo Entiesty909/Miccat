@@ -9,9 +9,9 @@
 
 | 文件 | 职责 | 明确不管 |
 |---|---|---|
-| `ui/main.slint`（508 行） | 窗口、顶栏页签、页面容器、常驻状态栏，**以及整个音频库右键菜单覆盖层**（378–507） | 页面内部布局 |
+| `ui/app-window.slint`（S3 已拆分） | 窗口、顶栏页签、页面容器、常驻状态栏与菜单组件装配 | 页面内部布局 |
 | `ui/pages/route.slint`（178） | 进程/麦/输出的选择与音量、声纹、事件上报 | 音频库 |
-| `ui/pages/player.slint`（253） | 分类树、音频列表、时长列、播放条；只保存菜单的**坐标与开关** | 菜单本体（在 `main.slint` 顶层） |
+| `ui/pages/player.slint`（253） | 分类树、音频列表、时长列、播放条；只保存菜单坐标与开关 | 菜单本体（在 `ui/overlays/context-menu.slint`） |
 | `ui/pages/settings.slint`（234） | 设备多选、混音、热键、试听、虚拟线缆 | 日常音频选择 |
 | `ui/components/*.slint` | 可复用控件；`empty-state.slint` 目前无引用 | — |
 | `ui/theme.slint`（30） | 颜色与长度 token；**尚无字号/字重/间距 token** | — |
@@ -40,8 +40,7 @@ Rust 侧 S1 现状：
 
 ## 3. 契约面
 
-- `MainWindow` 上的 **61 个 `in-out` 属性 + 40 个 callback** 是 Rust 与 UI 的唯一边界。
-- 改契约必须同次改完 `ui/main.slint` 与 `src/ui_bridge/callbacks/` 对应注册；
+- 改契约必须同次改完 `ui/app-window.slint` 与 `src/ui_bridge/callbacks/` 对应注册；
   根模块通过 `callbacks::register` 装配，不留悬空转发。
 - 已知死面（重构 S3 收口，先别当例子抄）：
 
@@ -69,9 +68,7 @@ Rust 侧 S1 现状：
 - 音频库条目列表**没有滚动容器**（`ui/pages/player.slint:143-195`），条目一多就看不见；
   S3 加 `ScrollView`，并考虑 `ListView` 虚拟化。
 - 全仓无虚拟化：分类树、条目列表、设备列表都是裸 `for`，一次实例化全部行。
-- 三处「能设置、不生效」：设置页的播放时按键、音频条目热键、`Hotkeys.mode`；
-  全仓真正注册的热键只有 `toggle_route`（`src/hotkey.rs`）。
-- 菜单尺寸硬编码（132px / 292px）与坐标钳制写在 `main.slint`，菜单项增删要同步改常量；S3 改为组件自算。
+- S6 已移除未接线的全局播放按键设置、音频条目热键和热键模式配置；唯一实际注册的热键是 `toggle_route`。
 
 ---
 

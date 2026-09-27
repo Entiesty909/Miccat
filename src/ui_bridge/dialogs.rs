@@ -8,6 +8,7 @@ use windows::Win32::UI::Controls::Dialogs::{
 use windows::core::{PCWSTR, PWSTR};
 
 /// 使用 Windows 原生文件选择器选择音频文件。
+#[allow(clippy::field_reassign_with_default)]
 pub(super) fn select_audio_file() -> Option<PathBuf> {
     let mut file = [0u16; 32_768];
     let filter: Vec<u16> = "支持的音频\0*.wav;*.mp3;*.mp4;*.m4a;*.flac;*.wma\0\0"

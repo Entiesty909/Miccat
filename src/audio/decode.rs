@@ -11,7 +11,6 @@ use windows::Win32::System::Com::StructuredStorage::PROPVARIANT;
 use windows::core::{GUID, PCWSTR};
 
 use super::com;
-use super::format::{AudioFormat, SampleKind};
 use super::wav::{self, WavData};
 use crate::error::Error;
 
@@ -40,7 +39,6 @@ pub enum AudioReader {
 pub struct MfReader {
     reader: IMFSourceReader,
     info: MediaInfo,
-    format: AudioFormat,
     pending: Vec<f32>,
 }
 
@@ -115,27 +113,6 @@ impl AudioReader {
             }
             Self::Mf(reader) => reader.seek_hns(hns),
         }
-    }
-    /// 读取完整文件；每个块读取前检查取消标志，避免切换长音频继续占用 CPU/内存。
-    pub fn read_all_cancellable(mut self, cancel: &AtomicBool) -> Result<Option<WavData>, Error> {
-        let info = self.info();
-        let mut samples = Vec::new();
-        let mut block = Vec::with_capacity(16_384);
-        loop {
-            if cancel.load(Ordering::Acquire) {
-                return Ok(None);
-            }
-            let n = self.read_block(&mut block, 16_384)?;
-            if n == 0 {
-                break;
-            }
-            samples.extend_from_slice(&block);
-        }
-        Ok(Some(WavData {
-            sample_rate: info.sample_rate,
-            channels: info.channels,
-            samples,
-        }))
     }
 
     /// 读取完整文件供当前 SFX 播放器使用；兼容旧调用。
@@ -229,18 +206,9 @@ impl MfReader {
                     sample_rate: rate,
                     channels,
                 },
-                format: AudioFormat {
-                    sample_rate: rate,
-                    channels,
-                    kind: SampleKind::F32,
-                },
                 pending: Vec::new(),
             })
         }
-    }
-
-    fn info(&self) -> MediaInfo {
-        self.info
     }
 
     fn seek_hns(&mut self, hns: u64) -> Result<(), Error> {
@@ -295,7 +263,9 @@ impl MfReader {
                     .map_err(|_| Error::Format("lock audio buffer"))?;
                 let bytes = std::slice::from_raw_parts(ptr, current as usize);
                 let samples = bytes
-                    .chunks_exact(4)
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
                     .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
                     .collect::<Vec<_>>();
                 let _ = buffer.Unlock();

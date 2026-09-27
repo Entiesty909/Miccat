@@ -25,17 +25,12 @@ const WM_STOP: u32 = 0x0400 + 33;
 pub enum HotkeyMode {
     /// RegisterHotKey：不监听普通输入，支持单次/循环/切换触发。
     System,
-    /// WH_KEYBOARD_LL/WH_MOUSE_LL：S6 接入，支持按住与鼠标侧键。
-    GlobalHook,
-    /// 不注册任何热键。
-    Disabled,
 }
 
 /// 后台系统热键服务。全局钩子模式保留接口，S6 接入实际 hook。
 pub struct HotkeyServer {
     packed: Arc<AtomicU64>,
     hwnd_bits: Arc<AtomicU64>,
-    mode: HotkeyMode,
 }
 
 impl HotkeyServer {
@@ -55,20 +50,12 @@ impl HotkeyServer {
                 .spawn(move || hotkey_thread(packed_t, hwnd_t, on_hotkey))
                 .ok();
         }
-        Self {
-            packed,
-            hwnd_bits,
-            mode,
-        }
+        Self { packed, hwnd_bits }
     }
 
     /// 换成新组合。
     pub fn set(&self, hk: Hotkey) {
         self.packed.store(pack(hk), Ordering::SeqCst);
-    }
-    /// 当前模式。
-    pub fn mode(&self) -> HotkeyMode {
-        self.mode
     }
 }
 

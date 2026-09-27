@@ -45,6 +45,4 @@ pub(super) struct UiCache {
     pub(super) force_audio_play: bool,
     /// 搜索关键字。
     pub(super) audio_search: String,
-    /// 等待设置热键的音频可见下标。
-    pub(super) audio_hotkey_index: Option<usize>,
 }

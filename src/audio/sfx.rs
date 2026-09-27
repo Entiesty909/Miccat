@@ -4,21 +4,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
 
 use super::buffer::SpscRing;
-use super::format::{AudioFormat, SampleKind};
-use super::wav::WavData;
-
-/// 声板播放模式。
-#[derive(Clone, Copy, Debug)]
-pub enum SfxMode {
-    /// 播放一次。
-    Once,
-    /// 播放到停止前循环。
-    Loop,
-    /// 与一次播放相同；按住释放由上层发送 Stop。
-    Hold,
-    /// 再次触发前持续循环。
-    Toggle,
-}
+use super::format::AudioFormat;
 
 /// 声板控制命令。
 pub struct StreamChunk {
@@ -30,24 +16,13 @@ pub struct StreamChunk {
 
 /// 声板控制命令。
 pub enum SfxCommand {
-    /// 播放一个已经解码的短 WAV。
-    Play {
-        data: Arc<WavData>,
-        mode: SfxMode,
-        volume: f32,
-    },
     /// 消费后台解码的有界音频流。
     PlayStream {
         sample_rate: u32,
         channels: u16,
-        mode: SfxMode,
         volume: f32,
         rx: Receiver<StreamChunk>,
     },
-    /// 将当前播放位置跳到 0..1。
-    Seek(f32),
-    /// 停止当前声音。
-    Stop,
     /// 清空所有声音。
     StopAll,
 }
@@ -75,14 +50,9 @@ pub fn run_sfx_loop(
     while !stop.load(std::sync::atomic::Ordering::Acquire) {
         while let Ok(command) = rx.try_recv() {
             match command {
-                SfxCommand::Play { data, mode, volume } => {
-                    players.clear();
-                    players.push(SfxPlayer::Memory(MemoryPlayer::new(data, mode, volume)));
-                }
                 SfxCommand::PlayStream {
                     sample_rate,
                     channels,
-                    mode,
                     volume,
                     rx,
                 } => {
@@ -90,17 +60,11 @@ pub fn run_sfx_loop(
                     players.push(SfxPlayer::Stream(StreamPlayer::new(
                         sample_rate,
                         channels,
-                        mode,
                         volume,
                         rx,
                     )));
                 }
-                SfxCommand::Seek(position) => {
-                    if let Some(player) = players.first_mut() {
-                        player.seek(position);
-                    }
-                }
-                SfxCommand::Stop | SfxCommand::StopAll => players.clear(),
+                SfxCommand::StopAll => players.clear(),
             }
         }
         block.fill(0.0);
@@ -111,83 +75,26 @@ pub fn run_sfx_loop(
         ring.push_paced(&block, lead, &stop);
     }
 }
-
 enum SfxPlayer {
-    Memory(MemoryPlayer),
     Stream(StreamPlayer),
 }
+
 impl SfxPlayer {
     fn finished(&self) -> bool {
         match self {
-            Self::Memory(p) => p.finished,
-            Self::Stream(p) => p.finished,
+            Self::Stream(player) => player.finished,
         }
     }
-    fn seek(&mut self, position: f32) {
-        if let Self::Memory(p) = self {
-            p.position = position.clamp(0.0, 1.0) as f64 * p.data.samples.len() as f64;
-        }
-    }
+
     fn mix_into(&mut self, out: &mut [f32], render: AudioFormat) {
         match self {
-            Self::Memory(p) => p.mix_into(out, render),
-            Self::Stream(p) => p.mix_into(out, render),
+            Self::Stream(player) => player.mix_into(out, render),
         }
     }
 }
-
-struct MemoryPlayer {
-    data: Arc<WavData>,
-    mode: SfxMode,
-    volume: f32,
-    position: f64,
-    finished: bool,
-}
-impl MemoryPlayer {
-    fn new(data: Arc<WavData>, mode: SfxMode, volume: f32) -> Self {
-        Self {
-            data,
-            mode,
-            volume: volume.clamp(0.0, 1.0),
-            position: 0.0,
-            finished: false,
-        }
-    }
-    fn mix_into(&mut self, out: &mut [f32], render: AudioFormat) {
-        if self.data.channels == 0 || self.data.sample_rate == 0 {
-            self.finished = true;
-            return;
-        }
-        let out_channels = render.channels as usize;
-        let src_channels = self.data.channels as usize;
-        let step = f64::from(self.data.sample_rate) / f64::from(render.sample_rate);
-        for (frame, dst) in out.chunks_exact_mut(out_channels).enumerate() {
-            let src_frame = self.position.floor() as usize;
-            if src_frame >= self.data.samples.len() / src_channels {
-                if matches!(self.mode, SfxMode::Loop | SfxMode::Toggle) {
-                    self.position = 0.0;
-                    continue;
-                }
-                self.finished = true;
-                break;
-            }
-            let src = &self.data.samples[src_frame * src_channels..(src_frame + 1) * src_channels];
-            for (channel, value) in dst.iter_mut().enumerate() {
-                *value += src[if src_channels == 1 {
-                    0
-                } else {
-                    channel.min(src_channels - 1)
-                }] * self.volume;
-            }
-            self.position += step;
-        }
-    }
-}
-
 struct StreamPlayer {
     sample_rate: u32,
     channels: usize,
-    mode: SfxMode,
     volume: f32,
     rx: Receiver<StreamChunk>,
     buffer: Vec<f32>,
@@ -196,17 +103,10 @@ struct StreamPlayer {
     finished: bool,
 }
 impl StreamPlayer {
-    fn new(
-        sample_rate: u32,
-        channels: u16,
-        mode: SfxMode,
-        volume: f32,
-        rx: Receiver<StreamChunk>,
-    ) -> Self {
+    fn new(sample_rate: u32, channels: u16, volume: f32, rx: Receiver<StreamChunk>) -> Self {
         Self {
             sample_rate,
             channels: channels.max(1) as usize,
-            mode,
             volume: volume.clamp(0.0, 1.0),
             rx,
             buffer: Vec::with_capacity(64_000),
@@ -263,14 +163,5 @@ impl StreamPlayer {
             }
         }
         self.pump();
-    }
-}
-
-#[allow(dead_code)]
-fn _f32_format(sample_rate: u32, channels: u16) -> AudioFormat {
-    AudioFormat {
-        sample_rate,
-        channels,
-        kind: SampleKind::F32,
     }
 }

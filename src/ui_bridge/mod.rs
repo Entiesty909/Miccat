@@ -28,10 +28,7 @@ pub(crate) use dev::snapshot_to_file;
 use dialogs::select_audio_file;
 use format::format_hns_position;
 use input::start_hotkey;
-use library::{
-    audio_categories, category_leaf, category_matches, category_paths, update_audio_list,
-    visible_entry, visible_entry_in,
-};
+use library::{audio_categories, category_leaf, category_paths, update_audio_list, visible_entry};
 use lists::{refill, refill_devices, refill_processes, update_mic_text, update_output_text};
 use persist::{
     SaveQueue, hydrate_audio_durations, persist_config, restore_default_mics,
@@ -73,14 +70,6 @@ pub fn run_ui() -> Result<(), Error> {
     engine.set_monitor_default(persisted.preview_enabled);
     engine.set_monitor_volume(persisted.preview_volume);
     let hotkey = Rc::new(RefCell::new(persisted.hotkeys.toggle_route));
-    if let Some(action) = persisted.playback_key {
-        ui.set_playback_key_label(action.key.label().into());
-        ui.set_playback_key_mode(match action.mode {
-            config::PlaybackKeyMode::None => 0,
-            config::PlaybackKeyMode::Press => 1,
-            config::PlaybackKeyMode::Hold => 2,
-        });
-    }
     ui.set_volume((persisted.mix.process * 100.0).clamp(0.0, 100.0));
     ui.set_mic_volume((persisted.mix.mic * 100.0).clamp(0.0, 100.0));
     ui.set_master_volume((persisted.mix.master * 100.0).clamp(0.0, 100.0));

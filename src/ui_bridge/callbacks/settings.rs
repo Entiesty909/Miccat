@@ -7,7 +7,6 @@ use std::thread;
 pub(super) fn register(ui: &MainWindow, state: &AppState) {
     register_1(ui, state);
     register_2(ui, state);
-    register_3(ui, state);
 }
 
 fn register_1(ui: &MainWindow, state: &AppState) {
@@ -76,7 +75,6 @@ fn register_1(ui: &MainWindow, state: &AppState) {
 }
 
 fn register_2(ui: &MainWindow, state: &AppState) {
-    let cache = state.cache.clone();
     let hotkey = state.hotkey.clone();
     let hotkey_server = state.hotkey_server.clone();
     let app_config = state.app_config.clone();
@@ -86,7 +84,6 @@ fn register_2(ui: &MainWindow, state: &AppState) {
         let hotkey = hotkey.clone();
         let server = hotkey_server.clone();
         let app_config = app_config.clone();
-        let cache = cache.clone();
         ui.on_hotkey_captured(move |text, ctrl, shift, alt| {
             let Some(ui) = ui_weak.upgrade() else {
                 return;
@@ -106,29 +103,12 @@ fn register_2(ui: &MainWindow, state: &AppState) {
                 mods |= 4;
             }
             let hk = config::Hotkey { mods, vk };
-            if let Some(index) = cache.borrow_mut().audio_hotkey_index.take() {
-                let category = cache.borrow().audio_category.clone();
-                let search = cache.borrow().audio_search.to_ascii_lowercase();
-                let mut cfg = app_config.borrow_mut();
-                if let Some(entry) = cfg
-                    .audio_entries
-                    .iter_mut()
-                    .filter(|e| category_matches(e, &category))
-                    .filter(|e| search.is_empty() || e.name.to_ascii_lowercase().contains(&search))
-                    .nth(index)
-                {
-                    entry.hotkey = Some(hk);
-                }
-                save_queue.schedule();
-                ui.set_error_text(format!("音频热键已设置：{}", hk.label()).into());
-            } else {
-                *hotkey.borrow_mut() = hk;
-                server.set(hk);
-                let mut cfg = app_config.borrow_mut();
-                cfg.hotkeys.toggle_route = hk;
-                save_queue.schedule();
-                ui.set_hotkey_label(hk.label().into());
-            }
+            *hotkey.borrow_mut() = hk;
+            server.set(hk);
+            let mut cfg = app_config.borrow_mut();
+            cfg.hotkeys.toggle_route = hk;
+            save_queue.schedule();
+            ui.set_hotkey_label(hk.label().into());
         });
     }
     {
@@ -148,28 +128,6 @@ fn register_2(ui: &MainWindow, state: &AppState) {
                 ui.set_listening_hotkey(false);
                 ui.set_hotkey_label(hk.label().into());
             }
-        });
-    }
-}
-
-fn register_3(ui: &MainWindow, state: &AppState) {
-    let app_config = state.app_config.clone();
-    {
-        let save_queue = state.save_queue.clone();
-        let app_config = app_config.clone();
-        ui.on_playback_key_mode_toggled(move |mode| {
-            let mut config = app_config.borrow_mut();
-            let current_key = config.playback_key.map(|a| a.key).unwrap_or_default();
-            let mode = match mode {
-                1 => config::PlaybackKeyMode::Press,
-                2 => config::PlaybackKeyMode::Hold,
-                _ => config::PlaybackKeyMode::None,
-            };
-            config.playback_key = Some(config::PlaybackKeyAction {
-                mode,
-                key: current_key,
-            });
-            save_queue.schedule();
         });
     }
 }

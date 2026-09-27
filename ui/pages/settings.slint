@@ -25,8 +25,6 @@ export component SettingsPage inherits Rectangle {
     in-out property <string> cable-text: "";
     in-out property <string> hotkey-label: "";
     in-out property <bool> listening-hotkey: false;
-    in-out property <string> playback-key-label: "未设置";
-    in-out property <int> playback-key-mode: 0;
     in-out property <bool> preview-enabled: false;
     in-out property <float> preview-volume: 50;
     in-out property <string> about-text: "";
@@ -39,7 +37,6 @@ export component SettingsPage inherits Rectangle {
     callback set-default-mic-toggled(bool);
     callback set-default-render-toggled(bool);
     callback set-default-communications-toggled(bool);
-    callback playback-key-mode-toggled(int);
     callback preview-enabled-toggled(bool);
     callback preview-volume-edited(float);
     background: transparent;
@@ -160,29 +157,6 @@ export component SettingsPage inherits Rectangle {
                 }
                 Text {
                     text: "捕获方式（仅系统热键 / 全局钩子 / 关闭）与风险提示在后续阶段实装。";
-                    color: Theme.text3;
-                    font-size: 12px;
-                    wrap: word-wrap;
-                }
-                Text { text: "播放时按键（全局）"; color: Theme.text2; font-size: 12px; font-weight: 600; }
-                HorizontalLayout {
-                    spacing: 8px;
-                    ComboBox {
-                        horizontal-stretch: 1;
-                        model: ["不按键", "播放开始按一次", "播放期间一直按"];
-                        current-index <=> root.playback-key-mode;
-                        enabled: !root.running;
-                        selected(_) => { root.playback-key-mode-toggled(root.playback-key-mode); }
-                    }
-                    Text {
-                        text: root.playback-key-label;
-                        color: Theme.text2;
-                        font-size: 12px;
-                        vertical-alignment: TextVerticalAlignment.center;
-                    }
-                }
-                Text {
-                    text: "全局生效：双击音频后按一次或保持按下，用于游戏 PTT。默认不按键；启用输入模拟时需注意反作弊与权限风险。";
                     color: Theme.text3;
                     font-size: 12px;
                     wrap: word-wrap;

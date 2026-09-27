@@ -12,10 +12,6 @@ pub(super) fn audio_categories(cache: &Rc<RefCell<UiCache>>) -> Vec<slint::Share
         .collect()
 }
 
-pub(super) fn category_matches(entry: &config::AudioEntry, category: &str) -> bool {
-    crate::library::category_matches(entry, category)
-}
-
 pub(super) fn audio_entry_matches(
     entry: &config::AudioEntry,
     category: &str,

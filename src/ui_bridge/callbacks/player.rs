@@ -76,7 +76,6 @@ fn register_seek(ui: &MainWindow, state: &AppState) {
             category: String::new(),
             duration_hns: current.duration_hns,
             loop_playback: current.looped,
-            hotkey: None,
         };
         engine.stop_file();
         start_ui(&ui, &engine, &entry, target_hns);

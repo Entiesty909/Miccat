@@ -1,12 +1,12 @@
 //! 应用配置：JSON 持久化、旧热键配置迁移、单实例互斥。
 
-use std::fs;
-use std::path::PathBuf;
-
 use serde::{Deserialize, Serialize};
-use windows::Win32::Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, HANDLE};
-use windows::Win32::System::Threading::CreateMutexW;
-use windows::core::w;
+
+mod single_instance;
+mod store;
+
+pub(crate) use single_instance::acquire_single_instance;
+pub(crate) use store::{load, save};
 
 /// 全局开始/停止热键。
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -45,39 +45,12 @@ impl Hotkey {
 }
 
 /// 全局热键集合。
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct Hotkeys {
     /// 开始/停止转发。
     pub toggle_route: Hotkey,
-    /// 停止全部声音。
-    pub stop_all: Option<Hotkey>,
-    /// 捕获方式。
-    #[serde(default)]
-    pub mode: HotkeyModeConfig,
 }
 
-impl Default for Hotkeys {
-    fn default() -> Self {
-        Self {
-            toggle_route: Hotkey::default(),
-            stop_all: None,
-            mode: HotkeyModeConfig::System,
-        }
-    }
-}
-
-/// 配置文件中的热键模式。
-#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum HotkeyModeConfig {
-    /// 安全默认：RegisterHotKey。
-    #[default]
-    System,
-    /// 全局键盘/鼠标 hook；启用时必须显示风险提示。
-    GlobalHook,
-    /// 关闭。
-    Disabled,
-}
 /// 输出设备与目标麦配置。
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct OutputConfig {
@@ -108,8 +81,6 @@ pub struct RouteConfig {
     /// 多进程输入名称；为空时使用 process_name。
     #[serde(default)]
     pub process_names: Vec<String>,
-    /// 进程退出后自动重连开关。
-    pub auto_reconnect: bool,
     /// 开始转发时是否混入设置页选择的物理麦。
     #[serde(default)]
     pub mix_mic: bool,
@@ -139,44 +110,6 @@ impl Default for MixConfig {
     }
 }
 
-/// 声板播放模式。
-#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum PlayMode {
-    /// 播放一次。
-    #[default]
-    Once,
-    /// 播放到停止前循环。
-    Loop,
-    /// 按住播放，松开停止。
-    Hold,
-    /// 按一次开，再按一次关。
-    Toggle,
-}
-
-/// 播放期间对游戏执行的全局按键动作。
-#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum PlaybackKeyMode {
-    /// 不模拟按键。
-    #[default]
-    None,
-    /// 播放开始时按一次并立即松开。
-    Press,
-    /// 播放期间保持按下，停止时松开。
-    Hold,
-}
-
-/// 全局 PTT / 游戏按键动作。不是某个固定音频的属性。
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub struct PlaybackKeyAction {
-    /// 动作模式。
-    #[serde(default)]
-    pub mode: PlaybackKeyMode,
-    /// 要模拟的按键。
-    pub key: Hotkey,
-}
-
 /// 音频库中的一项。
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AudioEntry {
@@ -193,9 +126,6 @@ pub struct AudioEntry {
     /// 是否循环。
     #[serde(default)]
     pub loop_playback: bool,
-    /// 音频项触发热键。
-    #[serde(default)]
-    pub hotkey: Option<Hotkey>,
 }
 
 fn default_category() -> String {
@@ -203,36 +133,6 @@ fn default_category() -> String {
 }
 fn default_preview_volume() -> f32 {
     0.5
-}
-
-/// 兼容旧版本的声板条目；音频库新条目使用 `AudioEntry`。
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct PadConfig {
-    /// 显示名。
-    pub name: String,
-    /// 本地文件路径。
-    pub path: String,
-    /// 触发模式。
-    pub mode: PlayMode,
-    /// 独立音量。
-    pub volume: f32,
-    /// 触发热键。
-    pub hotkey: Option<Hotkey>,
-    /// 是否阻止游戏收到触发键。
-    pub exclusive: bool,
-    /// 是否打断其它 pad。
-    pub interrupt: bool,
-}
-
-/// 播放器持久化状态。
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct PlayerConfig {
-    /// 最近一次文件。
-    pub last_file: Option<String>,
-    /// 是否循环。
-    pub loop_playback: bool,
-    /// 播放器触发热键。
-    pub hotkey: Option<Hotkey>,
 }
 
 /// 配置文件根对象。
@@ -248,11 +148,6 @@ pub struct AppConfig {
     pub mix: MixConfig,
     /// 热键集合。
     pub hotkeys: Hotkeys,
-    /// 声板 pad。
-    pub pads: Vec<PadConfig>,
-    /// 播放器。
-    /// 播放器兼容状态。
-    pub player: PlayerConfig,
     /// 是否把音频库播放同时送到本机预览设备。
     #[serde(default)]
     pub preview_enabled: bool,
@@ -265,9 +160,6 @@ pub struct AppConfig {
     /// 音频库条目。
     #[serde(default)]
     pub audio_entries: Vec<AudioEntry>,
-    /// 全局播放时按键动作；S4/S6 执行，默认不模拟。
-    #[serde(default)]
-    pub playback_key: Option<PlaybackKeyAction>,
 }
 
 impl Default for AppConfig {
@@ -278,99 +170,12 @@ impl Default for AppConfig {
             route: RouteConfig::default(),
             mix: MixConfig::default(),
             hotkeys: Hotkeys::default(),
-            pads: Vec::new(),
-            player: PlayerConfig::default(),
             preview_enabled: false,
             preview_volume: 0.5,
             audio_categories: Vec::new(),
             audio_entries: Vec::new(),
-            playback_key: None,
         }
     }
-}
-
-/// 单实例互斥体。句柄存活期间保持应用独占。
-pub struct SingleInstance {
-    handle: HANDLE,
-}
-
-impl Drop for SingleInstance {
-    fn drop(&mut self) {
-        unsafe {
-            let _ = CloseHandle(self.handle);
-        }
-    }
-}
-
-/// 获取命名互斥体；返回 None 表示已有实例。
-pub fn acquire_single_instance() -> Result<Option<SingleInstance>, windows::core::Error> {
-    let handle = unsafe { CreateMutexW(None, true, w!("Local\\ProcessMic.SingleInstance"))? };
-    if unsafe { windows::Win32::Foundation::GetLastError() } == ERROR_ALREADY_EXISTS {
-        unsafe {
-            let _ = CloseHandle(handle);
-        }
-        return Ok(None);
-    }
-    Ok(Some(SingleInstance { handle }))
-}
-
-/// 读配置。不存在、损坏或旧版本都回退默认并保留旧热键迁移。
-pub fn load() -> AppConfig {
-    let Ok(text) = fs::read_to_string(config_path()) else {
-        return AppConfig::default();
-    };
-    if let Ok(mut config) = serde_json::from_str::<AppConfig>(&text) {
-        config.version = 2;
-        return config;
-    }
-    if let Ok(legacy) = serde_json::from_str::<LegacyHotkey>(&text) {
-        let mut config = AppConfig::default();
-        config.hotkeys.toggle_route = legacy.into();
-        return config;
-    }
-    tracing::warn!("config parse failed; using defaults");
-    AppConfig::default()
-}
-
-/// 写配置；失败只打日志，不影响音频运行。
-pub fn save(config: &AppConfig) {
-    let path = config_path();
-    if let Some(dir) = path.parent() {
-        if let Err(e) = fs::create_dir_all(dir) {
-            tracing::warn!("create config directory: {e}");
-            return;
-        }
-    }
-    match serde_json::to_string_pretty(config) {
-        Ok(body) => {
-            if let Err(e) = fs::write(&path, format!("{body}\n")) {
-                tracing::warn!("save config: {e}");
-            }
-        }
-        Err(e) => tracing::warn!("serialize config: {e}"),
-    }
-}
-
-#[derive(Deserialize)]
-struct LegacyHotkey {
-    mods: u32,
-    vk: u32,
-}
-
-impl From<LegacyHotkey> for Hotkey {
-    fn from(value: LegacyHotkey) -> Self {
-        Self {
-            mods: value.mods,
-            vk: value.vk,
-        }
-    }
-}
-
-fn config_path() -> PathBuf {
-    let base = std::env::var_os("APPDATA")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."));
-    base.join("ProcessMic").join("config.json")
 }
 
 fn vk_name(vk: u32) -> &'static str {

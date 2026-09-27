@@ -38,8 +38,8 @@ UI 渲染问题     → --snapshot-ui --out <file> [--menu] 出真 RGBA 图
 - 分类异常：先核对「显示索引 → `category_paths()` 真实路径」的映射，再核对配置里的路径；
   **不要**把带缩进的显示文本写回配置。
 - 索引/时长对不上：核对列表筛选顺序（当前分类含全部后代 + 搜索）与 `duration_hns` 是否已补齐。
-- 菜单不消失或位置不对：坐标由页面按下时上报，`main.slint` 顶层只做钳制；
-  菜单项增删必须同步高度常量（现为 132px / 292px，S3 改为组件自算）。
+- 菜单不消失或位置不对：检查 `ui/overlays/context-menu.slint` 的遮罩、坐标钳制和页面上报；
+  菜单项高度与组件内部布局保持一致。
 - 渲染核对：`--snapshot-ui --out <file>`（可加 `--menu` 复现右键菜单态），
   与改动前的基线图逐像素对比，比肉眼看窗口可靠。
 
@@ -50,5 +50,5 @@ UI 渲染问题     → --snapshot-ui --out <file> [--menu] 出真 RGBA 图
 - 原生 Slint 窗口不能用浏览器工具驱动；渲染可自动化（`--snapshot-ui`），**交互仍需 Windows 桌面手工操作**。
 - 需要真实声卡/虚拟线缆的判断（听感、Discord 侧是否听到）无法自动化，必须人工确认。
 - 工具与游戏权限不一致时热键收不到：与游戏同权限运行（都提权或都不提权）。
-- S1 已把桥接层拆到 `src/ui_bridge/`，按 `callbacks/`、`lists.rs`、`persist.rs`、
-  `status.rs`、`playback.rs` 等职责定位；不再查找单体 `src/ui_bridge.rs`。
+- S1 已把桥接层拆到 `src/ui_bridge/`，S2 已把播放/试听收归 `AudioEngine`；
+  按 `callbacks/`、`engine/monitor.rs`、`engine/playback.rs` 和 `library.rs` 定位。

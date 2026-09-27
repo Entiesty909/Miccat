@@ -415,6 +415,11 @@ dev/ ──► 任意（仅调试）
 
 ### S6 — 收口：死代码、可见性、测试、文档与规则
 
+- 已完成：config model/store/single-instance 拆分，删除未接线 Pad/播放器/热键模式/自动重连/播放按键配置。
+- 已完成：删除已核实未调用音频与引擎 API，严格门禁切换为 `clippy -- -D warnings`。
+- 已完成：分类索引与递归删除单测；S6 构建、单测、CLI/UI 快照冒烟通过。
+- 未覆盖：真实声卡逐采样/听感、Windows 桌面交互、资源基线测量。
+
 - 删除 §1.8 列出的死代码/死配置（含全仓无读取点的 `Hotkeys.mode`、`PlayMode`、`PadConfig`、
   `PlayerConfig`、`Hotkeys.stop_all`、`RouteConfig.auto_reconnect`）。
 - 处理三处「能设置、不生效」的接线缺口（`PlaybackKeyMode`、音频条目热键、`Hotkeys.mode`）：

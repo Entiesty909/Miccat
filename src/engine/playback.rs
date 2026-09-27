@@ -8,7 +8,7 @@ use std::thread;
 use std::time::Instant;
 
 use crate::audio::decode::{self, MediaInfo};
-use crate::audio::sfx::{SfxCommand, SfxMode};
+use crate::audio::sfx::SfxCommand;
 use crate::config::AudioEntry;
 use crate::error::Error;
 
@@ -57,6 +57,7 @@ pub(crate) struct FilePlaybackState {
     pub(crate) error: Option<String>,
 }
 
+#[derive(Default)]
 pub(crate) struct PlaybackControl {
     cancel: Option<Arc<AtomicBool>>,
     request: Option<FilePlaybackRequest>,
@@ -64,19 +65,6 @@ pub(crate) struct PlaybackControl {
     duration_hns: u64,
     playing: bool,
     error: Option<String>,
-}
-
-impl Default for PlaybackControl {
-    fn default() -> Self {
-        Self {
-            cancel: None,
-            request: None,
-            started: None,
-            duration_hns: 0,
-            playing: false,
-            error: None,
-        }
-    }
 }
 
 /// 创建共享播放控制状态。
@@ -133,16 +121,16 @@ fn start_streams(
 ) {
     let mut info = None;
     let mut sfx_stream = None;
-    if sfx_sender.is_some() {
-        if let Ok((stream_info, rx)) = decode::stream_to_channel(
+    if sfx_sender.is_some()
+        && let Ok((stream_info, rx)) = decode::stream_to_channel(
             request.path.clone(),
             start_hns,
             request.looped,
             cancel.clone(),
-        ) {
-            info = Some(stream_info);
-            sfx_stream = Some(rx);
-        }
+        )
+    {
+        info = Some(stream_info);
+        sfx_stream = Some(rx);
     }
 
     let mut monitor_stream = None;
@@ -163,23 +151,17 @@ fn start_streams(
     update_info(control, info);
 
     if let (Some(sender), Some(rx)) = (sfx_sender, sfx_stream) {
-        let mode = if request.looped {
-            SfxMode::Loop
-        } else {
-            SfxMode::Once
-        };
         let _ = sender.send(SfxCommand::PlayStream {
             sample_rate: info.sample_rate,
             channels: info.channels,
-            mode,
             volume: 1.0,
             rx,
         });
     }
-    if let Some(rx) = monitor_stream {
-        if monitor::play_stream(monitor_handle, info, rx, request.looped).is_err() {
-            // 试听关闭不是播放失败；SFX 仍可能已经接收了该流。
-        }
+    if let Some(rx) = monitor_stream
+        && monitor::play_stream(monitor_handle, info, rx, request.looped).is_err()
+    {
+        // 试听关闭不是播放失败；SFX 仍可能已经接收了该流。
     }
 }
 

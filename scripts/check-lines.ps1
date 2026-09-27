@@ -14,7 +14,7 @@ foreach ($directory in @('src', 'ui')) {
             if ($relative -eq 'src/ui_bridge.rs') { $baselineCap = 1976 }
             if ($relative -eq 'src/audio/capture.rs') { $baselineCap = 569 }
             if ($relative -eq 'src/engine.rs') { $baselineCap = 551 }
-            if ($relative -eq 'ui/main.slint') { $baselineCap = 508 }
+            if ($relative -eq 'ui/app-window.slint') { $baselineCap = 508 }
             if ($relative -eq 'src/config.rs') { $baselineCap = 421 }
             $lineCount = @(Get-Content -LiteralPath $_.FullName).Count
             $limit = if ($_.Extension -eq '.slint') { 300 } else { 400 }

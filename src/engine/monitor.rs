@@ -47,19 +47,19 @@ pub(crate) fn set_default_monitor(monitor: &SharedMonitor, enabled: bool) {
 
 /// 设置试听音量；音量本身只写入原子值。
 pub(crate) fn set_volume(monitor: &SharedMonitor, value: f32) {
-    if let Ok(current) = monitor.lock() {
-        if let Some(preview) = current.as_ref() {
-            preview.set_volume(value);
-        }
+    if let Ok(current) = monitor.lock()
+        && let Some(preview) = current.as_ref()
+    {
+        preview.set_volume(value);
     }
 }
 
 /// 请求停止当前试听源，不在调用线程等待解码线程。
 pub(crate) fn request_stop(monitor: &SharedMonitor) {
-    if let Ok(current) = monitor.lock() {
-        if let Some(preview) = current.as_ref() {
-            preview.request_stop_source();
-        }
+    if let Ok(current) = monitor.lock()
+        && let Some(preview) = current.as_ref()
+    {
+        preview.request_stop_source();
     }
 }
 
@@ -81,13 +81,7 @@ pub(crate) fn play_stream(
 }
 
 use super::AudioEngine;
-
 impl AudioEngine {
-    /// 异步切换试听目标；`None` 关闭试听。
-    pub fn set_monitor(&self, device_id: Option<String>) {
-        set_monitor(&self.monitor, device_id);
-    }
-
     /// 异步切换系统默认播放设备试听。
     pub fn set_monitor_default(&self, enabled: bool) {
         set_default_monitor(&self.monitor, enabled);

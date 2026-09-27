@@ -147,7 +147,6 @@ mod tests {
             category: category.into(),
             duration_hns: 0,
             loop_playback: false,
-            hotkey: None,
         }
     }
 

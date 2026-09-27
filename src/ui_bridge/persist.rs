@@ -77,10 +77,10 @@ impl SaveQueue {
     pub(super) fn shutdown(&self) {
         self.timer.borrow_mut().stop();
         let _ = self.sender.send(PersistCommand::Stop);
-        if let Some(worker) = self.worker.borrow_mut().take() {
-            if worker.join().is_err() {
-                tracing::warn!("config save worker panicked");
-            }
+        if let Some(worker) = self.worker.borrow_mut().take()
+            && worker.join().is_err()
+        {
+            tracing::warn!("config save worker panicked");
         }
     }
 }

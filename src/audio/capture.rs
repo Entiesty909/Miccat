@@ -94,13 +94,6 @@ pub struct MixFormat {
 unsafe impl Send for MixFormat {}
 unsafe impl Send for CaptureClient {}
 
-impl MixFormat {
-    /// 借用 mix 格式。指针在 Drop 前有效。
-    fn as_ref(&self) -> &WAVEFORMATEX {
-        unsafe { &*self.ptr }
-    }
-}
-
 impl Drop for MixFormat {
     fn drop(&mut self) {
         if !self.ptr.is_null() {
@@ -111,6 +104,7 @@ impl Drop for MixFormat {
 }
 
 /// 按 PID 激活 Process Loopback 的 IAudioClient（尚未 Initialize）。
+#[allow(clippy::arc_with_non_send_sync)]
 pub fn activate_process_loopback(pid: u32) -> Result<IAudioClient, Error> {
     // 手动复位事件：回调 SetEvent 后 Wait 返回。
     let event = unsafe { CreateEventW(None, true, false, None)? };
@@ -139,7 +133,7 @@ pub fn activate_process_loopback(pid: u32) -> Result<IAudioClient, Error> {
     let mut activate_params =
         std::mem::ManuallyDrop::new(unsafe { std::mem::zeroed::<PROPVARIANT>() });
     unsafe {
-        let inner = &mut *(*activate_params).Anonymous.Anonymous;
+        let inner = &mut *activate_params.Anonymous.Anonymous;
         ptr::write(&mut inner.vt, VT_BLOB);
         ptr::write(
             &mut inner.Anonymous.blob.cbSize,

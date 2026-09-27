@@ -85,8 +85,6 @@ export component MainWindow inherits Window {
     in-out property <string> cable-text: "";
     in-out property <string> hotkey-label: "";
     in-out property <bool> listening-hotkey: false;
-    in-out property <string> playback-key-label: "未设置";
-    in-out property <int> playback-key-mode: 0;
 
     // --- 状态栏 ---
     in-out property <float> master-volume: 100;
@@ -114,7 +112,6 @@ export component MainWindow inherits Window {
     callback begin-hotkey-capture();
     callback reset-hotkey();
     callback hotkey-captured(string, bool, bool, bool);
-    callback playback-key-mode-toggled(int);
     callback add-audio-files();
     callback audio-category-changed(int);
     callback audio-category-context(int);
@@ -126,8 +123,6 @@ export component MainWindow inherits Window {
     callback audio-entry-context(int);
     callback audio-entry-play(int);
     callback audio-entry-remove();
-    callback audio-entry-hotkey();
-    callback audio-entry-remove-hotkey();
     callback audio-entry-explorer-rename();
     callback audio-entry-edit-tags();
     callback audio-entry-save-tags();
@@ -279,8 +274,6 @@ export component MainWindow inherits Window {
                     cable-text <=> root.cable-text;
                     hotkey-label <=> root.hotkey-label;
                     listening-hotkey <=> root.listening-hotkey;
-                    playback-key-label <=> root.playback-key-label;
-                    playback-key-mode <=> root.playback-key-mode;
                     preview-enabled <=> root.preview-enabled;
                     preview-volume <=> root.preview-volume;
                     about-text <=> root.about-text;
@@ -295,7 +288,6 @@ export component MainWindow inherits Window {
                     set-default-communications-toggled(b) => {
                         root.set-default-communications-toggled(b);
                     }
-                    playback-key-mode-toggled(m) => { root.playback-key-mode-toggled(m); }
                     preview-enabled-toggled(b) => { root.preview-enabled-toggled(b); }
                     preview-volume-edited(v) => { root.preview-volume-edited(v); }
                 }
@@ -388,8 +380,6 @@ export component MainWindow inherits Window {
         category-delete => { root.category-delete(); }
         entry-play(i) => { root.audio-entry-play(i); }
         entry-remove => { root.audio-entry-remove(); }
-        entry-hotkey => { root.audio-entry-hotkey(); }
-        entry-remove-hotkey => { root.audio-entry-remove-hotkey(); }
         entry-explorer => { root.audio-entry-explorer-rename(); }
         entry-edit-file => { root.audio-entry-edit-file(); }
     }

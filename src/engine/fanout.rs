@@ -44,6 +44,7 @@ impl FanoutTarget {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn spawn_target_render(
     engine: &AudioEngine,
     client: crate::audio::render::RenderClient,

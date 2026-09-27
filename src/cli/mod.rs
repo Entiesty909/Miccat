@@ -119,8 +119,8 @@ fn probe_playback(
         let compare = got.len().min(reference.samples.len());
         let mut first = None;
         let mut mismatch = 0usize;
-        for i in 0..compare {
-            if (got[i] - reference.samples[i]).abs() > 1e-3 {
+        for (i, sample) in got.iter().enumerate().take(compare) {
+            if (*sample - reference.samples[i]).abs() > 1e-3 {
                 mismatch += 1;
                 if first.is_none() {
                     first = Some(i);
@@ -137,30 +137,29 @@ fn probe_playback(
         return Ok(());
     }
     let mut keep_tx = None;
-    let mut source = None;
-    if use_sfx {
+    let source = if use_sfx {
         let (tx, commands) = audio::sfx::channel();
         let ring_mixer = ring.clone();
         let stop_mixer = stop.clone();
-        source = Some(thread::spawn(move || {
+        let source = thread::spawn(move || {
             audio::sfx::run_sfx_loop(ring_mixer, target, stop_mixer, commands)
-        }));
+        });
         tx.send(audio::sfx::SfxCommand::PlayStream {
             sample_rate: rate,
             channels,
-            mode: audio::sfx::SfxMode::Once,
             volume: 1.0,
             rx,
         })
         .map_err(|_| Error::RenderInit("probe: sfx channel closed"))?;
         keep_tx = Some(tx);
+        Some(source)
     } else {
         let ring_source = ring.clone();
         let stop_source = stop.clone();
-        source = Some(thread::spawn(move || {
+        Some(thread::spawn(move || {
             audio::preview::run_stream_source(ring_source, target, info, rx, false, stop_source)
-        }));
-    }
+        }))
+    };
 
     // 设备时钟：每 10 ms 取一块，余量不足的记录为空取次数。
     let frames = (rate as usize / 100).max(64);
@@ -213,8 +212,8 @@ fn probe_playback(
     let compare = compare.min(reference.samples.len().saturating_sub(offset));
     let mut first = None;
     let mut mismatch = 0usize;
-    for i in 0..compare {
-        if (got[i] - reference.samples[offset + i]).abs() > 1e-3 {
+    for (i, sample) in got.iter().enumerate().take(compare) {
+        if (*sample - reference.samples[offset + i]).abs() > 1e-3 {
             mismatch += 1;
             if first.is_none() {
                 first = Some(i);
