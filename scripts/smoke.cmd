@@ -1,0 +1,26 @@
+@echo off
+setlocal
+
+set "EXE=%~dp0..\target\debug\mintcat-proc-mic.exe"
+for %%I in ("%EXE%") do set "EXE=%%~fI"
+if not exist "%EXE%" (
+    call "%~dp0build-dev.cmd" build
+    if errorlevel 1 exit /b 1
+)
+
+"%EXE%" --list-devices
+if errorlevel 1 exit /b 1
+
+"%EXE%" --list-processes
+if errorlevel 1 exit /b 1
+
+set "SNAPSHOT=%TEMP%\processmic-smoke.raw"
+set "MENU_SNAPSHOT=%TEMP%\processmic-smoke-menu.raw"
+"%EXE%" --snapshot-ui --out "%SNAPSHOT%"
+if errorlevel 1 exit /b 1
+"%EXE%" --snapshot-ui --menu --out "%MENU_SNAPSHOT%"
+if errorlevel 1 exit /b 1
+
+echo Snapshots saved to:
+echo   %SNAPSHOT%
+echo   %MENU_SNAPSHOT%

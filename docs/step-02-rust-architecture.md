@@ -50,7 +50,21 @@ src/
     render.rs          WASAPI render 线程与三路 ring 混音
     wav.rs             开发验证：PCM16 WAV 写出
   engine.rs            常驻输出、动态源、Start/Stop 兼容入口
-  ui_bridge.rs         Slint 属性 / 回调
+  ui_bridge/
+    mod.rs              窗口启动、组装与退出
+    state.rs             桥接共享状态
+    cache.rs             UI 视图缓存
+    callbacks/           route、route_start、library、player、settings
+    lists.rs             进程与设备列表填充
+    library.rs           分类、条目筛选与列表模型
+    format.rs            时长与位置文案
+    persist.rs            配置防抖与退出 flush
+    status.rs             状态与电平轮询
+    input.rs              系统热键
+    window.rs             窗口尺寸适配
+    dialogs.rs            原生文件选择器
+    playback.rs           播放辅助
+    dev/snapshot.rs       UI 快照验证
 docs/
   step-01-architecture-analysis.md
   step-02-rust-architecture.md
@@ -69,6 +83,8 @@ AudioEngine
     ├─ sfx/file thread         S2 先为空 → ring_sfx
     └─ render thread           COM MTA：pop 三条 ring + 混音 + 写设备
 ```
+
+配置写盘：UI 修改只重置 300 ms 单次计时器；到期后快照进入单写线程，退出时 flush 并 join。
 
 每条 ring 都保持 SPSC：一个源线程生产，render 线程消费。输出线程可以独立常驻，
 进程源与物理麦源由 `set_process_source` / `set_mic_source` 动态启停，S4/S5 再让
@@ -135,7 +151,8 @@ status: Idle | Running | ProcessExited | DeviceGone | Error
 error_message: String                  // 给 UI 的短句
 ```
 
-权威在 `AudioEngine` / `AppModel`。Slint 只镜像。
+运行时音频权威在 `AudioEngine`，持久化权威在 `AppConfig`。Slint 只显示桥接层状态。
+S1 的 `UiCache` 仍保留部分配置镜像字段，尚未完成权威收口。
 
 UI 短句示例：
 
@@ -257,12 +274,15 @@ ui/
 ## 11. 模块边界
 
 ```text
-ui_bridge  →  engine  →  capture/render/buffer/format
-                ↑
-         process / device
+ui/ ──► ui_bridge/mod.rs ──► callbacks/、lists/、persist/、status/
+                    ├─► engine ──► audio
+                    └─► config / device / dialogs
 ```
 
-`engine` 不引用 Slint。`capture` 不引用 UI。Windows 字符串/HRESULT 不出 `audio` 模块边界（除 `Error`）。
+S1 已按职责拆分桥接内部模块；桥接回调仍直接访问 audio 解码、SFX、试听与设备策略，
+以及 VB-CABLE 安装。S2/S5 负责切断这些越层依赖。
+
+`engine` 不引用 Slint。`capture` 不引用 UI。
 
 ---
 

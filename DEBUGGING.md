@@ -27,7 +27,7 @@ UI 渲染问题     → --snapshot-ui --out <file> [--menu] 出真 RGBA 图
 | `0x80070057` 参数错误 | `WAVEFORMATEXTENSIBLE` 是否被 `*src` 成 `WAVEFORMATEX`（`cbSize=22` 尾巴丢失） | `sanitize_wave` 是否把格式做成 `cbSize=0` 的 PCM / IEEE float |
 | `0x88890021` 无法初始化 | 进程环回 Initialize 是否带了 `AUDCLNT_STREAMFLAGS_LOOPBACK` | `AUTOCONVERTPCM` / `SRC_DEFAULT_QUALITY` 是否在 flags 里 |
 | 播放重复某几帧 | `src/audio/decode.rs` 是否把超过当前块大小的 MF sample 尾部丢掉 | `src/audio/sfx.rs`、`src/audio/preview.rs` 是否按已消费的完整帧清理缓冲 |
-| 切歌/停止后进度不归零 | 停旧源三步（取消标志、`StopAll`、停试听源）是否在**成功与失败两条路径**都执行 | UI 是否同时写了 `audio-progress`、`audio-duration-seconds`、`audio-current-position` |
+| 切歌/停止后进度不归零 | `callbacks/player.rs::stop_playback()` 是否取消解码、发送 `StopAll` 并停试听源 | UI 是否写回 `audio-progress`、`audio-duration-seconds`、`audio-current-position` |
 | 试听无声 | 引擎的试听输出是否被打开、设备是否可用 | 打开失败时是否只提示不崩（UI 短句 + tracing 细节） |
 | 进程退出/设备拔出后无声 | 状态是否变为 `ProcessExited` / `DeviceGone` | 音频线程是否仍存活、是否被正确 join |
 
@@ -50,5 +50,5 @@ UI 渲染问题     → --snapshot-ui --out <file> [--menu] 出真 RGBA 图
 - 原生 Slint 窗口不能用浏览器工具驱动；渲染可自动化（`--snapshot-ui`），**交互仍需 Windows 桌面手工操作**。
 - 需要真实声卡/虚拟线缆的判断（听感、Discord 侧是否听到）无法自动化，必须人工确认。
 - 工具与游戏权限不一致时热键收不到：与游戏同权限运行（都提权或都不提权）。
-- 重构会把 `src/ui_bridge.rs` 拆成 `src/ui_bridge/` 目录：定位时按职责找文件
-  （`callbacks/`、`lists.rs`、`persist.rs`、`playback`），不要找一个 2000 行的文件。
+- S1 已把桥接层拆到 `src/ui_bridge/`，按 `callbacks/`、`lists.rs`、`persist.rs`、
+  `status.rs`、`playback.rs` 等职责定位；不再查找单体 `src/ui_bridge.rs`。

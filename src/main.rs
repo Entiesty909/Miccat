@@ -137,7 +137,8 @@ fn probe_playback(
     let stop = Arc::new(AtomicBool::new(false));
     let capacity = ((rate as usize).saturating_mul(channels as usize) / 2).max(8192);
     let ring = Arc::new(SpscRing::with_capacity_samples(capacity));
-    let (info, rx) = audio::decode::stream_to_channel(path.to_path_buf(), start_hns, false, cancel)?;
+    let (info, rx) =
+        audio::decode::stream_to_channel(path.to_path_buf(), start_hns, false, cancel)?;
     if args_has(&std::env::args().collect::<Vec<_>>(), "--raw") {
         let mut got: Vec<f32> = Vec::new();
         while let Ok(chunk) = rx.recv_timeout(Duration::from_millis(500)) {

@@ -16,14 +16,17 @@
 | `ui/components/*.slint` | 可复用控件；`empty-state.slint` 目前无引用 | — |
 | `ui/theme.slint`（30） | 颜色与长度 token；**尚无字号/字重/间距 token** | — |
 
-Rust 侧现状：
+Rust 侧 S1 现状：
 
-- `src/ui_bridge.rs`（1976 行）承担桥接层全部职责：38 个 Slint 回调（`wire_callbacks` 364–1350）、
-  `UiCache`、50ms 状态轮询（`start_status_timer` 1371–1505）、进程/设备刷新、音频库 CRUD、
-  配置持久化、VB-Cable 安装、调试截图入口。
-- 已登记的反例（重构收掉）：桥接层直接 `use crate::audio::{decode,sfx,preview,device,policy}`
-  与 `vbcable`，并自己持有一个 `PreviewEngine`（等于第二个音频引擎）。
-  目标：UI 不持有音频引擎、不直接解码（`AGENTS.md` 3.8）。
+- `src/ui_bridge/mod.rs` 负责启动装配、窗口事件循环与退出收尾。
+- `state.rs` 统一持有运行期共享句柄；`cache.rs` 仍保留现有视图缓存字段。
+- `callbacks/` 按路由、音频库、播放、设置拆分 38 个 Slint 回调。
+- `lists.rs`、`library.rs`、`format.rs`、`persist.rs`、`status.rs`、`input.rs`、
+  `window.rs`、`dialogs.rs` 分担桥接职责；播放辅助与快照分别在 `playback.rs`、
+  `dev/snapshot.rs`。
+- 配置修改以 300 ms 单次计时器合并，经串行后台线程保存；退出时强制 flush。
+- S2 尚未落地：回调仍直接访问 `audio::{decode,sfx,preview}`，`PreviewEngine` 仍由
+  `AppState` 持有。
 
 ---
 
@@ -38,8 +41,8 @@ Rust 侧现状：
 ## 3. 契约面
 
 - `MainWindow` 上的 **61 个 `in-out` 属性 + 40 个 callback** 是 Rust 与 UI 的唯一边界。
-- 改契约必须同一次改完 `ui/main.slint` 与 `src/ui_bridge.rs`；删属性/回调时，
-  连同 `wire_callbacks` 里的注册一起删，不留悬空转发。
+- 改契约必须同次改完 `ui/main.slint` 与 `src/ui_bridge/callbacks/` 对应注册；
+  根模块通过 `callbacks::register` 装配，不留悬空转发。
 - 已知死面（重构 S3 收口，先别当例子抄）：
 
 ```text

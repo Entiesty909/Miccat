@@ -1,6 +1,6 @@
 # ProcessMic 代码重构计划（工程标准化）
 
-状态：**待批准后执行**。本文件只描述改动方案，不含功能变更、不含已写好的代码。
+状态：**执行中（S1）**。S0 门禁已搭建；资源测量与第三种快照状态尚未完成。
 依据：`AGENTS.md`（约束）、`goal.md`（权威需求）、`docs/step-01-architecture-analysis.md`、
 `docs/step-02-rust-architecture.md`、`docs/ui-redesign-proposal.md`，以及本轮对当前工作树
 **34 个源文件 / 8306 行**的逐文件审计（事实与行号见第 1 节，全部可在当前工作树复现）。
@@ -201,9 +201,9 @@ Slint 侧：`ui/components/empty-state.slint` 全仓无引用；
   UI 缓存只允许存「派生/视图态」（下标、筛选词、菜单坐标）。
 - R7 测试：纯逻辑（PCM 转换、WAV 解析、分类路径、时长格式化、键位映射、配置迁移）必须有单元测试；
   这是本仓库第一次引入测试，范围仅限无 IO 的纯函数。
-- R8 每片验收：`scripts/check.cmd`（fmt --check + clippy -D warnings + build + 行数门禁）+
-  `scripts/smoke.cmd`（`--list-devices` / `--list-processes` / `--snapshot-ui` 出图）+
-  UI 手工路径，截图对比基线。
+- R8 每片验收：`scripts/check.cmd`（fmt --check + Clippy 原样报告既有告警；S6 收敛后启用
+  `clippy -- -D warnings` + build + 行数门禁）+ `scripts/smoke.cmd`（设备、进程和 UI 快照）+
+  原生窗口手工路径；截图状态以当前快照工具支持范围为准。
 - R9 文档同步：`AGENTS.md` 第 5 节已加硬要求——动过 UI 就同步 `FRONTEND.md`，动过定位路径就同步
   `DEBUGGING.md`，动过线程/格式/目录就同步 `docs/step-02-rust-architecture.md`。本次三份文档的事实错误
   已就地改写（见 §1.9、§1.10）。
@@ -342,20 +342,19 @@ dev/ ──► 任意（仅调试）
 - 把当前 83 个脏文件按功能拆成若干提交，先建立可回退点（现在整棵树未提交，重构没有 baseline）。
 - 根目录调试残留归档/删除：`snap-*.raw`、`snap-menu*.png`、`probe-*.wav{,.ref.wav}`、
   `seek-*.wav{,.ref.wav}`；`.gitignore` 补 `*.raw`、`snap-*`、`probe-*`、`seek-*`。
-- 新增 `scripts/check.cmd`（`fmt -- --check` + `clippy -- -D warnings` + `build` + 行数门禁）与
-  `scripts/smoke.cmd`（`--list-devices`、`--list-processes`、`--snapshot-ui`）。
+- 新增 `scripts/check.cmd`（fmt --check + 默认级别 Clippy 并显示告警；S6 收敛后启用
+  `clippy -- -D warnings` + build + 行数门禁）与 `scripts/smoke.cmd`（设备、进程、快照）。
 - 记录基线：debug/release exe 体积、空闲/播放 RAM、CPU、启动时间 → `docs/step-33-refactor-baseline.md`；
   `--snapshot-ui` 出图保存为后续每片的回归基准。
 - 验收：`scripts/check.cmd` 通过；三张基线截图可复现。
 
 ### S1 — 桥接层目录化（`ui_bridge.rs` 1976 → 目录，最大收益）
 
-- 拆成 §3.1 的 `ui_bridge/` 结构。`wire_callbacks` 987 行按域拆到 `callbacks/{route,library,player,settings}.rs`。
-- 引入 `AppState`：消灭 `ui, engine, cache, saved_mics, app_config, preview, ...` 的 8 参数签名。
-- 消除重复：`callbacks/library.rs::visible_entry()` 取代 9 处内联查找；
-  `callbacks/player.rs::stop_playback()` 取代 4 处停止序列；
-  `persist.rs::save()`（debounce 300ms）取代 20 处 `config::save`。
-- `snapshot_to_file` → `dev/snapshot.rs`；`probe`/CLI 相关不在此片动。
+- 把 987 行 `wire_callbacks` 拆到 `callbacks/{route,route_start,library,library_entries,library_metadata,player,settings}.rs`。
+- 新增 `AppState`，将回调入口收敛为 `(&MainWindow, &AppState)`；列表、状态、持久化、窗口与播放辅助各自独立。
+- `library::visible_entry()` 统一可见下标映射；`player::stop_playback()` 统一解码取消、SFX StopAll 与试听停止。
+- `persist::SaveQueue` 使用单次 300 ms 防抖与 FIFO 单写线程；18 个回调写盘点改为调度，退出时 flush/join。
+- `snapshot_to_file` 迁到 `dev/snapshot.rs`；`probe`/CLI 相关未动。
 - 验收：`check.cmd` + `smoke.cmd` + UI 全路径（选进程→选设备→开始→有声→音量→停止）+
   音频库（导入/双击播放/切歌/拖进度/停止/右键菜单）+ 截图与基线一致。
 

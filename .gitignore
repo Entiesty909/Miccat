@@ -8,3 +8,8 @@ data
 /target-relink
 /capture.wav
 *.pdb
+
+*.raw
+snap-*
+probe-*
+seek-*
