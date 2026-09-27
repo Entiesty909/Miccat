@@ -369,6 +369,10 @@ dev/ ──► 任意（仅调试）
 
 ### S3 — Slint 结构重构 + 契约收窄
 
+- 已完成：窗口入口迁移为 `ui/app-window.slint`，右键菜单覆盖层迁移为 `ui/overlays/context-menu.slint`；菜单遮罩、坐标钳制和动作收在组件内。
+- 未完成：通用列表组件、滚动虚拟化、主题 token 全量收口。
+- 验收：Slint 构建、CLI/UI 快照冒烟通过；桌面手工右键交互未自动化。
+
 - `main.slint` → `app-window.slint`（≤200）；130 行菜单层 → `overlays/context-menu.slint` 组件
   （`items` 模型 + 坐标 + 内部钳制，消灭 11 处 `xxx-menu-open = false` 与硬编码 132px/292px）。
 - 音频库专属属性/回调（9 个只被顶层菜单触发的回调）从窗口收拢到页面内。

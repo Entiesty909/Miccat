@@ -1,0 +1,140 @@
+//! Windows 风格右键菜单覆盖层。
+
+import { Theme } from "../theme.slint";
+import { MenuItem } from "../components/menu-item.slint";
+
+export component ContextMenu inherits Rectangle {
+    in-out property <bool> category-open: false;
+    in-out property <bool> entry-open: false;
+    in-out property <length> category-x: 0px;
+    in-out property <length> category-y: 0px;
+    in-out property <length> entry-x: 0px;
+    in-out property <length> entry-y: 0px;
+    in-out property <int> category-index: 0;
+    callback category-new();
+    callback category-rename();
+    callback category-delete();
+    callback entry-play(int);
+    callback entry-remove();
+    callback entry-hotkey();
+    callback entry-remove-hotkey();
+    callback entry-explorer();
+    callback entry-edit-file();
+
+    width: 100%;
+    height: 100%;
+    background: transparent;
+
+    TouchArea {
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down) {
+                root.category-open = false;
+                root.entry-open = false;
+            }
+        }
+    }
+
+    if root.category-open: Rectangle {
+        x: min(max(0px, root.category-x), root.width - 256px);
+        y: min(max(0px, root.category-y), root.height - 140px);
+        width: 248px;
+        height: 132px;
+        background: #F8F8F8;
+        border-color: #B8B8B8;
+        border-width: 1px;
+        border-radius: 3px;
+
+        VerticalLayout {
+            padding: 8px;
+            spacing: 2px;
+            alignment: LayoutAlignment.start;
+            Rectangle {
+                height: 20px;
+                background: transparent;
+                Text {
+                    text: "分类";
+                    x: 12px;
+                    color: #666666;
+                    font-size: 11px;
+                    vertical-alignment: TextVerticalAlignment.center;
+                }
+            }
+            MenuItem {
+                label: "新建子分类";
+                clicked => { root.category-new(); root.category-open = false; }
+            }
+            MenuItem {
+                label: "重命名";
+                enabled: root.category-index > 1;
+                clicked => { root.category-rename(); root.category-open = false; }
+            }
+            MenuItem {
+                label: "删除";
+                danger: true;
+                enabled: root.category-index > 1;
+                clicked => { root.category-delete(); root.category-open = false; }
+            }
+        }
+    }
+
+    if root.entry-open: Rectangle {
+        x: min(max(0px, root.entry-x), root.width - 300px);
+        y: min(max(0px, root.entry-y), root.height - 300px);
+        width: 292px;
+        height: 292px;
+        background: #F8F8F8;
+        border-color: #B8B8B8;
+        border-width: 1px;
+        border-radius: 3px;
+
+        VerticalLayout {
+            padding: 8px;
+            spacing: 2px;
+            alignment: LayoutAlignment.start;
+            Rectangle {
+                height: 20px;
+                background: transparent;
+                Text {
+                    text: "音频";
+                    x: 12px;
+                    color: #666666;
+                    font-size: 11px;
+                    vertical-alignment: TextVerticalAlignment.center;
+                }
+            }
+            MenuItem {
+                label: "播放（扬声器和麦克风）";
+                clicked => { root.entry-play(0); root.entry-open = false; }
+            }
+            MenuItem {
+                label: "仅在扬声器播放";
+                clicked => { root.entry-play(1); root.entry-open = false; }
+            }
+            MenuItem {
+                label: "仅在麦克风播放";
+                clicked => { root.entry-play(2); root.entry-open = false; }
+            }
+            MenuItem {
+                label: "移除";
+                danger: true;
+                clicked => { root.entry-remove(); root.entry-open = false; }
+            }
+            MenuItem {
+                label: "设置热键";
+                clicked => { root.entry-hotkey(); root.entry-open = false; }
+            }
+            MenuItem {
+                label: "移除热键";
+                clicked => { root.entry-remove-hotkey(); root.entry-open = false; }
+            }
+            MenuItem {
+                label: "在资源管理器中显示";
+                clicked => { root.entry-explorer(); root.entry-open = false; }
+            }
+            MenuItem {
+                label: "编辑文件";
+                clicked => { root.entry-edit-file(); root.entry-open = false; }
+            }
+        }
+    }
+}
