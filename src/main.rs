@@ -62,7 +62,7 @@ fn run() -> Result<(), Error> {
             let wav = parse_flag_str(&args, "--wav").unwrap_or("capture.wav");
             let seconds = parse_flag_f32(&args, "--seconds").unwrap_or(5.0);
             println!("capturing pid {pid} for {seconds}s -> {wav}");
-            audio::capture::capture_process_to_wav(pid, &PathBuf::from(wav), seconds)?;
+            audio::dump::capture_process_to_wav(pid, &PathBuf::from(wav), seconds)?;
             println!("wrote {wav}");
         }
         "--route" => {

@@ -1,5 +1,6 @@
 //! 音频引擎：多进程源 + 物理麦 + SFX，fan-out 到多个独立输出设备。
 
+mod fanout;
 mod monitor;
 mod playback;
 
@@ -11,8 +12,9 @@ use crate::audio::buffer::SpscRing;
 use crate::audio::capture::{open_mic_capture, open_process_capture, run_capture_loop};
 use crate::audio::com;
 use crate::audio::format::{AudioFormat, Converter, SampleKind};
-use crate::audio::render::{open_render_device, run_render_loop};
+use crate::audio::render::open_render_device;
 use crate::error::Error;
+use fanout::{FanoutTarget, run_fanout, spawn_target_render};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EngineStatus {
@@ -23,12 +25,12 @@ pub enum EngineStatus {
     Error(String),
 }
 
-struct TargetState {
-    format: AudioFormat,
-    process_rings: Vec<Arc<SpscRing>>,
-    mic_ring: Arc<SpscRing>,
-    sfx_ring: Arc<SpscRing>,
-    render: JoinHandle<()>,
+pub(super) struct TargetState {
+    pub(super) format: AudioFormat,
+    pub(super) process_rings: Vec<Arc<SpscRing>>,
+    pub(super) mic_ring: Arc<SpscRing>,
+    pub(super) sfx_ring: Arc<SpscRing>,
+    pub(super) render: JoinHandle<()>,
 }
 
 struct OutputState {
@@ -427,126 +429,6 @@ impl AudioEngine {
     }
 }
 
-struct FanoutTarget {
-    process_rings: Vec<Arc<SpscRing>>,
-    mic_ring: Arc<SpscRing>,
-    sfx_ring: Arc<SpscRing>,
-    converters: Vec<Converter>,
-    mic_converter: Converter,
-    sfx_converter: Converter,
-    /// 该目标格式下允许的积压采样数（约 100 ms），fan-out 靠它退让。
-    lead: usize,
-    /// 转换暂存，避免每块分配。
-    scratch: Vec<f32>,
-}
-impl FanoutTarget {
-    fn new(target: &TargetState, src: AudioFormat) -> Self {
-        let dst = target.format;
-        let frames = (dst.sample_rate as usize / 100).max(64);
-        Self {
-            process_rings: target.process_rings.clone(),
-            mic_ring: target.mic_ring.clone(),
-            sfx_ring: target.sfx_ring.clone(),
-            converters: (0..target.process_rings.len())
-                .map(|_| Converter::new(src, dst))
-                .collect(),
-            mic_converter: Converter::new(src, dst),
-            sfx_converter: Converter::new(src, dst),
-            lead: frames * dst.channels as usize * 10,
-            scratch: Vec::with_capacity(frames * dst.channels as usize),
-        }
-    }
-}
-fn spawn_target_render(
-    engine: &AudioEngine,
-    client: crate::audio::render::RenderClient,
-    process: Vec<Arc<SpscRing>>,
-    mic: Arc<SpscRing>,
-    sfx: Arc<SpscRing>,
-    stop: Arc<AtomicBool>,
-    status: Arc<Mutex<EngineStatus>>,
-    running: Arc<AtomicBool>,
-) -> Result<JoinHandle<()>, Error> {
-    let volume = engine.volume.clone();
-    let mic_volume = engine.mic_volume.clone();
-    let sfx_volume = engine.sfx_volume.clone();
-    let master = engine.master.clone();
-    let peak = engine.render_peak.clone();
-    thread::Builder::new()
-        .name("wasapi-render-target".into())
-        .spawn(move || {
-            let _com = com::init_mta();
-            run_render_loop(
-                client,
-                process,
-                Some(mic),
-                Some(sfx),
-                volume,
-                mic_volume,
-                sfx_volume,
-                master,
-                stop,
-                peak,
-                move |e| {
-                    let mapped = match e {
-                        Error::DeviceNotFound => EngineStatus::DeviceGone,
-                        other => EngineStatus::Error(other.user_message()),
-                    };
-                    if let Ok(mut g) = status.lock() {
-                        *g = mapped;
-                    }
-                    running.store(false, Ordering::Release);
-                },
-            );
-        })
-        .map_err(|_| Error::RenderInit("spawn output target"))
-}
-fn run_fanout(
-    source: Vec<Arc<SpscRing>>,
-    mic: Arc<SpscRing>,
-    sfx: Arc<SpscRing>,
-    mut targets: Vec<FanoutTarget>,
-    stop: Arc<AtomicBool>,
-    format: AudioFormat,
-) {
-    let frames = (format.sample_rate as usize / 100).max(64);
-    let samples = frames * format.channels as usize;
-    let mut blocks = vec![vec![0.0; samples]; source.len()];
-    let mut mic_block = vec![0.0; samples];
-    let mut sfx_block = vec![0.0; samples];
-    while !stop.load(Ordering::Acquire) {
-        for (r, b) in source.iter().zip(blocks.iter_mut()) {
-            let n = r.pop(b);
-            b[n..].fill(0.0);
-        }
-        let mn = mic.pop(&mut mic_block);
-        mic_block[mn..].fill(0.0);
-        let sn = sfx.pop(&mut sfx_block);
-        sfx_block[sn..].fill(0.0);
-        // 每个目标环的写入都按积压退让，节拍由对应 render 线程决定：
-        // 不再用固定 sleep 追时间，也不会把环写满顶掉读指针。
-        for target in &mut targets {
-            let FanoutTarget {
-                process_rings,
-                mic_ring,
-                sfx_ring,
-                converters,
-                mic_converter,
-                sfx_converter,
-                lead,
-                scratch,
-            } = target;
-            for (i, block) in blocks.iter().enumerate() {
-                converters[i].convert_f32(block, frames, scratch);
-                process_rings[i].push_paced(scratch, *lead, &stop);
-            }
-            mic_converter.convert_f32(&mic_block, frames, scratch);
-            mic_ring.push_paced(scratch, *lead, &stop);
-            sfx_converter.convert_f32(&sfx_block, frames, scratch);
-            sfx_ring.push_paced(scratch, *lead, &stop);
-        }
-    }
-}
 impl Drop for AudioEngine {
     fn drop(&mut self) {
         self.stop();

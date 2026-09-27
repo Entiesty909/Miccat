@@ -5,6 +5,7 @@ pub mod capture;
 pub mod com;
 pub mod decode;
 pub mod device;
+pub mod dump;
 pub mod format;
 pub mod peak;
 pub mod policy;

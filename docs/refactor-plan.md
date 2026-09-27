@@ -381,9 +381,13 @@ dev/ ──► 任意（仅调试）
 - 音频库条目列表加 `ScrollView`（修「条目不可滚动」）+ `ListView` 虚拟化；分类/条目/设备行统一 `list-row`。
 - 删除 §1.8 的 11 个死属性/死回调，并同步删 `ui_bridge` 里对应注册。
 - 验收：`--snapshot-ui` 三种状态（列表/分类菜单/条目菜单）截图 + 手工 5 条主路径；
-  `grep '#[0-9A-Fa-f]\{6\}' ui/` 只剩 `theme.slint`。
-
 ### S4 — 音频与引擎按职责拆文件
+
+- 已完成：多输出 fan-out、格式转换与目标 render 工厂迁移到 `engine/fanout.rs`。
+- 已完成：CLI Process Loopback WAV 导出迁移到 `audio/dump.rs`。
+- 未完成：PCM、重采样、运行时容量公式和错误分类公共原语的进一步合并。
+- 验收：构建、领域单测、设备/进程/UI 快照冒烟通过；真实 WAV/route 采样验收未自动化。
+
 
 - `audio/capture.rs`(569) → `capture/`；`CLI WAV 导出` → `audio/dump.rs`。
 - `engine.rs`(551) → `engine/{mod,output,sources,fanout}`；`open_outputs` 拆成
