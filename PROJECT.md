@@ -37,12 +37,12 @@ scripts\smoke.cmd
 scripts\build-dev.cmd test
 ```
 
-`check.cmd` 包含格式、严格 Clippy、构建与行数门禁；`smoke.cmd` 枚举设备/进程并生成默认 UI、条目菜单和空分类树菜单快照。真实设备声音与鼠标交互仍需人工验收。
+`check.cmd` 包含格式、严格 Clippy、构建与行数门禁；`smoke.cmd` 枚举设备/进程，生成默认 UI 和条目菜单快照，并模拟空树右键且断言菜单打开。真实设备声音与物理鼠标仍需人工验收。
 
 ## 当前重构状态
 
 S1–S6 均有中文阶段提交。`scripts/check.cmd` 的严格 Clippy、构建和行数门禁通过；
-10 个音频库/配置迁移领域单测和设备/进程/UI 快照冒烟通过。
+17 个音频库/配置迁移领域单测和设备/进程/UI 快照冒烟通过。
 
 重构计划仍有未完成验收：RAM/CPU/启动时间基线、真实 `--capture` 逐采样对比、`--route` 听感和桌面交互；
 S3 滚动/虚拟化、S4 capture/engine 与 PCM 原语拆分、S5 config/UI 文案映射仍未完成。

@@ -52,7 +52,8 @@ pub(crate) fn run() -> Result<(), Error> {
                 .to_string();
             let menu = args_has(&args, "--menu");
             let category_menu = args_has(&args, "--category-menu");
-            ui_bridge::snapshot_to_file(&out, menu, category_menu)?;
+            let category_row_menu = args_has(&args, "--category-row-menu");
+            ui_bridge::snapshot_to_file(&out, menu, category_menu, category_row_menu)?;
         }
         "--probe-playback" => {
             let file = parse_flag_str(&args, "--probe-playback")
@@ -262,7 +263,7 @@ fn print_help() {
          --list-devices\n\
          --capture <pid> --wav <path> --seconds N\n\
          --route <pid> --device <id> --seconds N\n\
-         --snapshot-ui --out <path> [--menu | --category-menu]\n\
+         --snapshot-ui --out <path> [--menu | --category-menu | --category-row-menu]\n\
          --probe-playback <file> [--seconds N] [--start N] [--out path]"
     );
 }

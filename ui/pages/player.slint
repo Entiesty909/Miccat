@@ -9,6 +9,8 @@ export component PlayerPage inherits Rectangle {
     in-out property <string> output-name: "";
     in-out property <[string]> categories: ["全部", "未分类"];
     in-out property <int> category-index: 0;
+    in-out property <int> category-drop-target: -1;
+    in-out property <int> category-drop-position: -1;
     in-out property <string> category-edit-name: "";
     in-out property <[string]> entries: [];
     in-out property <[string]> entry-durations: [];
@@ -31,6 +33,9 @@ export component PlayerPage inherits Rectangle {
 
     callback category-changed(int);
     callback category-context(int);
+    pure callback category-to-transfer(int) -> data-transfer;
+    callback category-can-drop(data-transfer, int, int) -> bool;
+    callback category-drop(data-transfer, int, int);
     callback entry-context(int);
     callback entry-edit-tags();
     callback entry-save-tags();
@@ -78,6 +83,8 @@ export component PlayerPage inherits Rectangle {
                 width: 250px;
                 vertical-stretch: 1;
                 VerticalLayout {
+                    // 避免内容收缩，否则空白区 TouchArea 没有可命中的高度。
+                    height: 100%;
                     Text {
                         text: "音频分类";
                         color: Theme.text2;
@@ -86,36 +93,90 @@ export component PlayerPage inherits Rectangle {
                     }
                     VerticalLayout {
                         vertical-stretch: 1;
-                        for category[index] in root.categories: Rectangle {
+                        for category[index] in root.categories: DragArea {
                             height: 32px;
-                            background: index == root.category-index
-                                ? Theme.accentSoft
-                                : transparent;
-                            border-radius: Theme.radiusControl;
-                            Text {
-                                text: category;
-                                x: 12px;
-                                color: index == root.category-index ? Theme.accent : Theme.text;
-                                vertical-alignment: TextVerticalAlignment.center;
+                            allow-move: category != "全部" && category != "未分类";
+                            data: root.category-to-transfer(index);
+                            drag-finished(action) => {
+                                root.category-drop-target = -1;
+                                root.category-drop-position = -1;
                             }
-                            TouchArea {
-                                clicked => {
-                                    root.category-index = index;
-                                    root.category-changed(index);
-                                    root.category-menu-open = false;
-                                    root.entry-menu-open = false;
+                            Rectangle {
+                                width: 100%;
+                                height: 100%;
+                                background: root.category-drop-target == index
+                                    && root.category-drop-position == 1
+                                    ? Theme.accentSoft
+                                    : index == root.category-index
+                                        ? Theme.accentSoft
+                                        : transparent;
+                                border-radius: Theme.radiusControl;
+                                if category != "全部" && category != "未分类": DropArea {
+                                    width: 100%;
+                                    height: 100%;
+                                    can-drop(event) => {
+                                        let position = event.position.y < self.height * 0.25
+                                            ? 0
+                                            : (event.position.y > self.height * 0.75 ? 2 : 1);
+                                        if (root.category-can-drop(
+                                            event.data,
+                                            index,
+                                            position
+                                        )) {
+                                            root.category-drop-target = index;
+                                            root.category-drop-position = position;
+                                            return DragAction.move;
+                                        }
+                                        return DragAction.none;
+                                    }
+                                    dropped(event) => {
+                                        let position = event.position.y < self.height * 0.25
+                                            ? 0
+                                            : (event.position.y > self.height * 0.75 ? 2 : 1);
+                                        root.category-drop(event.data, index, position);
+                                        root.category-drop-target = -1;
+                                        root.category-drop-position = -1;
+                                        return event.proposed-action;
+                                    }
                                 }
-                                pointer-event(event) => {
-                                    if (event.button == PointerEventButton.right
-                                        && event.kind == PointerEventKind.down) {
+                                Text {
+                                    text: category;
+                                    x: 12px;
+                                    color: index == root.category-index ? Theme.accent : Theme.text;
+                                    vertical-alignment: TextVerticalAlignment.center;
+                                }
+                                if root.category-drop-target == index
+                                    && root.category-drop-position == 0: Rectangle {
+                                    width: 100%;
+                                    height: 2px;
+                                    background: Theme.accent;
+                                }
+                                if root.category-drop-target == index
+                                    && root.category-drop-position == 2: Rectangle {
+                                    y: parent.height - 2px;
+                                    width: 100%;
+                                    height: 2px;
+                                    background: Theme.accent;
+                                }
+                                TouchArea {
+                                    clicked => {
                                         root.category-index = index;
-                                        root.category-context(index);
-                                        root.category-menu-x =
-                                            self.absolute-position.x + self.mouse-x;
-                                        root.category-menu-y =
-                                            self.absolute-position.y + self.mouse-y;
-                                        root.category-menu-open = true;
+                                        root.category-changed(index);
+                                        root.category-menu-open = false;
                                         root.entry-menu-open = false;
+                                    }
+                                    pointer-event(event) => {
+                                        if (event.button == PointerEventButton.right
+                                            && event.kind == PointerEventKind.down) {
+                                            root.category-index = index;
+                                            root.category-context(index);
+                                            root.category-menu-x =
+                                                self.absolute-position.x + self.mouse-x;
+                                            root.category-menu-y =
+                                                self.absolute-position.y + self.mouse-y;
+                                            root.category-menu-open = true;
+                                            root.entry-menu-open = false;
+                                        }
                                     }
                                 }
                             }

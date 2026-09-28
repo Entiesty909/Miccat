@@ -1,8 +1,8 @@
 //! Windows 风格右键菜单覆盖层。
 
+import { LineEdit } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
 import { MenuItem } from "../components/menu-item.slint";
-
 export component ContextMenu inherits Rectangle {
     in-out property <bool> category-open: false;
     in-out property <bool> entry-open: false;
@@ -11,6 +11,8 @@ export component ContextMenu inherits Rectangle {
     in-out property <length> entry-x: 0px;
     in-out property <length> entry-y: 0px;
     in-out property <int> category-index: 0;
+    in-out property <string> category-edit-name: "";
+    in-out property <bool> category-rename-open: false;
     callback category-new();
     callback category-rename();
     callback category-delete();
@@ -34,9 +36,12 @@ export component ContextMenu inherits Rectangle {
 
     if root.category-open: Rectangle {
         x: min(max(0px, root.category-x), root.width - 256px);
-        y: min(max(0px, root.category-y), root.height - 140px);
+        y: min(
+            max(0px, root.category-y),
+            root.height - (root.category-rename-open ? 190px : 140px)
+        );
         width: 248px;
-        height: 132px;
+        height: root.category-rename-open ? 182px : 132px;
         background: #F8F8F8;
         border-color: #B8B8B8;
         border-width: 1px;
@@ -61,15 +66,27 @@ export component ContextMenu inherits Rectangle {
                 label: root.category-index < 0 ? "新建分类" : "新建子分类";
                 clicked => { root.category-new(); root.category-open = false; }
             }
+            if root.category-rename-open: LineEdit {
+                text <=> root.category-edit-name;
+                height: 30px;
+            }
             MenuItem {
-                label: "重命名";
-                enabled: root.category-index > 1;
-                clicked => { root.category-rename(); root.category-open = false; }
+                label: root.category-rename-open ? "确定重命名" : "重命名";
+                enabled: root.category-index >= 0;
+                clicked => {
+                    if root.category-rename-open {
+                        root.category-rename();
+                        root.category-rename-open = false;
+                        root.category-open = false;
+                    } else {
+                        root.category-rename-open = true;
+                    }
+                }
             }
             MenuItem {
                 label: "删除";
                 danger: true;
-                enabled: root.category-index >= 0;
+                enabled: root.category-index >= 0 && !root.category-rename-open;
                 clicked => { root.category-delete(); root.category-open = false; }
             }
         }

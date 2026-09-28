@@ -6,12 +6,22 @@ use super::super::*;
 pub(crate) fn snapshot_to_file(
     path: &str,
     with_entry_menu: bool,
-    with_empty_category_menu: bool,
+    simulate_empty_category_right_click: bool,
+    simulate_category_row_right_click: bool,
 ) -> Result<(), Error> {
     let ui = MainWindow::new().map_err(|e| Error::InvalidArgs(e.to_string()))?;
     let persisted = config::load();
-    let (categories, audio_entries, audio_category) = if with_empty_category_menu {
+    let (categories, audio_entries, audio_category) = if simulate_empty_category_right_click {
         (Vec::new(), Vec::new(), String::new())
+    } else if simulate_category_row_right_click {
+        let categories = vec![
+            "分类1".into(),
+            "分类2".into(),
+            "分类3".into(),
+            "分类2/分类1".into(),
+        ];
+        let category = crate::library::category_paths(&categories, &[])[0].clone();
+        (categories, Vec::new(), category)
     } else {
         let categories = persisted.audio_categories.clone();
         let entries = persisted.audio_entries.clone();
@@ -42,16 +52,40 @@ pub(crate) fn snapshot_to_file(
         ui.set_audio_entry_menu_y(150.0);
         ui.set_audio_entry_menu_open(true);
     }
-    if with_empty_category_menu {
+    if simulate_empty_category_right_click {
         ui.set_audio_category_index(-1);
-        ui.set_audio_category_menu_x(160.0);
-        ui.set_audio_category_menu_y(150.0);
-        ui.set_audio_category_menu_open(true);
+    }
+    if simulate_category_row_right_click {
+        ui.set_audio_category_index(2);
     }
     ui.window().set_size(slint::LogicalSize::new(1080.0, 560.0));
     ui.window()
         .show()
         .map_err(|e| Error::InvalidArgs(e.to_string()))?;
+    if simulate_empty_category_right_click {
+        let _ = ui
+            .window()
+            .take_snapshot()
+            .map_err(|e| Error::InvalidArgs(e.to_string()))?;
+        dispatch_right_click(&ui, slint::LogicalPosition::new(100.0, 300.0));
+        if !ui.get_audio_category_menu_open() {
+            return Err(Error::InvalidArgs(
+                "empty category area did not open its right-click menu".into(),
+            ));
+        }
+    }
+    if simulate_category_row_right_click {
+        let _ = ui
+            .window()
+            .take_snapshot()
+            .map_err(|e| Error::InvalidArgs(e.to_string()))?;
+        dispatch_right_click(&ui, slint::LogicalPosition::new(100.0, 240.0));
+        if !ui.get_audio_category_menu_open() || ui.get_audio_category_index() != 2 {
+            return Err(Error::InvalidArgs(
+                "category row right-click did not open its matching menu".into(),
+            ));
+        }
+    }
     // 软件渲染器按需渲染：先压一次事件循环，再取快照。
     let _ = slint::invoke_from_event_loop(|| {});
     let snapshot = ui
@@ -69,4 +103,17 @@ pub(crate) fn snapshot_to_file(
         snapshot.height()
     );
     Ok(())
+}
+
+fn dispatch_right_click(ui: &MainWindow, position: slint::LogicalPosition) {
+    let window = ui.window();
+    window.dispatch_event(slint::platform::WindowEvent::PointerMoved { position });
+    window.dispatch_event(slint::platform::WindowEvent::PointerPressed {
+        position,
+        button: slint::platform::PointerEventButton::Right,
+    });
+    window.dispatch_event(slint::platform::WindowEvent::PointerReleased {
+        position,
+        button: slint::platform::PointerEventButton::Right,
+    });
 }

@@ -40,13 +40,15 @@ UI 渲染问题     → --snapshot-ui --out <file> [--menu | --category-menu] �
 
 - 分类异常：核对 `src/library.rs::category_paths()` 展开的路径与 `visible_entry_index()` 的过滤顺序；
   缩进显示文本不得写回配置。
+- 分类树拖动后无法删除：先用 `--snapshot-ui --category-row-menu` 验证拖动后路径对应的行仍能打开右键菜单；
+  删除回调必须按当前展开后的真实路径取值，不能复用拖动前的下标。
 - 空分类树无法新建：检查分类卡片是否纵向填满、空白 `TouchArea` 是否收到右键并发出索引 `-1`；
-  `--category-menu` 只强制渲染菜单状态，不验证鼠标命中。
+  `--category-menu` 在空树 `(100, 300)` 分发右键事件并验证菜单打开；这是 Slint 事件回归，不是物理鼠标测试。
 - 索引/时长对不上：核对列表筛选顺序（当前分类含全部后代 + 搜索）与 `duration_hns` 是否已补齐。
 - 菜单不消失或位置不对：检查 `ui/overlays/context-menu.slint` 遮罩、坐标钳制和页面上报；
-  当前高度固定为分类 132 px、条目 292 px。
-- 渲染核对：`--snapshot-ui --out <file>`、`--menu` 条目菜单或 `--category-menu` 空树菜单，
-  与改动前的基线图逐像素对比，比肉眼看窗口可靠。
+  分类菜单常态 132 px、重命名编辑态 182 px、条目菜单 292 px。
+- 渲染/命中核对：`--snapshot-ui --out <file>`、`--menu` 条目菜单，或 `--category-menu` 空树右键模拟；
+  后者未打开菜单会使命令失败，能够验证空白区命中路径。
 
 ---
 

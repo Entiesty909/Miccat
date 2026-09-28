@@ -118,6 +118,9 @@ export component MainWindow inherits Window {
     callback audio-category-new();
     callback category-rename();
     callback category-delete();
+    pure callback audio-category-to-transfer(int) -> data-transfer;
+    callback audio-category-can-drop(data-transfer, int, int) -> bool;
+    callback audio-category-drop(data-transfer, int, int);
     callback audio-search-changed(string);
     callback audio-entry-double-clicked(int);
     callback audio-entry-context(int);
@@ -243,6 +246,13 @@ export component MainWindow inherits Window {
                     category-changed(i) => { root.audio-category-changed(i); }
                     category-context(i) => { root.audio-category-context(i); }
                     search-changed(t) => { root.audio-search-changed(t); }
+                    category-to-transfer(i) => { root.audio-category-to-transfer(i); }
+                    category-can-drop(data, target, position) => {
+                        root.audio-category-can-drop(data, target, position);
+                    }
+                    category-drop(data, target, position) => {
+                        root.audio-category-drop(data, target, position);
+                    }
                     entry-double-clicked(i) => { root.audio-entry-double-clicked(i); }
                     entry-context(i) => { root.audio-entry-context(i); }
                     entry-edit-tags => { root.audio-entry-edit-tags(); }
@@ -375,6 +385,7 @@ export component MainWindow inherits Window {
         entry-x <=> root.audio-entry-menu-x;
         entry-y <=> root.audio-entry-menu-y;
         category-index <=> root.audio-category-index;
+        category-edit-name <=> root.audio-category-edit-name;
         category-new => { root.audio-category-new(); }
         category-rename => { root.category-rename(); }
         category-delete => { root.category-delete(); }
