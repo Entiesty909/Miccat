@@ -27,6 +27,12 @@ fn register_1(ui: &MainWindow, state: &AppState) {
         let ui_weak = ui.as_weak();
         let cache = cache.clone();
         ui.on_audio_category_context(move |index| {
+            if index < 0 {
+                if let Some(ui) = ui_weak.upgrade() {
+                    ui.set_audio_category_edit_name("".into());
+                }
+                return;
+            }
             let path = category_paths(&cache).get(index as usize).cloned();
             if let Some(path) = path {
                 cache.borrow_mut().audio_category = path.clone();
@@ -45,12 +51,21 @@ fn register_1(ui: &MainWindow, state: &AppState) {
         let cache = cache.clone();
         let app_config = app_config.clone();
         ui.on_audio_category_new(move || {
+            let Some(ui) = ui_weak.upgrade() else {
+                return;
+            };
+            let selected_index = ui.get_audio_category_index();
             let (categories, new_path) = {
                 let cache_state = cache.borrow();
+                let selected = if selected_index < 0 {
+                    ""
+                } else {
+                    cache_state.audio_category.as_str()
+                };
                 let new_path = crate::library::new_category(
                     &cache_state.audio_categories,
                     &cache_state.audio_entries,
-                    &cache_state.audio_category,
+                    selected,
                 );
                 drop(cache_state);
                 let mut cache_state = cache.borrow_mut();
@@ -62,17 +77,15 @@ fn register_1(ui: &MainWindow, state: &AppState) {
                 cfg.audio_categories = categories;
                 save_queue.schedule();
             }
-            if let Some(ui) = ui_weak.upgrade() {
-                ui.set_audio_categories(ModelRc::new(VecModel::from(audio_categories(&cache))));
-                if let Some(index) = category_paths(&cache)
-                    .iter()
-                    .position(|path| path == &new_path)
-                {
-                    ui.set_audio_category_index(index as i32);
-                    cache.borrow_mut().audio_category = new_path;
-                }
-                update_audio_list(&ui, &cache);
+            ui.set_audio_categories(ModelRc::new(VecModel::from(audio_categories(&cache))));
+            if let Some(index) = category_paths(&cache)
+                .iter()
+                .position(|path| path == &new_path)
+            {
+                ui.set_audio_category_index(index as i32);
+                cache.borrow_mut().audio_category = new_path;
             }
+            update_audio_list(&ui, &cache);
         });
     }
 }
@@ -141,25 +154,25 @@ fn register_3(ui: &MainWindow, state: &AppState) {
             let Some(name) = category_paths(&cache).get(index).cloned() else {
                 return;
             };
-            if index < 2 {
-                return;
-            }
-            let (categories, entries) = {
+            let (categories, entries, selected_index) = {
                 let mut c = cache.borrow_mut();
                 let mut categories = c.audio_categories.clone();
                 let mut entries = c.audio_entries.clone();
                 crate::library::delete_category(&mut categories, &mut entries, &name);
                 c.audio_categories = categories.clone();
                 c.audio_entries = entries.clone();
-                c.audio_category = "全部".into();
-                (categories, entries)
+                let paths = crate::library::category_paths(&categories, &entries);
+                let selected_category = paths.first().cloned().unwrap_or_default();
+                let selected_index = if paths.is_empty() { -1 } else { 0 };
+                c.audio_category = selected_category;
+                (categories, entries, selected_index)
             };
             let mut cfg = app_config.borrow_mut();
             cfg.audio_categories = categories;
             cfg.audio_entries = entries;
             save_queue.schedule();
             drop(cfg);
-            ui.set_audio_category_index(0);
+            ui.set_audio_category_index(selected_index);
             ui.set_audio_category_edit_name("".into());
             ui.set_audio_category_menu_open(false);
             ui.set_audio_categories(ModelRc::new(VecModel::from(audio_categories(&cache))));

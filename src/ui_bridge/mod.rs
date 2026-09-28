@@ -60,7 +60,13 @@ pub fn run_ui() -> Result<(), Error> {
         set_default_communications: persisted.output.set_default_communications,
         audio_categories: persisted.audio_categories.clone(),
         audio_entries: persisted.audio_entries.clone(),
-        audio_category: "全部".into(),
+        audio_category: crate::library::category_paths(
+            &persisted.audio_categories,
+            &persisted.audio_entries,
+        )
+        .first()
+        .cloned()
+        .unwrap_or_default(),
         ..UiCache::default()
     }));
     let saved_mics = Rc::new(RefCell::new(Vec::<(u32, String)>::new()));

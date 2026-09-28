@@ -154,7 +154,7 @@ pub struct AppConfig {
     /// 本机预览音量 0..=1。
     #[serde(default = "default_preview_volume")]
     pub preview_volume: f32,
-    /// 自定义音频分类树节点。
+    /// 音频分类树节点，含仍存在的“全部”和“未分类”根项。
     #[serde(default)]
     pub audio_categories: Vec<String>,
     /// 音频库条目。
@@ -165,14 +165,14 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            version: 2,
+            version: 3,
             output: OutputConfig::default(),
             route: RouteConfig::default(),
             mix: MixConfig::default(),
             hotkeys: Hotkeys::default(),
             preview_enabled: false,
             preview_volume: 0.5,
-            audio_categories: Vec::new(),
+            audio_categories: vec!["全部".into(), "未分类".into()],
             audio_entries: Vec::new(),
         }
     }

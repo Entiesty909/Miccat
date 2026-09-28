@@ -3,16 +3,32 @@
 use super::super::*;
 
 /// 临时：把主窗口按音频库布局渲染成原始 RGBA，用于核对菜单与索引列。
-pub(crate) fn snapshot_to_file(path: &str, with_entry_menu: bool) -> Result<(), Error> {
+pub(crate) fn snapshot_to_file(
+    path: &str,
+    with_entry_menu: bool,
+    with_empty_category_menu: bool,
+) -> Result<(), Error> {
     let ui = MainWindow::new().map_err(|e| Error::InvalidArgs(e.to_string()))?;
     let persisted = config::load();
+    let (categories, audio_entries, audio_category) = if with_empty_category_menu {
+        (Vec::new(), Vec::new(), String::new())
+    } else {
+        let categories = persisted.audio_categories.clone();
+        let entries = persisted.audio_entries.clone();
+        let category = crate::library::category_paths(&categories, &entries)
+            .first()
+            .cloned()
+            .unwrap_or_default();
+        (categories, entries, category)
+    };
     let cache = Rc::new(RefCell::new(UiCache {
-        audio_categories: persisted.audio_categories.clone(),
-        audio_entries: persisted.audio_entries.clone(),
-        audio_category: "全部".into(),
+        audio_categories: categories,
+        audio_entries,
+        audio_category,
         ..UiCache::default()
     }));
     ui.set_page(1);
+    ui.set_audio_categories(ModelRc::new(VecModel::from(audio_categories(&cache))));
     // 走真实列表填充路径，用本机配置里的音频条目。
     update_audio_list(&ui, &cache);
     ui.set_audio_entry_index(0);
@@ -25,6 +41,12 @@ pub(crate) fn snapshot_to_file(path: &str, with_entry_menu: bool) -> Result<(), 
         ui.set_audio_entry_menu_x(420.0);
         ui.set_audio_entry_menu_y(150.0);
         ui.set_audio_entry_menu_open(true);
+    }
+    if with_empty_category_menu {
+        ui.set_audio_category_index(-1);
+        ui.set_audio_category_menu_x(160.0);
+        ui.set_audio_category_menu_y(150.0);
+        ui.set_audio_category_menu_open(true);
     }
     ui.window().set_size(slint::LogicalSize::new(1080.0, 560.0));
     ui.window()

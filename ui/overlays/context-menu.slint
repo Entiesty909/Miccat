@@ -58,7 +58,7 @@ export component ContextMenu inherits Rectangle {
                 }
             }
             MenuItem {
-                label: "新建子分类";
+                label: root.category-index < 0 ? "新建分类" : "新建子分类";
                 clicked => { root.category-new(); root.category-open = false; }
             }
             MenuItem {
@@ -69,7 +69,7 @@ export component ContextMenu inherits Rectangle {
             MenuItem {
                 label: "删除";
                 danger: true;
-                enabled: root.category-index > 1;
+                enabled: root.category-index >= 0;
                 clicked => { root.category-delete(); root.category-open = false; }
             }
         }

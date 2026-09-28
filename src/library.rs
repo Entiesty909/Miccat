@@ -34,9 +34,9 @@ pub(crate) fn visible_entry_index(
         .map(|(index, _)| index)
 }
 
-/// 展开配置中的分类路径，并保留固定根项。
+/// 展开配置中的分类路径，并保留配置或条目中仍存在的节点。
 pub(crate) fn category_paths(categories: &[String], entries: &[AudioEntry]) -> Vec<String> {
-    let mut paths = vec!["全部".to_string(), "未分类".to_string()];
+    let mut paths = Vec::new();
     let raw = categories
         .iter()
         .cloned()
@@ -82,6 +82,15 @@ pub(crate) fn category_labels(categories: &[String], entries: &[AudioEntry]) -> 
         .collect()
 }
 
+/// 返回新导入条目的分类；没有选择时归入“未分类”。
+pub(crate) fn import_category(selected: &str) -> String {
+    if selected.is_empty() {
+        "未分类".into()
+    } else {
+        selected.into()
+    }
+}
+
 /// 创建不冲突的新子分类路径。
 pub(crate) fn new_category(
     categories: &[String],
@@ -89,7 +98,8 @@ pub(crate) fn new_category(
     selected: &str,
 ) -> String {
     let paths = category_paths(categories, entries);
-    let base = (selected != "全部" && selected != "未分类").then_some(selected);
+    let base =
+        (!selected.is_empty() && selected != "全部" && selected != "未分类").then_some(selected);
     let prefix = base.map(|path| format!("{path}/"));
     let mut number = 1;
     loop {
@@ -121,17 +131,25 @@ pub(crate) fn rename_category(
     }
 }
 
-/// 删除分类及其所有后代，并将其中条目移到未分类。
+/// 删除分类及其后代；根节点删除相应音频库条目，但不删除磁盘文件。
 pub(crate) fn delete_category(
     categories: &mut Vec<String>,
-    entries: &mut [AudioEntry],
+    entries: &mut Vec<AudioEntry>,
     name: &str,
 ) {
     let prefix = format!("{name}/");
     categories.retain(|category| category != name && !category.starts_with(&prefix));
-    for entry in entries {
-        if entry.category == name || entry.category.starts_with(&prefix) {
-            entry.category = "未分类".into();
+    match name {
+        "全部" => entries.clear(),
+        "未分类" => {
+            entries.retain(|entry| entry.category != name && !entry.category.starts_with(&prefix))
+        }
+        _ => {
+            for entry in entries {
+                if entry.category == name || entry.category.starts_with(&prefix) {
+                    entry.category = "未分类".into();
+                }
+            }
         }
     }
 }
@@ -165,7 +183,45 @@ mod tests {
     }
 
     #[test]
-    fn delete_category_moves_descendants_to_uncategorized() {
+    fn deleting_all_removes_library_entries_and_only_its_node() {
+        let mut categories = vec!["全部".into(), "未分类".into(), "游戏".into()];
+        let mut entries = vec![entry("a", "未分类"), entry("b", "游戏")];
+
+        delete_category(&mut categories, &mut entries, "全部");
+
+        assert_eq!(categories, vec!["未分类", "游戏"]);
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn deleting_uncategorized_removes_only_its_entries_and_descendants() {
+        let mut categories = vec![
+            "全部".into(),
+            "未分类".into(),
+            "未分类/临时".into(),
+            "游戏".into(),
+        ];
+        let mut entries = vec![
+            entry("a", "未分类"),
+            entry("b", "未分类/临时"),
+            entry("c", "游戏"),
+        ];
+
+        delete_category(&mut categories, &mut entries, "未分类");
+
+        assert_eq!(categories, vec!["全部", "游戏"]);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "c");
+    }
+
+    #[test]
+    fn category_paths_do_not_restore_deleted_empty_roots() {
+        assert!(category_paths(&[], &[]).is_empty());
+        assert_eq!(category_paths(&["游戏".into()], &[]), vec!["游戏"]);
+    }
+
+    #[test]
+    fn deleting_regular_category_moves_entries_to_uncategorized() {
         let mut categories = vec!["游戏".into(), "游戏/武器".into(), "其他".into()];
         let mut entries = vec![entry("a", "游戏"), entry("b", "游戏/武器")];
 
@@ -173,5 +229,14 @@ mod tests {
 
         assert_eq!(categories, vec!["其他"]);
         assert!(entries.iter().all(|entry| entry.category == "未分类"));
+    }
+    #[test]
+    fn import_uses_selected_category_or_uncategorized_fallback() {
+        assert_eq!(import_category("游戏/武器"), "游戏/武器");
+        assert_eq!(import_category(""), "未分类");
+    }
+    #[test]
+    fn new_category_from_empty_tree_is_a_root() {
+        assert_eq!(new_category(&[], &[], ""), "新分类 1");
     }
 }

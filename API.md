@@ -13,13 +13,13 @@
 | `--list-devices` | 无 | 输出 WASAPI ID、Tab、设备友好名；包含当前过滤策略允许的输出端 |
 | `--capture <pid>` | `--wav capture.wav`，`--seconds 5` | Process Loopback 捕获并写 PCM16 WAV |
 | `--route <pid>` | 必须 `--device <wasapi-id>`；`--seconds 8` | 临时路由进程声；运行至少 0.5 秒后停止 |
-| `--snapshot-ui` | `--out snap.raw`；可加 `--menu` | 软件渲染 UI RGBA 快照；`--menu` 打开条目菜单态 |
+| `--snapshot-ui` | `--out snap.raw`；`--menu` 为条目菜单，`--category-menu` 为空分类树菜单 | 软件渲染 UI RGBA 快照 |
 | `--probe-playback <file>` | seconds=8, start=0, out=probe.wav | 逐采样探针 |
 
 `--probe-playback` 可加 `--sfx` 或 `--raw`；非 raw 模式另写 `<out>.ref.wav`。
 
 `--list-devices` 每行是 `<device-id>\t<friendly-name>`。
-`--snapshot-ui` 文件头是宽、高两个小端 u32，后接 RGBA；当前不提供分类菜单态。
+`--snapshot-ui` 文件头是宽、高两个小端 u32，后接 RGBA；`--category-menu` 渲染空分类树下可新建、不可重命名/删除的菜单态。
 
 ## AudioEngine
 
@@ -46,10 +46,11 @@
 
 - `category_matches(entry, category)`：分类自身或任意后代匹配；`全部` 匹配所有条目。
 - `visible_entry_index(entries, category, search, index)`：将筛选后的可见下标映射回配置下标。
-- `category_paths(categories, entries)`：展开 `/` 父子路径并添加固定 `全部`、`未分类` 根项。
+- `category_paths(categories, entries)`：展开配置和条目中的 `/` 父子路径；根项是否存在由配置决定。
 - `new_category(...)`：生成所选分类下不冲突的新子分类名。
 - `rename_category(...)`：递归更新分类路径及条目路径。
-- `delete_category(...)`：递归删除分类并将相关条目归入 `未分类`。
+- `delete_category(...)`：普通分类递归删除并把条目移到“未分类”；删除“未分类”只移除软件内条目；删除“全部”清空软件内全部条目。均不删除磁盘文件。
+- 导入音频归入当前选中的分类；配置版本 3 保留已删除根项状态，旧版本迁移时补入默认根项。
 - `validate_file(path)`：检查支持扩展名及音频元数据，失败返回统一 `Error`。
 
 ## 配置与错误

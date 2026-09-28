@@ -34,10 +34,14 @@ fn register_1(ui: &MainWindow, state: &AppState) {
                 .and_then(|s| s.to_str())
                 .unwrap_or("音频")
                 .to_string();
+            let category = {
+                let cache_state = cache.borrow();
+                crate::library::import_category(&cache_state.audio_category)
+            };
             let entry = config::AudioEntry {
                 name,
                 path: path.to_string_lossy().into_owned(),
-                category: "未分类".into(),
+                category,
                 duration_hns: validate_info.duration_hns,
                 loop_playback: false,
             };

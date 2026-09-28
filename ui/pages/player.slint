@@ -75,18 +75,13 @@ export component PlayerPage inherits Rectangle {
 
             // 分类树
             Card {
-                width: 250px;
+                vertical-stretch: 1;
                 VerticalLayout {
                     Text {
                         text: "音频分类";
                         color: Theme.text2;
                         font-size: 12px;
                         font-weight: 600;
-                    }
-                    Text {
-                        text: "右键打开 Windows 11 风格菜单";
-                        color: Theme.text3;
-                        font-size: 12px;
                     }
                     VerticalLayout {
                         vertical-stretch: 1;
@@ -121,6 +116,23 @@ export component PlayerPage inherits Rectangle {
                                         root.category-menu-open = true;
                                         root.entry-menu-open = false;
                                     }
+                                }
+                            }
+                        }
+                        TouchArea {
+                            width: 100%;
+                            vertical-stretch: 1;
+                            pointer-event(event) => {
+                                if (event.button == PointerEventButton.right
+                                    && event.kind == PointerEventKind.down) {
+                                    root.category-index = -1;
+                                    root.category-context(-1);
+                                    root.category-menu-x =
+                                        self.absolute-position.x + self.mouse-x;
+                                    root.category-menu-y =
+                                        self.absolute-position.y + self.mouse-y;
+                                    root.category-menu-open = true;
+                                    root.entry-menu-open = false;
                                 }
                             }
                         }

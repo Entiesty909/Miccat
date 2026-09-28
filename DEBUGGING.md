@@ -5,7 +5,7 @@
 ```text
 设备/初始化问题 → --list-devices / --route 看端点与初始化
 播放/进度问题   → --probe-playback 做逐采样比对（解码→SFX/试听时钟）
-UI 渲染问题     → --snapshot-ui --out <file> [--menu] 出真 RGBA 图
+UI 渲染问题     → --snapshot-ui --out <file> [--menu | --category-menu] 出真 RGBA 图
 ```
 
 ---
@@ -40,10 +40,12 @@ UI 渲染问题     → --snapshot-ui --out <file> [--menu] 出真 RGBA 图
 
 - 分类异常：核对 `src/library.rs::category_paths()` 展开的路径与 `visible_entry_index()` 的过滤顺序；
   缩进显示文本不得写回配置。
+- 空分类树无法新建：检查分类卡片是否纵向填满、空白 `TouchArea` 是否收到右键并发出索引 `-1`；
+  `--category-menu` 只强制渲染菜单状态，不验证鼠标命中。
 - 索引/时长对不上：核对列表筛选顺序（当前分类含全部后代 + 搜索）与 `duration_hns` 是否已补齐。
 - 菜单不消失或位置不对：检查 `ui/overlays/context-menu.slint` 遮罩、坐标钳制和页面上报；
   当前高度固定为分类 132 px、条目 292 px。
-- 渲染核对：`--snapshot-ui --out <file>`（可加 `--menu` 复现右键菜单态），
+- 渲染核对：`--snapshot-ui --out <file>`、`--menu` 条目菜单或 `--category-menu` 空树菜单，
   与改动前的基线图逐像素对比，比肉眼看窗口可靠。
 
 ---
