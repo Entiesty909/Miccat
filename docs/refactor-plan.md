@@ -1,6 +1,6 @@
 # ProcessMic 代码重构计划（工程标准化）
 
-状态：**执行中（S1）**。S0 门禁已搭建；资源测量与第三种快照状态尚未完成。
+状态：S1–S6 均有独立提交，但完整验收未完成；S0 资源基线、分类菜单快照和桌面音频验收仍缺。
 依据：`AGENTS.md`（约束）、`goal.md`（权威需求）、`docs/step-01-architecture-analysis.md`、
 `docs/step-02-rust-architecture.md`、`docs/ui-redesign-proposal.md`，以及本轮对当前工作树
 **34 个源文件 / 8306 行**的逐文件审计（事实与行号见第 1 节，全部可在当前工作树复现）。
@@ -201,12 +201,11 @@ Slint 侧：`ui/components/empty-state.slint` 全仓无引用；
   UI 缓存只允许存「派生/视图态」（下标、筛选词、菜单坐标）。
 - R7 测试：纯逻辑（PCM 转换、WAV 解析、分类路径、时长格式化、键位映射、配置迁移）必须有单元测试；
   这是本仓库第一次引入测试，范围仅限无 IO 的纯函数。
-- R8 每片验收：`scripts/check.cmd`（fmt --check + Clippy 原样报告既有告警；S6 收敛后启用
-  `clippy -- -D warnings` + build + 行数门禁）+ `scripts/smoke.cmd`（设备、进程和 UI 快照）+
-  原生窗口手工路径；截图状态以当前快照工具支持范围为准。
-- R9 文档同步：`AGENTS.md` 第 5 节已加硬要求——动过 UI 就同步 `FRONTEND.md`，动过定位路径就同步
-  `DEBUGGING.md`，动过线程/格式/目录就同步 `docs/step-02-rust-architecture.md`。本次三份文档的事实错误
-  已就地改写（见 §1.9、§1.10）。
+- R8 每片验收：`scripts/check.cmd`（fmt --check + `clippy -- -D warnings` + build + 行数门禁）+
+  `scripts/smoke.cmd`（设备、进程与当前支持的 UI 快照）+ 原生窗口手工路径。
+  性能、采样和截图基线只记录已实测数据；未覆盖状态须明确列出。
+- R9 文档同步：`AGENTS.md` 要求按事实更新根目录 `ARCHITECTURE.md`、`BACKEND.md`、`API.md`、
+  `FRONTEND.md`、`FILE-CONVENTIONS.md`、`DEBUGGING.md` 和 `PROJECT.md`；旧阶段架构文档同步变动的历史事实。
 
 `goal.md` 不改：本次没有触碰它的任何禁令（无 FFmpeg/网络/数据库/自研驱动），也没有改产品方向。
 
@@ -339,14 +338,11 @@ dev/ ──► 任意（仅调试）
 
 ### S0 — 基线固化与清理（不改行为）
 
-- 把当前 83 个脏文件按功能拆成若干提交，先建立可回退点（现在整棵树未提交，重构没有 baseline）。
-- 根目录调试残留归档/删除：`snap-*.raw`、`snap-menu*.png`、`probe-*.wav{,.ref.wav}`、
-  `seek-*.wav{,.ref.wav}`；`.gitignore` 补 `*.raw`、`snap-*`、`probe-*`、`seek-*`。
-- 新增 `scripts/check.cmd`（fmt --check + 默认级别 Clippy 并显示告警；S6 收敛后启用
-  `clippy -- -D warnings` + build + 行数门禁）与 `scripts/smoke.cmd`（设备、进程、快照）。
-- 记录基线：debug/release exe 体积、空闲/播放 RAM、CPU、启动时间 → `docs/step-33-refactor-baseline.md`；
-  `--snapshot-ui` 出图保存为后续每片的回归基准。
-- 验收：`scripts/check.cmd` 通过；三张基线截图可复现。
+- 已完成：`scripts/check.cmd`、`scripts/check-lines.ps1`、`scripts/smoke.cmd` 和调试产物忽略规则。
+- 已完成：S0 之后各源代码切片分别提交；当前门禁包含严格 Clippy、构建和行数检查。
+- 未完成：debug/release 体积、RAM、CPU、启动时间的实测基线；未生成 `step-33-refactor-baseline.md`。
+- 未完成：分类菜单快照。现有 `--snapshot-ui` 只覆盖默认态和条目菜单两种状态。
+- 验收状态：check/smoke 自动路径通过；资源数据和三态截图基线尚未完成。
 
 ### S1 — 桥接层目录化（`ui_bridge.rs` 1976 → 目录，最大收益）
 
@@ -355,8 +351,8 @@ dev/ ──► 任意（仅调试）
 - `library::visible_entry()` 统一可见下标映射；`player::stop_playback()` 统一解码取消、SFX StopAll 与试听停止。
 - `persist::SaveQueue` 使用单次 300 ms 防抖与 FIFO 单写线程；18 个回调写盘点改为调度，退出时 flush/join。
 - `snapshot_to_file` 迁到 `dev/snapshot.rs`；`probe`/CLI 相关未动。
-- 验收：`check.cmd` + `smoke.cmd` + UI 全路径（选进程→选设备→开始→有声→音量→停止）+
-  音频库（导入/双击播放/切歌/拖进度/停止/右键菜单）+ 截图与基线一致。
+- 验收目标：`check.cmd`、`smoke.cmd`、UI 路由与音频库完整手工路径、截图基线一致。
+- 实测状态：自动门禁和默认/条目菜单快照通过；桌面音频路径与分类菜单快照尚未覆盖。
 
 ### S2 — 领域门面：UI 不再绕过引擎
 
@@ -385,7 +381,7 @@ dev/ ──► 任意（仅调试）
 
 - 已完成：多输出 fan-out、格式转换与目标 render 工厂迁移到 `engine/fanout.rs`。
 - 已完成：CLI Process Loopback WAV 导出迁移到 `audio/dump.rs`。
-- 未完成：PCM、重采样、运行时容量公式和错误分类公共原语的进一步合并。
+- 未完成：`engine.rs` / `capture.rs` 目录化、PCM/resample/runtime/errors 原语合并和实时分配收敛。
 - 验收：构建、领域单测、设备/进程/UI 快照冒烟通过；真实 WAV/route 采样验收未自动化。
 
 
@@ -403,35 +399,22 @@ dev/ ──► 任意（仅调试）
 
 - 已完成：CLI 派发、帮助、设备/进程/capture/route 和 probe 迁移到 `src/cli/mod.rs`，`main.rs` 收敛为组合根。
 - 已完成：新增 `platform/com.rs`，`process.rs` 不再直接依赖 `audio::com`。
-- 未完成：`config.rs` 的 model/store/single-instance 拆分。
+- 已完成：config 拆为 model/store/single-instance；CLI 与 COM 转发已迁移。
+- 未完成：`Hotkey::label()` / `slint_key_to_vk()`、`process::label()` 和 dialogs/workarea 的基础设施归位。
 - 验收：构建、设备/进程 CLI 与 UI 快照冒烟通过。
-- `main.rs` → 纯组合根；CLI 拆到 `cli/`；`probe_playback` → `dev/probe.rs`（保留，它是本仓唯一的音频链路自动验证器）。
-- 新建 `platform/`：`process.rs` 改用 `platform::com`（消除 `process → audio` 反向依赖）；
-  `ui_bridge` 的 Win32 对话框/工作区查询/热键捕获搬进 `platform` 与 `ui_bridge/input.rs`。
-- `config.rs`(421) → `config/{mod,store,single_instance}.rs`；`slint_key_to_vk`/`Hotkey::label` 移出 config
-  （config 不再知道 Slint 与 UI 文案）；`process.rs::label()` 文案移入 `ui_bridge/lists.rs`。
-- 验收：全部 CLI 子命令输出与改造前逐字对比一致；旧 `config.json` 能读、新写回能被旧版本忽略；
-  单实例仍生效（双开第二个进程立即退出）。
+- 未完成：`probe_playback` 仍在 `cli/mod.rs`；Win32 对话框、工作区查询和热键捕获仍在桥接层。
+- 未完成：把 `slint_key_to_vk()` / `Hotkey::label()` / `ProcessInfo::label()` 移到桥接层。
+- 未完成验收：逐字比较 CLI 输出、旧配置迁移兼容与单实例双开退出。
 
 ### S6 — 收口：死代码、可见性、测试、文档与规则
 
-- 已完成：config model/store/single-instance 拆分，删除未接线 Pad/播放器/热键模式/自动重连/播放按键配置。
-- 已完成：删除已核实未调用音频与引擎 API，严格门禁切换为 `clippy -- -D warnings`。
-- 已完成：分类索引与递归删除单测；S6 构建、单测、CLI/UI 快照冒烟通过。
-- 未覆盖：真实声卡逐采样/听感、Windows 桌面交互、资源基线测量。
-
-- 删除 §1.8 列出的死代码/死配置（含全仓无读取点的 `Hotkeys.mode`、`PlayMode`、`PadConfig`、
-  `PlayerConfig`、`Hotkeys.stop_all`、`RouteConfig.auto_reconnect`）。
-- 处理三处「能设置、不生效」的接线缺口（`PlaybackKeyMode`、音频条目热键、`Hotkeys.mode`）：
-  本次默认**从设置/菜单里移除或明确置灰**，实现留给既有提案的 S6；
-  钩子的落点写在 `hotkey/hook.rs` 的模块注释里，不留空实现。
-- `pub` → `pub(crate)`/`pub(super)` 全仓收口（本项目是纯 bin，无对外 API）。
-- 新增最小单测集：`audio/pcm`（各格式/声道）、`audio/wav`（RIFF 解析）、`library`（分类路径/递归删除）、
-  `ui_bridge/format`（时长/位置）、`config/store`（v1→v2 迁移）。**不写**需要设备的测试。
-- 文档：`AGENTS.md` 规则修订已于本次就地落地（§2 的 R1–R9）；S6 只剩修正
-  `step-02-rust-architecture.md` 的 §1.9 八处漂移、复核 `FRONTEND.md`/`DEBUGGING.md`（本次已重写，S1–S5 每次动 UI 都要再同步一次）、
-  写 `docs/step-34..38-*.md`。
-- 验收：`check.cmd`（含行数门禁：0 个文件 > 400 行、0 个函数 > 100 行）全绿。
+- 已完成：config 拆为 model/store/single-instance；移除未接线的 Pad/播放器字段、热键模式/停止热键、自动重连和播放按键设置。
+- 已完成：删除已核实未调用的 SFX/试听/解码辅助；`scripts/check.cmd` 的严格 Clippy 与构建通过。
+- 已完成：分类索引与递归删除单测；`scripts/smoke.cmd` 的设备/进程和两种 UI 快照通过。
+- 未完成：将 `Hotkey::label()` / `slint_key_to_vk()` / `ProcessInfo::label()` 移出基础设施，收紧剩余 `pub` 可见性。
+- 未完成：PCM/WAV/config 迁移/时长格式化等单测；当前只有两条 library 单测。
+- 未完成：零超限文件预算；`engine.rs`、`audio/capture.rs`、`ui/app-window.slint` 仍由行数门禁按不增长基线豁免。
+- 未覆盖：真实设备 WAV 逐采样/route 听感、Windows 桌面交互和 RAM/CPU/启动时间基线。
 
 ---
 

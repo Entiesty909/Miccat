@@ -10,16 +10,12 @@
 
 ## 1. 一句话
 
-用户选一个进程和一个输出设备，把该进程的声音经 Process Loopback 实时送到该设备。
+用户选择一个或多个进程、可选物理麦和一个或多个 render 设备；进程声必须使用 WASAPI Process Loopback。
 
 ```text
-Target PID
-    → WASAPI Process Loopback (shared, event)
-    → convert to f32 @ render format
-    → SPSC ring (fixed)
-    → volume
-    → WASAPI Shared Render
-    → IMMDevice (CABLE Input / 耳机 / 任何 render)
+process PIDs → capture threads ─┐
+optional physical mic ──────────┼→ source SPSC rings → fanout → per-target rings → render
+library decode → SFX mixer ────┘                         ↘ monitor render（可选）
 ```
 
 ---
@@ -34,73 +30,88 @@ build.rs
 ui/
   app-window.slint
   theme.slint
+  overlays/context-menu.slint
   components/
   pages/
 src/
-  main.rs              DPI、日志与 CLI/UI 组合根
-  error.rs             统一错误
-  process.rs           进程枚举
+  main.rs
+  cli/mod.rs
+  config/mod.rs
+  config/store.rs
+  config/single_instance.rs
+  engine.rs
+  engine/fanout.rs
+  engine/monitor.rs
+  engine/playback.rs
+  error.rs
+  hotkey.rs
+  library.rs
+  platform/mod.rs
+  platform/com.rs
+  process.rs
+  vbcable.rs
   audio/
     mod.rs
-    com.rs             COM 初始化
-    device.rs          输出设备枚举
-    format.rs          WAVEFORMATEX 解析 / 声道 / 线性重采样
-    buffer.rs          SPSC f32 ring
-    capture.rs         Process Loopback / 麦克风捕获线程
-    render.rs          WASAPI render 线程与三路 ring 混音
-    wav.rs             开发验证：PCM16 WAV 写出
-  engine.rs            常驻输出、动态源、Start/Stop 兼容入口
-  cli/                  CLI 派发与播放探针
-  config/               配置模型、JSON 存储、单实例
-  platform/             跨层 COM 基础设施
+    buffer.rs
+    capture.rs
+    com.rs              platform COM 转发
+    decode.rs
+    device.rs
+    dump.rs
+    format.rs
+    peak.rs
+    policy.rs
+    preview.rs
+    render.rs
+    sfx.rs
+    wav.rs
   ui_bridge/
-    mod.rs              窗口启动、组装与退出
-    state.rs             桥接共享状态
-    cache.rs             UI 视图缓存
-    callbacks/           route、route_start、library、player、settings
-    lists.rs             进程与设备列表填充
-    library.rs           分类、条目筛选与列表模型
-    format.rs            时长与位置文案
-    persist.rs            配置防抖与退出 flush
-    status.rs             状态与电平轮询
-    input.rs              系统热键
-    window.rs             窗口尺寸适配
-    dialogs.rs            原生文件选择器
-    playback.rs           播放辅助
-    dev/snapshot.rs       UI 快照验证
+    mod.rs
+    state.rs
+    cache.rs
+    lists.rs
+    library.rs
+    format.rs
+    persist.rs
+    status.rs
+    input.rs
+    window.rs
+    dialogs.rs
+    callbacks/
+      mod.rs
+      route.rs
+      route_start.rs
+      library.rs
+      library_entries.rs
+      library_metadata.rs
+      player.rs
+      settings.rs
+    dev/snapshot.rs
 docs/
-  step-01-architecture-analysis.md
-  step-02-rust-architecture.md
   step-*.md
 ```
 
 ## 3. 线程
 
 ```text
-UI / main（Slint）
-    command: OpenOutput | CloseOutput | SetProcess | SetMic | SetVolume
-        ↓  safe AudioEngine API + atomics
-AudioEngine
-    ├─ process capture thread  COM MTA → ring_process
-    ├─ mic capture thread      COM MTA → ring_mic
-    ├─ sfx/file thread         S2 先为空 → ring_sfx
-    └─ render thread           COM MTA：pop 三条 ring + 混音 + 写设备
+Slint UI / 50 ms 状态轮询
+    ├─ 路由命令 ─────────────→ AudioEngine
+    │   ├─ Process Loopback × 4 ─┐
+    │   ├─ optional physical mic ─┼→ source SPSC rings
+    │   └─ SFX mixer ─────────────┘
+    │          ├─ fanout → per-target rings → WASAPI render per output
+    │          ├─ file playback → bounded decode streams → SFX/monitor
+    │          └─ optional monitor source → local WASAPI render
+    └─ config changes → 300 ms debounce → serial writer; exit flush/join
 ```
 
-配置写盘：UI 修改只重置 300 ms 单次计时器；到期后快照进入单写线程，退出时 flush 并 join。
+`open_outputs()` 为最多 4 个进程槽、麦克风和 SFX 建源 ring；每个输出目标有独立目标 ring 与 render 线程。
+Process/Mic capture、render 和 monitor render 在线程内初始化 COM MTA；fanout 和 SFX mixer 不调用 UI。
+文件解码经 32 项有界同步通道分块交付，播放状态由引擎持有。
 
-每条 ring 都保持 SPSC：一个源线程生产，render 线程消费。输出线程可以独立常驻，
-进程源与物理麦源由 `set_process_source` / `set_mic_source` 动态启停，S4/S5 再让
-`ring_sfx` 接入声板与文件播放器。
-
-实时线程禁止：heap 扩容、文件、网络、UI、阻塞锁、tracing 刷屏。ring 预分配；
-转换用线程启动时拿好的暂存 `Vec<f32>`。关停仍用 `AtomicBool` + join。
-
-COM：音频线程 `CoInitializeEx(COINIT_MULTITHREADED)`。已初始化则忽略 `RPC_E_CHANGED_MODE`。
-
-关停：`AtomicBool` + `WaitForSingleObject` 超时 50–100ms，以便看到 stop。`Drop` join。
-
-COM：音频线程 `CoInitializeEx(COINIT_MULTITHREADED)`。已初始化则忽略 `RPC_E_CHANGED_MODE`。UI 线程不强制改 apartment。
+每条音频 ring 都保持 SPSC；生产者/消费者固定，容量和转换暂存于启动时分配。
+实时循环不得扩容、写文件、访问 UI、打日志或等待普通阻塞锁。
+关停通过原子标志通知并 join；试听源停止请求将 join 移出 Slint 回调。
 
 ---
 
@@ -117,7 +128,7 @@ Windows 10 20348+：
 - `IAudioClient::Initialize(SHARED, LOOPBACK | EVENTCALLBACK, 0, 0, mixFormat, NULL)`
 - `IAudioCaptureClient` + event handle
 
-`unsafe` 只留在 `audio/capture.rs` 与 `audio/render.rs`、COM 回调 impl。
+`unsafe` 只在 WASAPI、COM/MF、Win32 等互操作模块内使用；每处按 `AGENTS.md` 写 SAFETY 条件。
 
 ### 4.2 Render
 
@@ -139,23 +150,15 @@ MVP 不引入 FFmpeg / rubato。
 
 ### 4.4 音量
 
-`AtomicU32` 存 `f32.to_bits()`。render 出设备前依次乘进程音量、物理麦音量与总音量，clamp 到 0..=1。不在 UI 存权威值。
+`AtomicU32` 存 `f32.to_bits()`。render 输出按进程、物理麦、SFX、总音量缩放；权威值在 `AudioEngine`，不在 Slint。
 
 ---
 
 ## 5. 状态
 
-```text
-selected_pid: Option<u32>
-selected_device_id: Option<String>    // WASAPI 设备 ID，不是 MME 下标
-volume: f32
-running: bool
-status: Idle | Running | ProcessExited | DeviceGone | Error
-error_message: String                  // 给 UI 的短句
-```
-
-运行时音频权威在 `AudioEngine`，持久化权威在 `AppConfig`。Slint 只显示桥接层状态。
-S1 的 `UiCache` 仍保留部分配置镜像字段，尚未完成权威收口。
+运行时音频权威在 `AudioEngine`：输出、输入源、状态、电平、试听与文件播放控制。
+持久化权威在 `AppConfig`。`AppState` 由桥接层持有；`UiCache` 仍包含部分配置镜像字段。
+Slint 属性只作显示投影，不持有 PCM；缓存与配置的单一权威收口仍未完成。
 
 UI 短句示例：
 
@@ -180,6 +183,8 @@ enum Error {
     Format(&'static str),
     Io(std::io::Error),
     TimedOut(&'static str),
+    InvalidArgs(String),
+    Cable(String),
 }
 ```
 
@@ -192,12 +197,12 @@ COM 失败映射为上述类型。
 
 | crate | 理由 | 能否 Win32 替代 | 体积 | 结论 |
 |---|---|---|---|---|
-| `windows` | WASAPI / COM / ToolHelp / 窗口标题 | 自己绑 FFI 更差 | 编译期为主 | **要** |
-| `slint` + `slint-build` | 原生 UI，无 WebView | 纯 Win32 对话框能做但开发差 | 最大一档；用 software renderer 压 | **要** |
-| `tracing` + `tracing-subscriber` | 开发日志 | `eprintln` 也能 | 小 | 开发要，音频热路径不用 |
-| `serde` / `serde_json` | 配置文件 | 第二阶段 | — | **MVP 不引入** |
-| `clap` / `anyhow` / `thiserror` / `rtrb` / `hound` / `cpal` / `wasapi` | 方便 | 标准库 + 手写 | 避免 | **不要** |
-| `tokio` | 无网络异步需求 | — | 大 | **不要** |
+| `windows` 0.62.2 | WASAPI / Win32 / Media Foundation / ToolHelp | 手写 FFI 更差 | 编译期为主 | **要** |
+| `windows-core` 0.62.2 | COM / GUID / IUnknown 类型 | 需与 windows-rs 对齐 | 小 | **要** |
+| `slint` + `slint-build` | 原生 UI，无 WebView | 纯 Win32 对话框开发成本高 | 依赖中最大 | **要** |
+| `tracing` + `tracing-subscriber` | 结构化诊断日志 | `eprintln` 能替代但不可配置 | 小 | **要** |
+| `serde` / `serde_json` | AppConfig 本地 JSON 存储与迁移 | 手写序列化易错 | 小 | **已使用** |
+| `clap` / `tokio` / `cpal` / `rodio` / 其他大型音频框架 | 无必要 | 标准库 / Win32 已覆盖 | 避免新增 | **不要** |
 
 Slint features（目标最小）：`std`、`backend-winit`、`renderer-software`、`compat-1-2`。不用 femtovg/skia/qt。
 
@@ -218,46 +223,42 @@ Step 9 对比 `opt-level = "z"`；若体积收益小、CPU 变差则维持 `3`�
 
 ## 8. CLI（无 UI 验证）
 
-无额外 CLI 库。`std::env::args`：
+无额外 CLI 库，入口位于 `src/cli/mod.rs`，参数由 `std::env::args` 解析：
 
 ```text
-mintcat-proc-mic.exe                     启动 UI
+mintcat-proc-mic.exe
+--help
 --list-processes
 --list-devices
 --capture <pid> --wav <path> --seconds N
---route <pid> --device <id>
+--route <pid> --device <id> --seconds N
+--snapshot-ui --out <path> [--menu]
+--probe-playback <file> --seconds N --start N --out <path> [--sfx] [--raw]
 ```
 
-Step 5 用 `--capture` 证 Process → WAV。  
-Step 6 用 `--route` 证实时转发。
+`--capture` 和 `--route` 用于实机采集/路由；`--probe-playback` 用于离线逐采样探针。
 
 ---
 
 ## 9. UI
 
-UI 已按三页拆分，避免把路由、音频库、设置塞进单文件：
+界面入口和分层：
 
 ```text
-ui/
-  app-window.slint       窗口、顶栏页签、页面路由、常驻状态栏与菜单装配
-  theme.slint            颜色、间距、字号 token
-  overlays/context-menu.slint 右键菜单遮罩、钳制与动作
-  components/            卡片、按钮、页签、声纹、滑条、热键字段、空态
-  pages/                 route、player、settings 页面
+ui/app-window.slint
+├─ pages/route.slint
+├─ pages/player.slint
+├─ pages/settings.slint
+└─ overlays/context-menu.slint（只实例化一次）
 ```
 
-当前三页为：路由 / 音频库 / 设置。音频库统一承担 Soundpad 与播放器职责；未接线的全局播放按键设置已在 S6 删除。
+三页为路由、音频库、设置。右键菜单组件负责遮罩与坐标钳制，页面只上报锚点和开关。
 
-- 进程列表：`出声 · exe  [pid]  title`，有窗口的排前面；三张路由卡片等比例伸缩，长文本在控件内部截断
-- 音频库：左侧按 `/` 路径展开的嵌套分类树，右侧当前分类音频列表，双击播放到当前目标
-- 音频列表索引按当前筛选结果从 1 开始；时长由 WAV 头或 Media Foundation 元数据计算并持久化
-- 音频库右键菜单由 Slint 绘制为 Windows 11 风格的白色圆角菜单，分类支持新增子分类、重命名和递归删除
-- 播放切换先停止旧源并清空 ring；流式播放器消费完整帧，避免缓冲边界重复帧；进度与总时长每 50 ms 更新
-- 音量：进程、物理麦、音效、总音量均为 0–100
-- 状态点 + 短句 + 输出名称 + 开始/停止
-- 刷新：重枚举进程和设备
-
-定时器 50 ms 从引擎抽状态（进程退出、设备失效、电平）并更新播放器进度。不会把 PCM 送 UI。
+- 音频库分类采用 `/` 层级路径；当前分类包含后代，搜索在可见结果上执行。
+- `AudioEngine::file_state()` 提供名称、时长和位置；UI 每 50 ms 更新显示，不接收 PCM。
+- 路由混音控件为进程、物理麦和总音量；本机试听另有独立音量。
+- S6 移除了未接线的全局播放按键、条目热键和热键模式设置。
+- 路由状态栏显示 EngineStatus 短句、当前输出、混麦选择和启停操作。
 
 
 ---
@@ -274,15 +275,16 @@ ui/
 ## 11. 模块边界
 
 ```text
-ui/ ──► ui_bridge/mod.rs ──► callbacks/、lists/、persist/、status/
-                    ├─► engine ──► audio
-                    └─► config / device / dialogs
+ui/ ──► ui_bridge/ ──► engine/AudioEngine ──► audio/
+              ├────► library.rs / config/
+              ├────► process / hotkey
+              └────► audio::device/policy / dialogs / vbcable
+process ─────► platform::com ◄──── audio::com
 ```
 
-S1 已按职责拆分桥接内部模块；桥接回调仍直接访问 audio 解码、SFX、试听与设备策略，
-以及 VB-CABLE 安装。S2/S5 负责切断这些越层依赖。
-
-`engine` 不引用 Slint。`capture` 不引用 UI。
+`engine` 和 `audio` 不引用 Slint；`process` 不再依赖 `audio`。UI bridge 不直接调用
+`audio::decode`、`audio::sfx` 或 `audio::preview`；设备策略、文件对话框和 VB-CABLE 的
+基础设施直连仍待进一步收口。
 
 ---
 
@@ -320,4 +322,5 @@ Electron / Tauri / WebView / FFmpeg / GStreamer / SQLite / 网络 API / 登录 /
 | SDK | `D:\Windows Kits\10` `10.0.26100.0` |
 | Edition | 2024（1.98 支持） |
 
-Step 2 完成。下一步：最小 Cargo 工程 + 进程枚举。
+Step 2 是历史基线；当前代码结构见根目录 `ARCHITECTURE.md`。
+重构状态和未完成验收见 `PROJECT.md` 与 `docs/refactor-plan.md`。

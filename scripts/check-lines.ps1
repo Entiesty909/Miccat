@@ -11,11 +11,9 @@ foreach ($directory in @('src', 'ui')) {
         ForEach-Object {
             $relative = $_.FullName.Substring($root.Length + 1).Replace('\', '/')
             $baselineCap = 0
-            if ($relative -eq 'src/ui_bridge.rs') { $baselineCap = 1976 }
-            if ($relative -eq 'src/audio/capture.rs') { $baselineCap = 569 }
-            if ($relative -eq 'src/engine.rs') { $baselineCap = 551 }
-            if ($relative -eq 'ui/app-window.slint') { $baselineCap = 508 }
-            if ($relative -eq 'src/config.rs') { $baselineCap = 421 }
+            if ($relative -eq 'src/engine.rs') { $baselineCap = 432 }
+            if ($relative -eq 'src/audio/capture.rs') { $baselineCap = 451 }
+            if ($relative -eq 'ui/app-window.slint') { $baselineCap = 383 }
             $lineCount = @(Get-Content -LiteralPath $_.FullName).Count
             $limit = if ($_.Extension -eq '.slint') { 300 } else { 400 }
 

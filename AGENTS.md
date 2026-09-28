@@ -1,7 +1,9 @@
 # ProcessMic 智能体约束
 
-给在本仓库改代码的 agent 用。先读本文件，再动代码。权威需求：`goal.md`。架构事实：`docs/step-01-architecture-analysis.md`、`docs/step-02-rust-architecture.md`。
-重构计划（分片、行数预算、验收、删除清单）：`docs/refactor-plan.md`。UI 边界与契约面：`FRONTEND.md`。故障定位：`DEBUGGING.md`。
+先读本文件，再按 `PROJECT.md` 查找当前文档。权威需求：`goal.md`。架构事实：`ARCHITECTURE.md`、
+`BACKEND.md`、`API.md` 与 `docs/step-02-rust-architecture.md`。
+UI 边界：`FRONTEND.md`；文件规范：`FILE-CONVENTIONS.md`；故障定位：`DEBUGGING.md`。
+重构计划：`docs/refactor-plan.md`；阶段实测：`docs/step-*.md`。
 
 产品：Windows 专用、极轻的 **Process Audio Router**（ProcessMic）。  
 栈：Rust 2024 + Slint + windows-rs 0.62 + WASAPI。  
@@ -24,7 +26,8 @@
 按顺序：
 
 1. 读 `goal.md` 对应章节（原则、禁止项、当前阶段）。
-2. 读 `docs/step-02-rust-architecture.md` 和本文件「已知陷阱」。
+2. 读根目录 `ARCHITECTURE.md`、`BACKEND.md`、`FILE-CONVENTIONS.md`，
+   再对照 `docs/step-02-rust-architecture.md` 和本文件已知陷阱。
 3. 读将改模块的**完整源文件**，不是只读函数签名。改导出符号前查调用点。
 4. 复述：要改什么、不改什么、怎么验证。范围不清就停，先问。
 5. 新功能：对照 `docs/step-01-architecture-analysis.md` 里「可删 / DRG 特化 / 通用」分类。DRG、命名管道、TTS、Mod 安装不要进 `engine` / `audio`。
@@ -68,22 +71,28 @@ Slint 回调里做同步 IO / 枚举设备 / join 线程（见 3.5.1）
 - 模块按职责，能合并就合并。现树：
 
 ```text
-src/main.rs          CLI + UI 入口（组合根：DPI、tracing、argv 派发）
-src/engine.rs        AudioEngine：源线程 + 多输出 render + fan-out（音频状态权威）
-src/error.rs         统一错误；UI 只用 user_message()
-src/process.rs       进程枚举
-src/config.rs        serde 配置模型 + 持久化 + 单实例互斥
-src/hotkey.rs        RegisterHotKey（仅 System 模式；GlobalHook 未实现）
-src/ui_bridge.rs     Slint 回调、UI 缓存、50ms 状态轮询（当前 1976 行，按 3.1.2 拆）
-src/vbcable.rs       VB-CABLE 安装
-src/audio/
-  com.rs buffer.rs format.rs device.rs policy.rs peak.rs wav.rs
-  capture.rs render.rs sfx.rs preview.rs decode.rs
+src/
+  main.rs                 DPI、日志、CLI/UI 组合根
+  cli/mod.rs              CLI 参数分派与播放探针
+  engine.rs               AudioEngine 状态与生命周期
+  engine/                 fanout.rs、monitor.rs、playback.rs
+  audio/                  WASAPI、MF、PCM、SFX、试听、WAV、dump
+  config/                 mod.rs、store.rs、single_instance.rs
+  platform/               共享 COM 初始化
+  process.rs               进程枚举
+  hotkey.rs                RegisterHotKey 服务
+  library.rs               音频库分类与条目规则
+  ui_bridge/               Slint 装配、AppState、UiCache、列表与持久化
+    callbacks/             route、route_start、library、player、settings
+    dev/snapshot.rs        软件渲染 UI 快照
+  error.rs                 统一错误与用户短句
+  vbcable.rs               VB-CABLE 安装
 ui/
-  main.slint         窗口 + 顶栏/页面/状态栏 + 右键菜单覆盖层
-  theme.slint        视觉 token
-  components/        可复用控件（button、card、menu-item…）
-  pages/             页面（route、player、settings）
+  app-window.slint          窗口与三页装配
+  overlays/context-menu.slint 右键菜单覆盖层
+  theme.slint               视觉 token
+  components/               可复用控件
+  pages/                    route、player、settings
 ```
 
 目标树与每文件行数预算见 `docs/refactor-plan.md` 第三节，按 S0–S6 分片落地；本树描述的是**当前**代码。
@@ -95,8 +104,8 @@ C# / WPF 源码已从工作树移除，原始文件见 git 历史，分析结论
 - **先搜再写**：动手前 `grep` 一遍有没有现成的函数、组件、常量；有就复用或就地扩展，**不要再造第二套**。
 - 同一段东西出现两次就抽出来：
   - Slint 控件放 `ui/components/*.slint`，用 `export component`，页面只组合不复制（例：菜单项 `components/menu-item.slint`）。
-  - 覆盖层（右键菜单、遮罩）在 `main.slint` 顶层**只声明一次**；页面只上报坐标与开关，不许每个页面各写一份。
-  - Rust 共用流程抽成模块级 `fn`（例：播放启动统一走 `ui_bridge::start_playback`，ring 写入统一走 `push_latest` / `push_paced`）。
+- 覆盖层在 `ui/overlays/` 定义，由 `ui/app-window.slint` 只实例化一次；页面只上报坐标与开关。
+  Rust 播放流程走 `AudioEngine::play_file()` / `stop_file()`，不在桥接回调中自行开解码线程。
 - 状态放权威对象：音频状态在 `AudioEngine`，UI 缓存状态在 `UiCache`。不要在别处新造平行状态或第二份列表。
 - 目录就是分层：新页面进 `ui/pages/`，新控件进 `ui/components/`，音频相关进 `src/audio/`。不要造空壳模块。
 
@@ -176,8 +185,8 @@ ring 固定容量；转换缓冲在线程启动时分配，循环内只 `clear`/
 
 ### 3.5.1 UI 线程（Slint 回调）约束
 
-- 回调里禁止同步 IO、解码探测、设备/进程枚举、`join` 线程、加载大文件；超过 16ms 的工作丢给线程，
-  结果用 `slint::invoke_from_event_loop` 回写（现有例：Cable 安装、播放启动）。
+- 回调里禁止同步 IO、解码探测、设备/进程枚举、`join` 线程和加载大文件；超过 16 ms 的工作丢给线程。
+  用 `slint::invoke_from_event_loop` 回写（例：Cable 安装）；文件播放状态由引擎轮询回写。
 - 配置写盘必须 debounce（≥ 300ms）并在退出时 flush；禁止在滑块/拖动类回调里逐事件 `save`。
 - 回调只做「读 UI 属性 → 调领域 API → 写回 UI 属性」，不放业务判断；
   索引映射、时长格式化这类纯逻辑抽成函数并配单测。
@@ -253,8 +262,9 @@ config/       不得 use Slint 类型、不得产出 UI 文案（键位 ↔ 文�
 4. 进程退出、设备失效、Initialize 失败：UI 短句 + tracing 细节，线程不崩。
 5. 阶段结束写 `docs/step-XX-*.md`：做了什么、怎么跑的、实测结果（RAM/CPU/体积见 `goal.md` 第七节）。
    重构片额外记录基线对比证据与超限清单变化。不要空模板。
-6. 同步被你改掉的事实：`docs/step-02-rust-architecture.md`（线程/格式/目录/依赖）、`FRONTEND.md`（UI 边界与契约面）、
-   `DEBUGGING.md`（定位路径）。过期描述比没文档更糟。
+6. 改动影响用户行为、目录/接口、线程/状态、配置或排障路径时，必须同阶段更新文档。
+   对照 `ARCHITECTURE.md`、`BACKEND.md`、`FRONTEND.md`、`DEBUGGING.md`、
+   `FILE-CONVENTIONS.md`；项目文档索引由 `PROJECT.md` 维护。
 7. 排版与规模自查：`.slint` 无超 100 字符行、一行一件事；碰过的 `.rs` 已 `cargo fmt`；
    超限文件（3.1.2 硬指标）只减不增。
 8. 不要提交用户没要的 md、测试垫片、脚手架；调试产物（`*.raw`、`*.wav` 比对文件、截图）不进仓库。

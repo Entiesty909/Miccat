@@ -1,0 +1,56 @@
+# FILE-CONVENTIONS.md — 目录、命名与交付规范
+
+本文件是仓库导航和约定说明。硬约束以 [`AGENTS.md`](AGENTS.md) 为准；冲突时不得用本文降低 AGENTS 的要求。
+
+## 1. 模块与目录
+
+- 单 crate；用 Rust 模块分层，不按类或方便程度堆在一个文件。
+- 每个文件只承担一个清楚的职责；新模块必须有顶层 `//!` 说明。
+- `foo.rs` 可配 `foo/` 子目录拆职责；拆分必须迁移调用点，不留双实现或兼容壳。
+- 当前目录职责见 [`ARCHITECTURE.md`](ARCHITECTURE.md)，API 与状态边界见 [`BACKEND.md`](BACKEND.md)。
+- Slint 页面只编排视图；可复用控件进 `ui/components/`，覆盖层进 `ui/overlays/`。
+
+## 2. 命名与接口
+
+- Rust 类型使用 `UpperCamelCase`；函数、字段、模块使用 `snake_case`。
+- Slint 属性/回调使用 `kebab-case`；Rust 回调注册按领域放在 `ui_bridge/callbacks/`。
+- 模块内部优先 `pub(super)` / `pub(crate)`；仅跨 crate API 才使用 `pub`。
+- 模块顶层写一行 `//!`；对外结构、枚举变体、函数和字段用中文 `///` 说明用途或不变量。
+- 状态只由权威对象持有：`AudioEngine` 管音频运行态，`AppConfig` 管持久化；UI 缓存仅放显示/交互派生态。
+
+## 3. 文件规模与排版
+
+- `.rs` ≤ 400 行；`.slint` ≤ 300 行；单函数 ≤ 100 行；单闭包 ≤ 30 行。
+- 单行超过 100 字符必须换行；缩进 4 空格；一行表达一件事。
+- `.rs` 用 `cargo fmt`；Slint 保持一行一个属性/绑定，长条件和嵌套三元拆行。
+- 当前三个历史超限文件仍待拆：`src/engine.rs` 432 行、`src/audio/capture.rs` 451 行、`ui/app-window.slint` 383 行。
+- `scripts/check-lines.ps1` 为这三个文件设置“不增长”基线；门禁通过只表示未超过基线，不表示已达到行数预算。
+
+## 4. 依赖与 unsafe
+
+```text
+ui/ → ui_bridge/ → engine/ → audio/
+                  ├→ library.rs / config/
+                  └→ platform/、process、hotkey
+```
+
+- `engine/` 和 `audio/` 不得依赖 Slint；`process/` 不得依赖 `audio/`。
+- `ui_bridge/` 不得直接调用 `audio::decode`、`audio::sfx` 或 `audio::preview`；使用 `AudioEngine` 安全 API。
+- 设备枚举、COM 和文件对话框只放在基础设施职责中；跨层例外必须在架构文档中说明。
+- `unsafe` 只用于明确的 FFI/COM 边界；每块写 `// SAFETY:`，说明别名、生命周期、释放者和线程 apartment。
+- 音频热循环不得分配扩容、阻塞、写文件、访问 UI 或打日志。
+
+## 5. 测试与工具
+
+- 纯逻辑以观察行为和边界编单测；不写依赖真实声卡的测试。
+- 当前领域单测位于 `src/library.rs`；PCM/WAV/配置迁移等计划测试见 [`docs/refactor-plan.md`](docs/refactor-plan.md)。
+- `scripts/check.cmd` 执行格式、`clippy -- -D warnings`、构建和行数门禁。
+- `scripts/smoke.cmd` 执行设备/进程枚举及默认态、条目菜单 UI 快照。
+- 真实路由、WAV 逐采样比对和桌面交互的验证方法见 [`DEBUGGING.md`](DEBUGGING.md)。
+
+## 6. 文档同步
+
+- 改动影响行为、模块/目录、线程状态、配置格式或排障路径时，同阶段更新相关文档。
+  纯机械且不改变事实的格式调整无需单独增加文档。
+- 源树/依赖/线程同步 `ARCHITECTURE.md`；UI 契约同步 `FRONTEND.md`；引擎/API 同步 `BACKEND.md` 与 `API.md`。
+- 故障定位同步 `DEBUGGING.md`；项目索引同步 `PROJECT.md`；每片另写 `docs/step-XX-*.md` 实测记录。

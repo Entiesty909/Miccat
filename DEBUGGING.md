@@ -21,25 +21,28 @@ UI 渲染问题     → --snapshot-ui --out <file> [--menu] 出真 RGBA 图
 
 ## 2. 音频链路
 
-| 现象 | 先查 | 再查 |
-|---|---|---|
-| 目标设备没声 | `--list-devices` 里端点是否存在、是否被当成虚拟设备；`--route` 能否出声 | 输出 ring 与 render 线程是否起来；设备格式是否被 Initialize 接受 |
-| `0x80070057` 参数错误 | `WAVEFORMATEXTENSIBLE` 是否被 `*src` 成 `WAVEFORMATEX`（`cbSize=22` 尾巴丢失） | `sanitize_wave` 是否把格式做成 `cbSize=0` 的 PCM / IEEE float |
-| `0x88890021` 无法初始化 | 进程环回 Initialize 是否带了 `AUDCLNT_STREAMFLAGS_LOOPBACK` | `AUTOCONVERTPCM` / `SRC_DEFAULT_QUALITY` 是否在 flags 里 |
-| 播放重复某几帧 | `src/audio/decode.rs` 是否把超过当前块大小的 MF sample 尾部丢掉 | `src/audio/sfx.rs`、`src/audio/preview.rs` 是否按已消费的完整帧清理缓冲 |
-| 切歌/停止后进度不归零 | `callbacks/player.rs::stop_playback()` 是否取消解码、发送 `StopAll` 并停试听源 | UI 是否写回 `audio-progress`、`audio-duration-seconds`、`audio-current-position` |
-| 试听无声 | 引擎的试听输出是否被打开、设备是否可用 | 打开失败时是否只提示不崩（UI 短句 + tracing 细节） |
-| 进程退出/设备拔出后无声 | 状态是否变为 `ProcessExited` / `DeviceGone` | 音频线程是否仍存活、是否被正确 join |
+- 目标设备没声：先用 `--list-devices` 确认端点，再用 `--route` 验证目标。
+  检查每目标 ring/render 线程和设备 Initialize 格式。
+- `0x80070057`：检查 `WAVEFORMATEXTENSIBLE` 是否被截成 `WAVEFORMATEX`，导致 `cbSize` 尾部丢失。
+  `sanitize_wave` 应生成 `cbSize=0` 的 PCM 或 IEEE float 格式。
+- `0x88890021`：检查 Process Loopback Initialize flags 是否包含 `LOOPBACK`、
+  `AUTOCONVERTPCM` 和 `SRC_DEFAULT_QUALITY`。
+- 播放重复小片段：检查 `audio/decode.rs` 的 MF pending samples，
+  再看 `audio/sfx.rs` / `audio/preview.rs` 是否只删除已消费的完整帧。
+- 切歌/停止进度异常：检查 `AudioEngine::play_file()`、`stop_file()` 和 `file_state()`；
+  状态回写由 `ui_bridge/status.rs` 完成。
+- 本机试听无声：检查 `engine/monitor.rs` 的默认输出打开结果和 preview render 线程。
+- 进程退出/设备拔出：确认状态更新为 `ProcessExited` / `DeviceGone`，相关线程收到 stop 并 join。
 
 ---
 
 ## 3. 音频库与 UI
 
-- 分类异常：先核对「显示索引 → `category_paths()` 真实路径」的映射，再核对配置里的路径；
-  **不要**把带缩进的显示文本写回配置。
+- 分类异常：核对 `src/library.rs::category_paths()` 展开的路径与 `visible_entry_index()` 的过滤顺序；
+  缩进显示文本不得写回配置。
 - 索引/时长对不上：核对列表筛选顺序（当前分类含全部后代 + 搜索）与 `duration_hns` 是否已补齐。
-- 菜单不消失或位置不对：检查 `ui/overlays/context-menu.slint` 的遮罩、坐标钳制和页面上报；
-  菜单项高度与组件内部布局保持一致。
+- 菜单不消失或位置不对：检查 `ui/overlays/context-menu.slint` 遮罩、坐标钳制和页面上报；
+  当前高度固定为分类 132 px、条目 292 px。
 - 渲染核对：`--snapshot-ui --out <file>`（可加 `--menu` 复现右键菜单态），
   与改动前的基线图逐像素对比，比肉眼看窗口可靠。
 
@@ -50,5 +53,5 @@ UI 渲染问题     → --snapshot-ui --out <file> [--menu] 出真 RGBA 图
 - 原生 Slint 窗口不能用浏览器工具驱动；渲染可自动化（`--snapshot-ui`），**交互仍需 Windows 桌面手工操作**。
 - 需要真实声卡/虚拟线缆的判断（听感、Discord 侧是否听到）无法自动化，必须人工确认。
 - 工具与游戏权限不一致时热键收不到：与游戏同权限运行（都提权或都不提权）。
-- S1 已把桥接层拆到 `src/ui_bridge/`，S2 已把播放/试听收归 `AudioEngine`；
-  按 `callbacks/`、`engine/monitor.rs`、`engine/playback.rs` 和 `library.rs` 定位。
+- S1–S6 已按职责拆分桥接、引擎、音频、CLI、platform、config 与 Slint 菜单；
+  当前实现目录见根目录 `ARCHITECTURE.md`，旧单体路径不再存在。
