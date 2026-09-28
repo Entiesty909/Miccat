@@ -42,7 +42,7 @@ scripts\build-dev.cmd test
 ## 当前重构状态
 
 S1–S6 均有中文阶段提交。`scripts/check.cmd` 的严格 Clippy、构建和行数门禁通过；
-9 个音频库/配置迁移领域单测和设备/进程/UI 快照冒烟通过。
+10 个音频库/配置迁移领域单测和设备/进程/UI 快照冒烟通过。
 
 重构计划仍有未完成验收：RAM/CPU/启动时间基线、真实 `--capture` 逐采样对比、`--route` 听感和桌面交互；
 S3 滚动/虚拟化、S4 capture/engine 与 PCM 原语拆分、S5 config/UI 文案映射仍未完成。

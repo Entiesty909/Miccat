@@ -91,7 +91,7 @@ pub(crate) fn import_category(selected: &str) -> String {
     }
 }
 
-/// 创建不冲突的新子分类路径。
+/// 在所选分类下创建不冲突的子分类；空选择创建顶层分类。
 pub(crate) fn new_category(
     categories: &[String],
     entries: &[AudioEntry],
@@ -238,5 +238,18 @@ mod tests {
     #[test]
     fn new_category_from_empty_tree_is_a_root() {
         assert_eq!(new_category(&[], &[], ""), "新分类 1");
+    }
+    #[test]
+    fn new_categories_preserve_parent_child_and_sibling_paths() {
+        let mut categories = vec!["游戏".into(), "游戏/枪械".into()];
+        assert_eq!(new_category(&categories, &[], ""), "新分类 1");
+        assert_eq!(new_category(&categories, &[], "游戏"), "游戏/新分类 1");
+        assert_eq!(
+            new_category(&categories, &[], "游戏/枪械"),
+            "游戏/枪械/新分类 1"
+        );
+
+        categories.push("游戏/新分类 1".into());
+        assert_eq!(new_category(&categories, &[], "游戏"), "游戏/新分类 2");
     }
 }
