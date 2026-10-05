@@ -24,7 +24,7 @@ fn register_1(ui: &MainWindow, state: &AppState) {
                 Ok(info) => info,
                 Err(error) => {
                     if let Some(ui) = ui_weak.upgrade() {
-                        ui.set_error_text(error.user_message().into());
+                        super::super::diagnostics::report_error(&ui, &error);
                     }
                     return;
                 }
@@ -43,7 +43,14 @@ fn register_1(ui: &MainWindow, state: &AppState) {
                 path: path.to_string_lossy().into_owned(),
                 category,
                 duration_hns: validate_info.duration_hns,
+                file_size_bytes: std::fs::metadata(&path)
+                    .map(|metadata| metadata.len())
+                    .unwrap_or(0),
+                sample_rate: validate_info.sample_rate,
+                channels: validate_info.channels,
                 loop_playback: false,
+                hotkey: None,
+                hotkey_binding: None,
             };
             cache.borrow_mut().audio_entries.push(entry);
             let entries = cache.borrow().audio_entries.clone();
@@ -51,16 +58,6 @@ fn register_1(ui: &MainWindow, state: &AppState) {
             save_queue.schedule();
             if let Some(ui) = ui_weak.upgrade() {
                 ui.set_error_text("".into());
-                update_audio_list(&ui, &cache);
-            }
-        });
-    }
-    {
-        let ui_weak = ui.as_weak();
-        let cache = cache.clone();
-        ui.on_audio_search_changed(move |text| {
-            cache.borrow_mut().audio_search = text.to_string();
-            if let Some(ui) = ui_weak.upgrade() {
                 update_audio_list(&ui, &cache);
             }
         });
@@ -144,6 +141,60 @@ fn register_3(ui: &MainWindow, state: &AppState) {
                     .arg(&entry.path)
                     .spawn();
             }
+        });
+    }
+    {
+        // 「添加到路由主页」：把该条目的播放目标设为路由，并切到路由页展示。
+        let ui_weak = ui.as_weak();
+        let cache = cache.clone();
+        ui.on_audio_entry_add_route(move || {
+            let Some(ui) = ui_weak.upgrade() else {
+                return;
+            };
+            let index = ui.get_audio_entry_index().max(0) as usize;
+            let Some(actual) = visible_entry(&cache, index) else {
+                return;
+            };
+            if cache.borrow().audio_entries.get(actual).is_none() {
+                return;
+            }
+            cache.borrow_mut().playback_target = crate::engine::PlaybackTarget::Route;
+            cache.borrow_mut().file_source_hidden = false;
+            // 路由页的文件源行显示当前选中/播放的条目；切过去即可看到它。
+            ui.set_page(0);
+            ui.invoke_audio_entry_play(2);
+        });
+    }
+    {
+        // 清除该条目的快捷键；此前没有任何解绑入口。
+        let ui_weak = ui.as_weak();
+        let cache = cache.clone();
+        let app_config = state.app_config.clone();
+        let save_queue = state.save_queue.clone();
+        let hotkey_server = state.hotkey_server.clone();
+        ui.on_audio_entry_hotkey_clear(move || {
+            let Some(ui) = ui_weak.upgrade() else {
+                return;
+            };
+            let index = ui.get_audio_entry_index().max(0) as usize;
+            let Some(actual) = visible_entry(&cache, index) else {
+                return;
+            };
+            {
+                let mut cache_state = cache.borrow_mut();
+                let Some(entry) = cache_state.audio_entries.get_mut(actual) else {
+                    return;
+                };
+                // 两个字段都要清：旧的「前台单键」和新的「全局组合键」。
+                entry.hotkey = None;
+                entry.hotkey_binding = None;
+                app_config.borrow_mut().audio_entries = cache_state.audio_entries.clone();
+            }
+            save_queue.schedule();
+            // 全局绑定表也要重同步，否则组合键仍在系统里生效。
+            super::super::input::resync_bindings(&ui, &hotkey_server, &app_config);
+            update_audio_list(&ui, &cache);
+            ui.set_audio_entry_index(index as i32);
         });
     }
 }

@@ -46,6 +46,7 @@ src/
   error.rs
   hotkey.rs
   library.rs
+  library/tests.rs
   platform/mod.rs
   platform/com.rs
   process.rs
@@ -81,6 +82,7 @@ src/
       mod.rs
       route.rs
       route_start.rs
+      route_start/source_only.rs
       library.rs
       library_entries.rs
       library_metadata.rs
@@ -252,13 +254,18 @@ ui/app-window.slint
 └─ overlays/context-menu.slint（只实例化一次）
 ```
 
-三页为路由、音频库、设置。右键菜单组件负责遮罩与坐标钳制，页面只上报锚点和开关。
+三页为路由、音频库、设置。`AppHeader` 展示实时 EngineStatus；常驻状态栏承载全局混麦、主音量和启停。右键菜单组件负责遮罩与坐标钳制，页面只上报锚点和开关。
 
-- 音频库分类采用 `/` 层级路径；当前分类包含后代，搜索在可见结果上执行。
+- 路由页从桥接层真实源模型展示进程、当前文件和物理麦；进程/文件/麦音量通过 AudioEngine API 更新。
+- 路由源集合横向占满内容区，纵向由 `ScrollView` 承载；顶部添加源按钮打开小型对话框，进程直接添加，音频库入口复用条目菜单添加到路由主页。
+- 路由源行输出下拉沿用当前全局多输出目标，不代表每源独立 render 路由。
+- 音频库为分类侧栏、名称搜索、文件表格、选择详情和底部播放条；展示本地条目分类、格式、时长和导入状态。
+- 分类路径使用 `/`；bridge 搜索过滤后的显示索引映射回配置条目。
 - `AudioEngine::file_state()` 提供名称、时长和位置；UI 每 50 ms 更新显示，不接收 PCM。
-- 路由混音控件为进程、物理麦和总音量；本机试听另有独立音量。
+- 播放目标、本机试听、播放进度和文件循环重启均调用现有 AudioEngine/bridge 逻辑。
+- `OutputConfig.device_ids` 保存多选 render 端点；显示使用实时 FriendlyName，刷新通过 ID 恢复选择。
+- 设置页分组为常规、音频设备、快捷键、虚拟线缆和关于；未实现的启动、托盘与主题选项不展示。
 - S6 移除了未接线的全局播放按键、条目热键和热键模式设置。
-- 路由状态栏显示 EngineStatus 短句、当前输出、混麦选择和启停操作。
 
 
 ---

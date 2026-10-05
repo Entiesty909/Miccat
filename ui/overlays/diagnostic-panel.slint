@@ -1,0 +1,251 @@
+//! 全局问题中心：诊断列表 + 详情 + 日志开关。
+
+import { ComboBox, ScrollView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { PmButton } from "../components/button.slint";
+import { DiagRow, UnseenBadge } from "../components/diagnostic-row.slint";
+
+export component DiagnosticPanel inherits Rectangle {
+    in-out property <bool> open: false;
+    in-out property <int> tab: 0;
+    in-out property <int> unseen: 0;
+    in-out property <int> count: 0;
+    in-out property <[int]> severities: [];
+    in-out property <[string]> titles: [];
+    in-out property <[string]> sources: [];
+    in-out property <[string]> times: [];
+    in-out property <[string]> details: [];
+    in-out property <[string]> hints: [];
+    in-out property <int> selected: -1;
+    in-out property <int> debug-master: 3;
+    in-out property <[string]> debug-category-labels: [];
+    in-out property <[int]> debug-category-levels: [];
+    callback close();
+    callback select(int);
+    callback clear-all();
+    callback copy();
+    callback remove();
+    callback open-log();
+    callback debug-master-changed(int);
+    callback debug-category-changed(int, int);
+
+    // 级别下拉的中文文本映射回下标（0 关闭 … 5 跟踪）。
+    pure function level-index(text: string) -> int {
+        if text == "关闭" {
+            return 0;
+        }
+        if text == "错误" {
+            return 1;
+        }
+        if text == "警告" {
+            return 2;
+        }
+        if text == "信息" {
+            return 3;
+        }
+        if text == "调试" {
+            return 4;
+        }
+        return 5;
+    }
+
+    width: 100%;
+    height: 100%;
+    background: transparent;
+
+    // 半透明遮罩：点击空白处关闭。
+    TouchArea {
+        visible: root.open;
+        clicked => { root.close(); }
+    }
+
+    // 右侧抽屉面板，固定 480px 宽。
+    Rectangle {
+        visible: root.open;
+        x: max(0px, root.width - 480px);
+        width: min(480px, root.width);
+        height: 100%;
+        background: Theme.card;
+        Rectangle { x: 0px; width: 1px; height: 100%; background: Theme.border; }
+        // 面板内吞掉点击，避免误触遮罩关闭。
+        TouchArea { }
+
+        VerticalLayout {
+            // 标题栏。
+            Rectangle {
+                height: 52px;
+                background: Theme.card;
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 8px;
+                    spacing: 8px;
+                    Text {
+                        text: "问题中心";
+                        color: Theme.text; font-size: 15px; font-weight: 600;
+                        vertical-alignment: TextVerticalAlignment.center;
+                    }
+                    if root.unseen > 0: UnseenBadge { count: root.unseen; }
+                    PmButton {
+                        label: "问题";
+                        flat: true;
+                        selected: root.tab == 0;
+                        button-width: 64px;
+                        clicked => { root.tab = 0; }
+                    }
+                    PmButton {
+                        label: "日志";
+                        flat: true;
+                        selected: root.tab == 1;
+                        button-width: 64px;
+                        clicked => { root.tab = 1; }
+                    }
+                    Rectangle { horizontal-stretch: 1; background: transparent; }
+                    PmButton {
+                        label: "\u{E711}";
+                        icon-only: true;
+                        flat: true;
+                        button-width: 36px;
+                        clicked => { root.close(); }
+                    }
+                }
+            }
+            Rectangle { width: 100%; height: 1px; background: Theme.border; }
+
+            // tab 0：问题列表 + 详情 + 底部操作。
+            if root.tab == 0: VerticalLayout {
+                vertical-stretch: 1;
+                min-height: 0px;
+                ScrollView {
+                    vertical-stretch: 1;
+                    min-height: 100px;
+                    VerticalLayout {
+                        width: 100%;
+                        if root.count == 0: Text {
+                            text: "暂无问题";
+                            color: Theme.text3; font-size: 13px;
+                            height: 120px;
+                            horizontal-alignment: center;
+                            vertical-alignment: TextVerticalAlignment.center;
+                        }
+                        for i in root.count: DiagRow {
+                            severity: i < root.severities.length
+                                ? root.severities[i]
+                                : 0;
+                            title: i < root.titles.length ? root.titles[i] : "";
+                            source: i < root.sources.length ? root.sources[i] : "";
+                            time: i < root.times.length ? root.times[i] : "";
+                            selected: i == root.selected;
+                            picked => { root.selected = i; root.select(i); }
+                        }
+                    }
+                }
+                // 详情区：仅在选中有效项时显示。
+                if root.selected >= 0 && root.selected < root.count: Rectangle {
+                    height: 200px;
+                    background: Theme.card;
+                    Rectangle { y: 0px; width: 100%; height: 1px; background: Theme.border; }
+                    VerticalLayout {
+                        padding: 12px;
+                        spacing: 8px;
+                        Text {
+                            text: root.selected < root.details.length
+                                ? root.details[root.selected]
+                                : "";
+                            color: Theme.text2;
+                            font-family: "Consolas";
+                            font-size: 12px;
+                            wrap: word-wrap;
+                        }
+                        if root.selected < root.hints.length: Text {
+                            text: root.hints[root.selected];
+                            color: Theme.warn;
+                            font-size: 12px;
+                            wrap: word-wrap;
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            alignment: end;
+                            PmButton { label: "复制详情"; clicked => { root.copy(); } }
+                            PmButton { label: "移除这条"; clicked => { root.remove(); } }
+                        }
+                    }
+                }
+                // 底部操作条。
+                Rectangle {
+                    height: 56px;
+                    background: Theme.card;
+                    Rectangle { y: 0px; width: 100%; height: 1px; background: Theme.border; }
+                    HorizontalLayout {
+                        padding-left: 16px; padding-right: 16px;
+                        spacing: 8px;
+                        alignment: end;
+                        PmButton { label: "清空"; clicked => { root.clear-all(); } }
+                        PmButton { label: "打开日志"; clicked => { root.open-log(); } }
+                    }
+                }
+            }
+
+            // tab 1：日志开关。
+            if root.tab == 1: VerticalLayout {
+                vertical-stretch: 1;
+                min-height: 0px;
+                padding: 16px;
+                spacing: 10px;
+                HorizontalLayout {
+                    spacing: 10px;
+                    Text {
+                        text: "默认级别";
+                        color: Theme.text;
+                        font-size: 13px;
+                        horizontal-stretch: 1;
+                        vertical-alignment: TextVerticalAlignment.center;
+                    }
+                    ComboBox {
+                        width: 160px; model: ["关闭", "错误", "警告", "信息", "调试", "跟踪"];
+                        current-index <=> root.debug-master;
+                        selected(v) => {
+                            root.debug-master-changed(root.level-index(v));
+                        }
+                    }
+                }
+                ScrollView {
+                    vertical-stretch: 1;
+                    min-height: 0px;
+                    VerticalLayout {
+                        width: 100%;
+                        spacing: 8px;
+                        for i in root.debug-category-labels.length: HorizontalLayout {
+                            spacing: 10px;
+                            Text {
+                                text: root.debug-category-labels[i];
+                                color: Theme.text2;
+                                font-size: 13px;
+                                horizontal-stretch: 1;
+                                vertical-alignment: TextVerticalAlignment.center;
+                                overflow: elide;
+                            }
+                            ComboBox {
+                                width: 160px; model: ["关闭", "错误", "警告", "信息", "调试", "跟踪"];
+                                current-index: i < root.debug-category-levels.length
+                                    ? root.debug-category-levels[i]
+                                    : 3;
+                                selected(v) => {
+                                    root.debug-category-changed(
+                                        i,
+                                        root.level-index(v)
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                Text {
+                    text: "修改即时生效；问题中心始终记录警告与错误。";
+                    color: Theme.text3;
+                    font-size: 11px;
+                    wrap: word-wrap;
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,257 @@
+//! 音频库列表：可滚动文件表，列宽由页面可用空间分配。
+
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { PmButton } from "button.slint";
+
+export component AudioList inherits Rectangle {
+    in-out property <[string]> entries: [];
+    in-out property <[string]> entry-durations: [];
+    in-out property <[string]> entry-metadata: [];
+    in-out property <[string]> entry-categories: [];
+    in-out property <[string]> entry-statuses: [];
+    in-out property <[string]> entry-hotkeys: [];
+    in-out property <int> entry-index: -1;
+    in property <int> playing-entry-index: -1;
+    in property <bool> playing: false;
+    in-out property <bool> entry-menu-open: false;
+    in-out property <bool> category-menu-open: false;
+    in-out property <length> entry-menu-x: 0px;
+    in-out property <length> entry-menu-y: 0px;
+    callback entry-context(int);
+    callback entry-selected(int);
+    callback entry-double-clicked(int);
+    callback entry-play(int);
+
+    width: 100%;
+    height: 100%;
+
+    VerticalLayout {
+        width: 100%;
+        height: 100%;
+        Rectangle {
+            width: 100%;
+            height: 38px;
+            background: transparent;
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 8px;
+                spacing: 6px;
+                Text {
+                    text: "名称";
+                    horizontal-stretch: 1;
+                    min-width: 60px;
+                    color: Theme.text2;
+                    font-size: 11px;
+                    vertical-alignment: TextVerticalAlignment.center;
+                }
+                Text {
+                    text: "分类";
+                    width: 64px;
+                    color: Theme.text2;
+                    font-size: 11px;
+                    vertical-alignment: TextVerticalAlignment.center;
+                }
+                Text {
+                    text: "时长";
+                    width: 48px;
+                    color: Theme.text2;
+                    font-size: 11px;
+                    vertical-alignment: TextVerticalAlignment.center;
+                }
+                Text {
+                    text: "快捷键";
+                    width: 46px;
+                    color: Theme.text2;
+                    font-size: 11px;
+                    vertical-alignment: TextVerticalAlignment.center;
+                }
+                Text {
+                    text: "状态";
+                    width: 54px;
+                    color: Theme.text2;
+                    font-size: 11px;
+                    vertical-alignment: TextVerticalAlignment.center;
+                }
+                Text {
+                    text: "";
+                    width: 64px;
+                }
+            }
+        }
+        Rectangle { width: 100%; height: 1px; background: Theme.border; }
+        ScrollView {
+            vertical-stretch: 1;
+            width: 100%;
+            height: 100%;
+            VerticalLayout {
+                height: 100%;
+                if root.entries.length == 0: Text {
+                    text: "当前分类没有匹配的音频文件";
+                    color: Theme.text3;
+                    height: 52px;
+                    vertical-alignment: TextVerticalAlignment.center;
+                }
+                for name[index] in root.entries: Rectangle {
+                    height: 58px;
+                    background: index == root.entry-index
+                        ? Theme.accentSoft
+                        : (index == root.playing-entry-index
+                            ? Theme.playingSoft
+                            : Theme.card);
+                    // 整行命中区：声明在最前（命中栈底层），所以右侧的播放/更多
+                    // 按钮等子控件仍优先拿到点击；其余任意列都落到这里。
+                    TouchArea {
+                        width: parent.width;
+                        height: parent.height;
+                        clicked => {
+                            root.entry-index = index;
+                            root.entry-selected(index);
+                            root.entry-double-clicked(index);
+                            root.entry-menu-open = false;
+                        }
+                        pointer-event(event) => {
+                            if event.button == PointerEventButton.right
+                                && event.kind == PointerEventKind.down {
+                                root.entry-index = index;
+                                root.entry-selected(index);
+                                root.entry-menu-x =
+                                    self.absolute-position.x + self.mouse-x;
+                                root.entry-menu-y =
+                                    self.absolute-position.y + self.mouse-y;
+                                root.entry-context(index);
+                                root.entry-menu-open = true;
+                                root.category-menu-open = false;
+                            }
+                        }
+                    }
+                    Rectangle {
+                        width: 3px;
+                        height: parent.height;
+                        background: index == root.entry-index
+                            ? Theme.accent
+                            : transparent;
+                    }
+                    Rectangle {
+                        y: parent.height - 1px;
+                        width: parent.width;
+                        height: 1px;
+                        background: Theme.border;
+                    }
+                    HorizontalLayout {
+                        padding-left: 12px;
+                        padding-right: 8px;
+                        spacing: 6px;
+                        Rectangle {
+                            width: 30px;
+                            height: 30px;
+                            border-radius: 5px;
+                            background: Theme.accentSoft;
+                            Text {
+                                text: "\u{E8D6}";
+                                font-family: "Segoe MDL2 Assets";
+                                color: Theme.accent;
+                                font-size: 16px;
+                                horizontal-alignment: center;
+                                vertical-alignment: TextVerticalAlignment.center;
+                            }
+                        }
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            min-width: 50px;
+                            spacing: 1px;
+                            Text {
+                                text: name;
+                                color: Theme.text;
+                                font-size: 12px;
+                                overflow: elide;
+                            }
+                            Text {
+                                text: index < root.entry-metadata.length
+                                    ? root.entry-metadata[index]
+                                    : "";
+                                color: Theme.text3;
+                                font-size: 9px;
+                                overflow: elide;
+                            }
+                        }
+                        Text {
+                            text: index < root.entry-categories.length
+                                ? root.entry-categories[index]
+                                : "未分类";
+                            width: 64px;
+                            color: Theme.accent;
+                            font-size: 9px;
+                            overflow: elide;
+                            vertical-alignment: TextVerticalAlignment.center;
+                        }
+                        Text {
+                            text: index < root.entry-durations.length
+                                ? root.entry-durations[index]
+                                : "—";
+                            width: 48px;
+                            color: Theme.text2;
+                            font-size: 9px;
+                            vertical-alignment: TextVerticalAlignment.center;
+                        }
+                        Text {
+                            text: index < root.entry-hotkeys.length
+                                && root.entry-hotkeys[index] != ""
+                                ? root.entry-hotkeys[index]
+                                : "—";
+                            width: 46px;
+                            color: Theme.text3;
+                            font-size: 9px;
+                            vertical-alignment: TextVerticalAlignment.center;
+                        }
+                        HorizontalLayout {
+                            width: 54px;
+                            spacing: 3px;
+                            Rectangle {
+                                width: 7px;
+                                height: 7px;
+                                border-radius: 4px;
+                                background: index < root.entry-statuses.length
+                                    && root.entry-statuses[index] == "已导入"
+                                    ? Theme.ok
+                                    : Theme.warn;
+                            }
+                            Text {
+                                text: index < root.entry-statuses.length
+                                    ? root.entry-statuses[index]
+                                    : "";
+                                color: Theme.text2;
+                                font-size: 9px;
+                                vertical-alignment: TextVerticalAlignment.center;
+                            }
+                        }
+                        PmButton {
+                            label: "\u{E768}";
+                            icon-only: true;
+                            button-width: 28px;
+                            clicked => {
+                                root.entry-index = index;
+                                root.entry-selected(index);
+                                root.entry-play(index);
+                            }
+                        }
+                        PmButton {
+                            label: "\u{E712}";
+                            icon-only: true;
+                            button-width: 28px;
+                            clicked => {
+                                root.entry-index = index;
+                                root.entry-selected(index);
+                                root.entry-menu-x = self.absolute-position.x;
+                                root.entry-menu-y = self.absolute-position.y;
+                                root.entry-context(index);
+                                root.entry-menu-open = true;
+                                root.category-menu-open = false;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,293 @@
+//! 装配路由、音频库与设置页并转发它们的用户操作。
+
+import { RoutePage } from "../pages/route.slint";
+import { PlayerPage } from "../pages/player.slint";
+import { SettingsPage } from "../pages/settings.slint";
+
+export component PageHost inherits Rectangle {
+    in property <int> page: 0;
+    in-out property <[string]> processes: [];
+    in-out property <int> process-index: 0;
+    in-out property <[int]> source-kinds: [];
+    in-out property <[string]> source-icons: [];
+    in-out property <[string]> source-titles: [];
+    in-out property <[string]> source-subtitles: [];
+    in-out property <[string]> source-details: [];
+    in-out property <[string]> source-statuses: [];
+    in-out property <[bool]> source-active: [];
+    in-out property <[float]> source-volumes: [];
+    in-out property <[bool]> source-muted: [];
+    in-out property <[bool]> source-paused: [];
+    in-out property <[int]> source-output-indices: [];
+    in-out property <[string]> outputs: [];
+    in-out property <int> output-index: 0;
+    in-out property <[string]> mics: [];
+    in-out property <int> mic-index: 0;
+    in-out property <bool> mix-mic: false;
+    in-out property <bool> sources-expanded: true;
+    in-out property <bool> source-add-open: false;
+    in-out property <bool> running: false;
+    in-out property <[string]> categories: [];
+    in-out property <[int]> category-counts: [];
+    in-out property <[string]> audio-hotkeys: [];
+    in-out property <int> category-index: 0;
+    in-out property <[string]> entries: [];
+    in-out property <[string]> entry-durations: [];
+    in-out property <[string]> entry-metadata: [];
+    in-out property <[string]> entry-categories: [];
+    in-out property <[string]> entry-paths: [];
+    in-out property <[string]> entry-sizes: [];
+    in-out property <[string]> entry-hotkeys: [];
+    in-out property <[string]> entry-statuses: [];
+    in-out property <string> search: "";
+    in-out property <int> entry-index: -1;
+    in-out property <int> entry-category-index: 0;
+    in-out property <bool> listening-entry-hotkey: false;
+    in-out property <int> page-index: 0;
+    in-out property <int> page-count: 1;
+    in-out property <int> total-count: 0;
+    in-out property <bool> sort-ascending: true;
+    in-out property <int> playing-entry-index: -1;
+    in-out property <float> progress: 0;
+    in-out property <bool> seeking-progress: false;
+    in-out property <string> current-name: "";
+    in-out property <string> current-position: "";
+    in-out property <float> duration-seconds: 0;
+    in-out property <bool> playing: false;
+    in-out property <bool> paused: false;
+    in-out property <bool> preview-enabled: false;
+    in-out property <float> monitor-volume: 50;
+    in-out property <bool> loop: false;
+    in-out property <int> file-output-index: 0;
+    in-out property <bool> category-menu-open: false;
+    in-out property <bool> entry-menu-open: false;
+    in-out property <length> category-menu-x: 0px;
+    in-out property <length> category-menu-y: 0px;
+    in-out property <length> entry-menu-x: 0px;
+    in-out property <length> entry-menu-y: 0px;
+    in property <string> hotkey-label: "";
+    in-out property <int> settings-section-index: 0;
+    in-out property <[bool]> device-selected: [];
+    in-out property <bool> all-devices: false;
+    in-out property <bool> show-set-default-mic: false;
+    in-out property <bool> set-default-mic: false;
+    in-out property <bool> set-default-render: false;
+    in-out property <bool> set-default-communications: false;
+    in-out property <string> dest-hint: "";
+    in-out property <bool> cable-installed: false;
+    in-out property <bool> cable-busy: false;
+    in-out property <string> cable-text: "";
+    in-out property <bool> listening-hotkey: false;
+    in-out property <string> about-text: "";
+
+    callback refresh();
+    callback process-add();
+    callback add-files();
+    callback mic-mix-changed(bool);
+    callback source-active-toggled(int, bool);
+    callback source-volume-edited(int, float);
+    callback source-mute-toggled(int);
+    callback source-output-changed(int, int);
+    callback source-action(int, int);
+    callback source-pause(int);
+    callback source-stop(int);
+    callback open-library();
+    callback settings-requested(int);
+    callback category-changed(int);
+    callback category-context(int);
+    pure callback category-to-transfer(int) -> data-transfer;
+    callback category-can-drop(data-transfer, int, int) -> bool;
+    callback category-drop(data-transfer, int, int);
+    callback entry-context(int);
+    callback entry-selected(int);
+    callback entry-double-clicked(int);
+    callback entry-play(int);
+    callback progress-seek(float);
+    callback audio-stop();
+    callback play-action(int);
+    callback pause-toggle();
+    callback previous();
+    callback next();
+    callback preview-enabled-toggled(bool);
+    callback preview-volume-edited(float);
+    callback file-output-changed(int);
+    callback search-edited(string);
+    callback sort-toggled();
+    callback page-changed(int);
+    callback entry-category-changed(int);
+    callback entry-hotkey-bind();
+    callback loop-changed(bool);
+    callback hotkey-settings-requested();
+    callback install-cable();
+    callback uninstall-cable();
+    callback begin-hotkey-capture();
+    callback reset-hotkey();
+    callback begin-hotkey-row(int);
+    callback reset-hotkey-row(int);
+    callback hotkey-row-captured(int, string, bool, bool, bool);
+    callback all-devices-toggled(bool);
+    callback device-toggled(int, bool);
+    callback set-default-mic-toggled(bool);
+    callback set-default-render-toggled(bool);
+    callback set-default-communications-toggled(bool);
+
+    background: transparent;
+
+    if root.page == 0: RoutePage {
+        width: 100%;
+        height: 100%;
+        processes <=> root.processes;
+        process-index <=> root.process-index;
+        source-kinds <=> root.source-kinds;
+        source-icons <=> root.source-icons;
+        source-titles <=> root.source-titles;
+        source-subtitles <=> root.source-subtitles;
+        source-details <=> root.source-details;
+        source-statuses <=> root.source-statuses;
+        source-active <=> root.source-active;
+        source-volumes <=> root.source-volumes;
+        source-muted <=> root.source-muted;
+        source-paused <=> root.source-paused;
+        source-output-indices <=> root.source-output-indices;
+        outputs <=> root.outputs;
+        output-index <=> root.output-index;
+        mics <=> root.mics;
+        mic-index <=> root.mic-index;
+        mix-mic <=> root.mix-mic;
+        sources-expanded <=> root.sources-expanded;
+        source-add-open <=> root.source-add-open;
+        running <=> root.running;
+        refresh => { root.refresh(); }
+        process-add => { root.process-add(); }
+        add-files => { root.add-files(); }
+        mic-mix-changed(value) => { root.mic-mix-changed(value); }
+        source-active-toggled(index, value) => {
+            root.source-active-toggled(index, value);
+        }
+        source-volume-edited(index, value) => {
+            root.source-volume-edited(index, value);
+        }
+        source-mute-toggled(index) => { root.source-mute-toggled(index); }
+        source-output-changed(index, target) => {
+            root.source-output-changed(index, target);
+        }
+        source-action(index, code) => { root.source-action(index, code); }
+        source-pause(index) => { root.source-pause(index); }
+        source-stop(index) => { root.source-stop(index); }
+        open-library => { root.open-library(); }
+        open-settings => { root.settings-requested(1); }
+    }
+    if root.page == 1: PlayerPage {
+        width: 100%;
+        height: 100%;
+        categories <=> root.categories;
+        category-counts <=> root.category-counts;
+        audio-hotkeys <=> root.audio-hotkeys;
+        category-index <=> root.category-index;
+        entries <=> root.entries;
+        entry-durations <=> root.entry-durations;
+        entry-metadata <=> root.entry-metadata;
+        entry-categories <=> root.entry-categories;
+        entry-paths <=> root.entry-paths;
+        entry-sizes <=> root.entry-sizes;
+        entry-hotkeys <=> root.entry-hotkeys;
+        entry-statuses <=> root.entry-statuses;
+        search <=> root.search;
+        entry-index <=> root.entry-index;
+        entry-category-index <=> root.entry-category-index;
+        listening-entry-hotkey <=> root.listening-entry-hotkey;
+        page <=> root.page-index;
+        page-count <=> root.page-count;
+        total-count <=> root.total-count;
+        sort-ascending <=> root.sort-ascending;
+        hotkey-label: root.hotkey-label;
+        playing-entry-index <=> root.playing-entry-index;
+        progress <=> root.progress;
+        seeking-progress <=> root.seeking-progress;
+        current-name <=> root.current-name;
+        current-position <=> root.current-position;
+        duration-seconds <=> root.duration-seconds;
+        playing <=> root.playing;
+        paused <=> root.paused;
+        loop <=> root.loop;
+        preview-enabled <=> root.preview-enabled;
+        monitor-volume <=> root.monitor-volume;
+        devices <=> root.outputs;
+        route-running <=> root.running;
+        file-output-index <=> root.file-output-index;
+        category-menu-open <=> root.category-menu-open;
+        entry-menu-open <=> root.entry-menu-open;
+        category-menu-x <=> root.category-menu-x;
+        category-menu-y <=> root.category-menu-y;
+        entry-menu-x <=> root.entry-menu-x;
+        entry-menu-y <=> root.entry-menu-y;
+        category-changed(index) => { root.category-changed(index); }
+        category-context(index) => { root.category-context(index); }
+        category-to-transfer(index) => { root.category-to-transfer(index); }
+        category-can-drop(data, target, position) => {
+            root.category-can-drop(data, target, position);
+        }
+        category-drop(data, target, position) => {
+            root.category-drop(data, target, position);
+        }
+        entry-context(index) => { root.entry-context(index); }
+        entry-selected(index) => { root.entry-selected(index); }
+        entry-double-clicked(index) => { root.entry-double-clicked(index); }
+        entry-play(index) => { root.entry-play(index); }
+        progress-seek(value) => { root.progress-seek(value); }
+        add-files => { root.add-files(); }
+        stop => { root.audio-stop(); }
+        play-action(mode) => { root.play-action(mode); }
+        pause-toggle => { root.pause-toggle(); }
+        previous => { root.previous(); }
+        next => { root.next(); }
+        preview-enabled-toggled(value) => { root.preview-enabled-toggled(value); }
+        preview-volume-edited(value) => { root.preview-volume-edited(value); }
+        file-output-changed(value) => { root.file-output-changed(value); }
+        search-edited(value) => { root.search-edited(value); }
+        sort-toggled => { root.sort-toggled(); }
+        page-changed(value) => { root.page-changed(value); }
+        entry-category-changed(value) => { root.entry-category-changed(value); }
+        entry-hotkey-bind => { root.entry-hotkey-bind(); }
+        loop-changed(value) => { root.loop-changed(value); }
+        hotkey-settings => { root.hotkey-settings-requested(); }
+    }
+    if root.page == 2: SettingsPage {
+        width: 100%;
+        height: 100%;
+        section-index <=> root.settings-section-index;
+        devices <=> root.outputs;
+        device-index <=> root.output-index;
+        device-selected <=> root.device-selected;
+        all-devices <=> root.all-devices;
+        show-set-default-mic <=> root.show-set-default-mic;
+        set-default-mic <=> root.set-default-mic;
+        set-default-render <=> root.set-default-render;
+        set-default-communications <=> root.set-default-communications;
+        dest-hint <=> root.dest-hint;
+        running <=> root.running;
+        cable-installed <=> root.cable-installed;
+        cable-busy <=> root.cable-busy;
+        cable-text <=> root.cable-text;
+        hotkey-label: root.hotkey-label;
+        listening-hotkey <=> root.listening-hotkey;
+        about-text <=> root.about-text;
+        refresh => { root.refresh(); }
+        install-cable => { root.install-cable(); }
+        uninstall-cable => { root.uninstall-cable(); }
+        begin-hotkey-capture => { root.begin-hotkey-capture(); }
+        reset-hotkey => { root.reset-hotkey(); }
+        begin-hotkey-row(row) => { root.begin-hotkey-row(row); }
+        reset-hotkey-row(row) => { root.reset-hotkey-row(row); }
+        hotkey-row-captured(row, text, ctrl, shift, alt) => {
+            root.hotkey-row-captured(row, text, ctrl, shift, alt);
+        }
+        all-devices-toggled(value) => { root.all-devices-toggled(value); }
+        device-toggled(index, value) => { root.device-toggled(index, value); }
+        set-default-mic-toggled(value) => { root.set-default-mic-toggled(value); }
+        set-default-render-toggled(value) => { root.set-default-render-toggled(value); }
+        set-default-communications-toggled(value) => {
+            root.set-default-communications-toggled(value);
+        }
+    }
+}

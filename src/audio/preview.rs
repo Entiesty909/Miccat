@@ -41,7 +41,6 @@ impl PreviewEngine {
             let ring = ring.clone();
             let stop = stop_render.clone();
             let volume = volume.clone();
-            let peak = Arc::new(AtomicU32::new(0));
             thread::Builder::new()
                 .name("preview-render".into())
                 .spawn(move || {
@@ -56,7 +55,6 @@ impl PreviewEngine {
                         Arc::new(AtomicU32::new(1.0f32.to_bits())),
                         Arc::new(AtomicU32::new(1.0f32.to_bits())),
                         stop,
-                        peak,
                         |_| {},
                     );
                 })

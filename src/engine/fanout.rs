@@ -19,6 +19,9 @@ pub(super) struct FanoutTarget {
     converters: Vec<Converter>,
     mic_converter: Converter,
     sfx_converter: Converter,
+    process_enabled: bool,
+    mic_enabled: bool,
+    sfx_enabled: bool,
     /// 该目标格式下允许的积压采样数（约 100 ms），fan-out 靠它退让。
     lead: usize,
     /// 转换暂存，避免每块分配。
@@ -38,6 +41,9 @@ impl FanoutTarget {
                 .collect(),
             mic_converter: Converter::new(src, dst),
             sfx_converter: Converter::new(src, dst),
+            process_enabled: target.process_enabled,
+            mic_enabled: target.mic_enabled,
+            sfx_enabled: target.sfx_enabled,
             lead: frames * dst.channels as usize * 10,
             scratch: Vec::with_capacity(frames * dst.channels as usize),
         }
@@ -59,7 +65,6 @@ pub(super) fn spawn_target_render(
     let mic_volume = engine.mic_volume.clone();
     let sfx_volume = engine.sfx_volume.clone();
     let master = engine.master.clone();
-    let peak = engine.render_peak.clone();
     thread::Builder::new()
         .name("wasapi-render-target".into())
         .spawn(move || {
@@ -74,7 +79,6 @@ pub(super) fn spawn_target_render(
                 sfx_volume,
                 master,
                 stop,
-                peak,
                 move |e| {
                     let mapped = match e {
                         Error::DeviceNotFound => EngineStatus::DeviceGone,
@@ -120,17 +124,26 @@ pub(super) fn run_fanout(
                 converters,
                 mic_converter,
                 sfx_converter,
+                process_enabled,
+                mic_enabled,
+                sfx_enabled,
                 lead,
                 scratch,
             } = target;
-            for (index, block) in blocks.iter().enumerate() {
-                converters[index].convert_f32(block, frames, scratch);
-                process_rings[index].push_paced(scratch, *lead, &stop);
+            if *process_enabled {
+                for (index, block) in blocks.iter().enumerate() {
+                    converters[index].convert_f32(block, frames, scratch);
+                    process_rings[index].push_paced(scratch, *lead, &stop);
+                }
             }
-            mic_converter.convert_f32(&mic_block, frames, scratch);
-            mic_ring.push_paced(scratch, *lead, &stop);
-            sfx_converter.convert_f32(&sfx_block, frames, scratch);
-            sfx_ring.push_paced(scratch, *lead, &stop);
+            if *mic_enabled {
+                mic_converter.convert_f32(&mic_block, frames, scratch);
+                mic_ring.push_paced(scratch, *lead, &stop);
+            }
+            if *sfx_enabled {
+                sfx_converter.convert_f32(&sfx_block, frames, scratch);
+                sfx_ring.push_paced(scratch, *lead, &stop);
+            }
         }
     }
 }

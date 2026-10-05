@@ -103,11 +103,28 @@ pub(super) fn hydrate_audio_durations(app_config: &Rc<RefCell<config::AppConfig>
     let mut changed = false;
     let mut config = app_config.borrow_mut();
     for entry in &mut config.audio_entries {
-        if entry.duration_hns != 0 {
+        if entry.duration_hns != 0
+            && entry.file_size_bytes != 0
+            && entry.sample_rate != 0
+            && entry.channels != 0
+        {
             continue;
         }
         if let Ok(info) = crate::library::validate_file(std::path::Path::new(&entry.path)) {
-            entry.duration_hns = info.duration_hns;
+            if entry.duration_hns == 0 {
+                entry.duration_hns = info.duration_hns;
+            }
+            if entry.file_size_bytes == 0 {
+                entry.file_size_bytes = std::fs::metadata(&entry.path)
+                    .map(|metadata| metadata.len())
+                    .unwrap_or(0);
+            }
+            if entry.sample_rate == 0 {
+                entry.sample_rate = info.sample_rate;
+            }
+            if entry.channels == 0 {
+                entry.channels = info.channels;
+            }
             changed = true;
         }
     }
@@ -120,15 +137,25 @@ pub(super) fn restore_saved_selection(
     cache: &Rc<RefCell<UiCache>>,
     saved: &config::AppConfig,
 ) {
+    let mut selected_pids = Vec::new();
     {
-        let c = cache.borrow();
-        if let Some(name) = saved.route.process_name.as_deref()
-            && let Some(pid) = c
+        let cache = cache.borrow();
+        let names = if saved.route.process_names.is_empty() {
+            saved.route.process_name.iter().cloned().collect::<Vec<_>>()
+        } else {
+            saved.route.process_names.clone()
+        };
+        for name in names {
+            if let Some(process) = cache
                 .processes
                 .iter()
-                .find(|p| p.name.eq_ignore_ascii_case(name))
-                .map(|p| p.pid)
-            && let Some(index) = c.pids.iter().position(|v| *v == pid)
+                .find(|process| process.name.eq_ignore_ascii_case(&name))
+            {
+                selected_pids.push(process.pid);
+            }
+        }
+        if let Some(pid) = selected_pids.first()
+            && let Some(index) = cache.pids.iter().position(|candidate| candidate == pid)
         {
             ui.set_process_index(index as i32);
         }
@@ -136,23 +163,24 @@ pub(super) fn restore_saved_selection(
             .output
             .device_id
             .as_deref()
-            .and_then(|id| c.dests.iter().position(|d| d.render_id == id))
+            .and_then(|id| cache.dests.iter().position(|device| device.render_id == id))
             .or_else(|| {
                 saved
                     .output
                     .device_name
                     .as_deref()
-                    .and_then(|name| c.dests.iter().position(|d| d.label == name))
+                    .and_then(|name| cache.dests.iter().position(|device| device.label == name))
             });
         if let Some(index) = device_index {
             ui.set_device_index(index as i32);
         }
-        if let Some(id) = saved.output.mic_id.as_deref()
-            && let Some(index) = c.mic_ids.iter().position(|v| v == id)
+        if let Some(id) = saved.route.mic_id.as_deref()
+            && let Some(index) = cache.mic_ids.iter().position(|candidate| candidate == id)
         {
             ui.set_mic_index(index as i32);
         }
     }
+    cache.borrow_mut().selected_pids = selected_pids;
     update_output_text(ui, cache);
 }
 
@@ -167,9 +195,21 @@ pub(super) fn persist_config(
     saved.audio_entries = c.audio_entries.clone();
     saved.audio_categories = c.audio_categories.clone();
     saved.output.all_devices = c.all_devices;
-    saved.output.set_default_render = c.set_default_render;
+    saved.output.device_ids = if c.selected_device_ids.is_empty() {
+        c.dests
+            .get(ui.get_device_index() as usize)
+            .map(|device| vec![device.render_id.clone()])
+            .unwrap_or_default()
+    } else {
+        c.selected_device_ids.clone()
+    };
     saved.output.set_default_communications = c.set_default_communications;
     saved.route.mix_mic = ui.get_mix_mic();
+    saved.route.mic_id = c
+        .mic_ids
+        .get(ui.get_mic_index() as usize)
+        .filter(|id| !id.is_empty())
+        .cloned();
     saved.output.device_name = c
         .dests
         .get(ui.get_device_index() as usize)
@@ -188,9 +228,32 @@ pub(super) fn persist_config(
             .find(|p| p.pid == pid)
             .map(|p| p.name.clone())
     });
-    saved.mix.process = (ui.get_volume() / 100.0).clamp(0.0, 1.0);
-    saved.mix.mic = (ui.get_mic_volume() / 100.0).clamp(0.0, 1.0);
     saved.mix.master = (ui.get_master_volume() / 100.0).clamp(0.0, 1.0);
+}
+/// 将当前已选进程名称防抖写回配置，恢复时再解析为新 PID。
+pub(super) fn save_process_selection(
+    cache: &Rc<RefCell<UiCache>>,
+    app_config: &Rc<RefCell<config::AppConfig>>,
+    save_queue: &SaveQueue,
+) {
+    let names = {
+        let cache = cache.borrow();
+        cache
+            .selected_pids
+            .iter()
+            .filter_map(|pid| {
+                cache
+                    .processes
+                    .iter()
+                    .find(|process| process.pid == *pid)
+                    .map(|process| process.name.clone())
+            })
+            .collect::<Vec<_>>()
+    };
+    let mut config = app_config.borrow_mut();
+    config.route.process_name = names.first().cloned();
+    config.route.process_names = names;
+    save_queue.schedule();
 }
 
 pub(super) fn restore_default_mics(saved: &Rc<RefCell<Vec<(u32, String)>>>) {

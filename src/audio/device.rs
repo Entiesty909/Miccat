@@ -45,6 +45,10 @@ pub struct DestDevice {
     pub capture_id: Option<String>,
     /// 游戏里应选择的麦克风名（也可能是你改过的名字）。
     pub capture_name: Option<String>,
+    /// 驱动分组键：同一虚拟驱动的两个渲染端点不能同时打开。
+    pub driver_family: String,
+    /// 该端点是否来自虚拟音频驱动。
+    pub virtual_driver: bool,
 }
 
 /// 输出列表：虚拟扬声器与虚拟麦克风各一条，不做「扬声器 → 麦」拼接。
@@ -63,6 +67,8 @@ pub fn list_destinations(include_all: bool) -> Result<Vec<DestDevice>, Error> {
             render_id: r.id.clone(),
             capture_id: None,
             capture_name: None,
+            driver_family: driver_key_of(r),
+            virtual_driver: is_virtual_driver(r),
         });
     }
 
@@ -78,6 +84,8 @@ pub fn list_destinations(include_all: bool) -> Result<Vec<DestDevice>, Error> {
             render_id: r.id.clone(),
             capture_id: Some(c.id.clone()),
             capture_name: Some(c.name.clone()),
+            driver_family: driver_key_of(r),
+            virtual_driver: true,
         });
     }
 
@@ -191,6 +199,19 @@ fn same_driver(a: &Endpoint, b: &Endpoint) -> bool {
         return driver_family(a) == driver_family(b);
     }
     driver_family(a) == driver_family(b)
+}
+
+/// 取端点的驱动分组键：用驱动接口名（`PKEY_DeviceInterface_FriendlyName`）。
+///
+/// 同一虚拟驱动的两个渲染端点共享该名字，实测不能同时打开
+/// （VB-Cable 的「CABLE虚拟扬声器」与「CABLE In 16ch」第二个返回
+/// `AUDCLNT_E_DEVICE_IN_USE`）；物理设备的接口名互不相同，不会误判。
+fn driver_key_of(endpoint: &Endpoint) -> String {
+    if endpoint.adapter.is_empty() {
+        endpoint.id.clone()
+    } else {
+        endpoint.adapter.to_ascii_lowercase()
+    }
 }
 
 fn is_virtual_driver(ep: &Endpoint) -> bool {

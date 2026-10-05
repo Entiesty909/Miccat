@@ -2,4 +2,4 @@
 
 mod snapshot;
 
-pub(crate) use snapshot::snapshot_to_file;
+pub(crate) use snapshot::{SnapshotOptions, snapshot_to_file};

@@ -1,0 +1,50 @@
+//! 设置页「快捷键」卡片：转发开关与上一首/下一首/停止播放的全局热键。
+
+import { HotkeyField } from "hotkey-field.slint";
+import { HotkeyState } from "../overlays/global-overlays.slint";
+import { Card } from "card.slint";
+import { SectionTitle } from "section-title.slint";
+
+export component HotkeyCard inherits Card {
+    in property <string> toggle-label: "";
+    in property <bool> toggle-listening: false;
+    in property <bool> enabled: true;
+    callback begin-toggle();
+    callback reset-toggle();
+    callback begin-row(int);
+    callback reset-row(int);
+
+    SectionTitle { label: "快捷键"; }
+    HotkeyField {
+        label: "开始/停止转发";
+        combo: root.toggle-label;
+        listening: root.toggle-listening;
+        enabled: root.enabled;
+        begin => { root.begin-toggle(); }
+        reset => { root.reset-toggle(); }
+    }
+    HotkeyField {
+        label: "上一首";
+        combo: HotkeyState.previous;
+        listening: HotkeyState.listening-previous;
+        enabled: root.enabled;
+        begin => { root.begin-row(1); }
+        reset => { root.reset-row(1); }
+    }
+    HotkeyField {
+        label: "下一首";
+        combo: HotkeyState.next;
+        listening: HotkeyState.listening-next;
+        enabled: root.enabled;
+        begin => { root.begin-row(2); }
+        reset => { root.reset-row(2); }
+    }
+    HotkeyField {
+        label: "停止播放";
+        combo: HotkeyState.stop;
+        listening: HotkeyState.listening-stop;
+        enabled: root.enabled;
+        begin => { root.begin-row(3); }
+        reset => { root.reset-row(3); }
+    }
+}

@@ -1,0 +1,193 @@
+//! 路由页单条真实音频源：名称、输出目标、增益、启用状态和操作入口。
+
+import { ComboBox } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { PmButton } from "button.slint";
+import { SliderRow } from "slider-row.slint";
+import { SourceActionsMenu } from "source-actions-menu.slint";
+
+export component SourceRow inherits Rectangle {
+    in property <int> kind: 0;
+    in property <int> row-index: 0;
+    in property <string> icon: "";
+    in property <string> title: "";
+    in property <string> subtitle: "";
+    in property <string> detail: "";
+    in property <string> status: "";
+    in property <bool> active: false;
+    in property <bool> paused: false;
+    in property <bool> muted: false;
+    in property <bool> route-running: false;
+    in property <[string]> mics: [];
+    in-out property <int> mic-index: 0;
+    in property <[string]> outputs: [];
+    in property <int> initial-output-index: 0;
+    in-out property <int> output-index: 0;
+    init => {
+        root.output-index = root.initial-output-index;
+    }
+    in-out property <float> volume: 100;
+    callback active-toggled(bool);
+    callback volume-edited(float);
+    callback mute-toggled();
+    callback output-changed(int);
+    callback mic-selection-changed();
+    callback action(int);
+    callback pause();
+    callback stop();
+    in-out property <bool> actions-open: false;
+
+    // 麦克风行保留下拉框；其余行只展示标题，避免多余文本撑高卡片。
+    height: root.kind == 2 ? 158px : 108px;
+    width: 100%;
+    background: Theme.card;
+    border-radius: Theme.radiusCard;
+    border-width: 1px;
+    border-color: root.active ? Theme.accent : Theme.border;
+
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        spacing: 14px;
+        Text {
+            text: "\u{E8A7}";
+            font-family: "Segoe MDL2 Assets";
+            color: Theme.text3;
+            font-size: 18px;
+            width: 18px;
+            vertical-alignment: TextVerticalAlignment.center;
+        }
+        Rectangle {
+            width: 56px;
+            height: 56px;
+            border-radius: 12px;
+            background: root.kind == 0
+                ? Theme.accentSoft
+                : (root.kind == 1 ? #EEE9FF : #DDF6F0);
+            Text {
+                text: root.icon;
+                font-family: "Segoe MDL2 Assets";
+                color: root.kind == 2 ? #188E7A : Theme.accent;
+                font-size: 28px;
+                horizontal-alignment: center;
+                vertical-alignment: TextVerticalAlignment.center;
+            }
+        }
+        VerticalLayout {
+            min-width: 140px;
+            preferred-width: 220px;
+            spacing: 4px;
+            Text {
+                text: root.title;
+                color: Theme.text;
+                font-size: 15px;
+                font-weight: 600;
+                overflow: elide;
+            }
+            if root.kind == 2: ComboBox {
+                model: root.mics;
+                current-index <=> root.mic-index;
+                enabled: !root.route-running;
+                selected(value) => { root.mic-selection-changed(); }
+            }
+        }
+        VerticalLayout {
+            min-width: 150px;
+            preferred-width: 220px;
+            spacing: 6px;
+            Text {
+                text: "输出设备";
+                color: Theme.text2;
+                font-size: 12px;
+            }
+            ComboBox {
+                model: root.outputs;
+                width: 100%;
+                current-index <=> root.output-index;
+                enabled: !root.route-running;
+                selected(value) => {
+                    root.output-changed(root.output-index);
+                }
+            }
+        }
+        HorizontalLayout {
+            width: 180px;
+            spacing: 4px;
+            Rectangle {
+                width: 42px;
+                height: 22px;
+                border-radius: 11px;
+                background: root.active ? Theme.accent : Theme.borderStrong;
+                Rectangle {
+                    x: root.active ? 22px : 2px;
+                    y: 2px;
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 9px;
+                    background: Theme.card;
+                }
+                TouchArea {
+                    enabled: !root.route-running || root.kind == 1;
+                    clicked => { root.active-toggled(!root.active); }
+                }
+            }
+            if root.kind != 1: PmButton {
+                label: root.muted ? "\u{E74F}" : "\u{E767}";
+                icon-only: true;
+                button-width: 42px;
+                clicked => { root.mute-toggled(); }
+            }
+            if root.kind == 1: PmButton {
+                label: root.paused ? "\u{E768}" : "\u{E769}";
+                icon-only: true;
+                button-width: 42px;
+                enabled: root.active || root.paused;
+                clicked => { root.pause(); }
+            }
+            if root.kind == 1: PmButton {
+                label: "\u{E71A}";
+                icon-only: true;
+                button-width: 42px;
+                enabled: root.active || root.paused;
+                clicked => { root.stop(); }
+            }
+            PmButton {
+                label: "\u{E712}";
+                icon-only: true;
+                button-width: 42px;
+                enabled: !root.route-running || root.kind == 1;
+                clicked => { root.actions-open = !root.actions-open; }
+            }
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            min-width: 220px;
+            spacing: 6px;
+            Text {
+                text: "音量";
+                color: Theme.text2;
+                font-size: 12px;
+            }
+            SliderRow {
+                show-label: false;
+                value <=> root.volume;
+                edited(value) => { root.volume-edited(value); }
+        }
+    }
+    if root.actions-open: Rectangle {
+        width: 100%;
+        height: 100%;
+        background: transparent;
+        SourceActionsMenu {
+            kind: root.kind;
+            x: max(0px, root.width - 246px);
+            y: 8px;
+            action(code) => {
+                root.actions-open = false;
+                root.action(code);
+            }
+            closed => { root.actions-open = false; }
+        }
+    }
+}
+}

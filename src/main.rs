@@ -3,6 +3,7 @@
 mod audio;
 mod cli;
 mod config;
+mod diagnostics;
 mod engine;
 mod error;
 mod hotkey;
@@ -21,13 +22,19 @@ fn main() {
         );
     }
 
-    // RUST_LOG 可覆盖；默认 info，音频热路径不打日志。
-    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .with_target(false)
-        .init();
+    // 控制台固定 info；日志文件按运行时开关走；问题中心捕获 WARN/ERROR。
+    diagnostics::install_logging();
+    // 先读配置，让 CLI 路径也尊重用户保存的日志级别（配置损坏的告警也会被捕获）。
+    let saved = config::load();
+    diagnostics::apply_levels(&diagnostics::Levels::from_codes(
+        saved.debug.master,
+        &saved.debug.categories,
+    ));
+    tracing::info!(
+        "ProcessMic {} 启动，日志文件 {}",
+        env!("CARGO_PKG_VERSION"),
+        diagnostics::log_path().display()
+    );
 
     if let Err(e) = cli::run() {
         eprintln!("{e}");

@@ -1,27 +1,51 @@
-//! 轮询引擎状态、电平、文件播放进度与设备标签。
+//! 轮询引擎启停状态、音频播放进度和全局输出设备名称。
 
 use super::*;
 use crate::engine::EngineStatus;
 use slint::{Timer, TimerMode};
 use std::cell::Cell;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 pub(super) fn start_status_timer(ui: &MainWindow, state: &AppState) -> Timer {
     let ui_weak = ui.as_weak();
     let state = state.clone();
     let last_dest_idx = Cell::new(ui.get_device_index());
-    let last_mic_idx = Cell::new(ui.get_mic_index());
+    let last_diag_unseen = Cell::new(0usize);
     let timer = Timer::default();
     timer.start(TimerMode::Repeated, Duration::from_millis(50), move || {
-        let Some(ui) = ui_weak.upgrade() else {
-            return;
-        };
+        let Some(ui) = ui_weak.upgrade() else { return };
+        apply_list_refresh(&ui, &state);
         update_engine_status(&ui, &state);
-        update_audio_levels(&ui, &state);
         update_player_progress(&ui, &state);
-        update_device_labels(&ui, &state, &last_dest_idx, &last_mic_idx);
+        update_device_label(&ui, &state, &last_dest_idx);
+        super::sources::update(&ui, &state);
+        super::diagnostics::sync(&ui, &last_diag_unseen);
     });
     timer
+}
+fn apply_list_refresh(ui: &MainWindow, state: &AppState) {
+    let result = state
+        .list_refresh
+        .result
+        .lock()
+        .ok()
+        .and_then(|mut pending| pending.take());
+    let Some(result) = result else {
+        return;
+    };
+    state.list_refresh.pending.store(false, Ordering::Release);
+    match result {
+        Ok(lists) => {
+            super::lists::apply_process_list(ui, &state.cache, lists.processes);
+            super::lists::apply_mics(ui, &state.cache, lists.mics);
+            super::lists::apply_destinations(ui, &state.cache, lists.destinations, false);
+            if ui.get_mix_mic() && ui.get_mic_index() == 0 {
+                ui.invoke_mic_mix_changed(false);
+            }
+        }
+        Err(message) => super::diagnostics::report_warning(ui, &message),
+    }
 }
 
 fn update_engine_status(ui: &MainWindow, state: &AppState) {
@@ -47,58 +71,40 @@ fn update_engine_status(ui: &MainWindow, state: &AppState) {
             ui.set_running(false);
             ui.set_status_text("进程已退出".into());
             ui.set_status_kind(2);
-            ui.set_error_text("进程已退出".into());
+            super::diagnostics::report_warning(ui, "进程已退出");
         }
         EngineStatus::DeviceGone => {
             restore_default_mics(&state.saved_mics);
             ui.set_running(false);
             ui.set_status_text("设备已断开".into());
             ui.set_status_kind(3);
-            ui.set_error_text("无法连接到音频设备\n设备可能已经被拔出。".into());
+            super::diagnostics::report_error(ui, &Error::DeviceNotFound);
         }
         EngineStatus::Error(message) => {
             restore_default_mics(&state.saved_mics);
             ui.set_running(false);
             ui.set_status_text("错误".into());
             ui.set_status_kind(3);
-            ui.set_error_text(message.into());
+            ui.set_error_text(message.clone().into());
+            super::diagnostics::report_warning(ui, &message);
         }
     }
 }
 
-fn update_audio_levels(ui: &MainWindow, state: &AppState) {
-    let running = state.engine.is_running();
-    let capture = if running {
-        state.engine.sample_capture_peak()
-    } else {
-        0.0
-    };
-    let mic = if running {
-        state.engine.sample_mic_peak()
-    } else {
-        0.0
-    };
-    let render = if running {
-        state.engine.sample_render_peak()
-    } else {
-        0.0
-    };
-    push_bar(&mut state.capture_hist.borrow_mut(), capture);
-    push_bar(&mut state.mic_hist.borrow_mut(), mic);
-    push_bar(&mut state.render_hist.borrow_mut(), render);
-    set_wave(
-        ui,
-        &state.capture_hist.borrow(),
-        &state.mic_hist.borrow(),
-        &state.render_hist.borrow(),
-    );
-}
-
 fn update_player_progress(ui: &MainWindow, state: &AppState) {
+    if ui.get_audio_entry_index() >= 0
+        && let Some(actual) = visible_entry(&state.cache, ui.get_audio_entry_index() as usize)
+        && let Some(entry) = state.cache.borrow().audio_entries.get(actual)
+    {
+        ui.set_player_loop(entry.loop_playback);
+    }
+    if ui.get_player_paused() {
+        return;
+    }
     let file = state.engine.file_state();
     if let Some(error) = file.error {
         ui.set_player_playing(false);
-        ui.set_error_text(error.into());
+        super::diagnostics::report_warning(ui, &error);
         return;
     }
     if !file.playing && ui.get_player_playing() {
@@ -114,34 +120,10 @@ fn update_player_progress(ui: &MainWindow, state: &AppState) {
     ui.set_audio_current_position(format_hns_position(file.position_hns, file.duration_hns).into());
 }
 
-fn update_device_labels(
-    ui: &MainWindow,
-    state: &AppState,
-    last_dest_idx: &Cell<i32>,
-    last_mic_idx: &Cell<i32>,
-) {
+fn update_device_label(ui: &MainWindow, state: &AppState, last_dest_idx: &Cell<i32>) {
     let device_index = ui.get_device_index();
     if device_index != last_dest_idx.get() {
         last_dest_idx.set(device_index);
         update_output_text(ui, &state.cache);
     }
-    let mic_index = ui.get_mic_index();
-    if mic_index != last_mic_idx.get() {
-        last_mic_idx.set(mic_index);
-        update_mic_text(ui, &state.cache);
-    }
-    ui.set_has_mic(mic_index != 0);
-}
-
-fn push_bar(hist: &mut Vec<f32>, value: f32) {
-    if hist.len() >= WAVE_BARS {
-        hist.remove(0);
-    }
-    hist.push(value.clamp(0.0, 1.0));
-}
-
-pub(super) fn set_wave(ui: &MainWindow, capture: &[f32], mic: &[f32], render: &[f32]) {
-    ui.set_capture_wave(ModelRc::new(VecModel::from(capture.to_vec())));
-    ui.set_mic_wave(ModelRc::new(VecModel::from(mic.to_vec())));
-    ui.set_render_wave(ModelRc::new(VecModel::from(render.to_vec())));
 }

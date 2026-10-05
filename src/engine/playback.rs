@@ -12,6 +12,18 @@ use crate::audio::sfx::SfxCommand;
 use crate::config::AudioEntry;
 use crate::error::Error;
 
+/// 音频库播放流的目的地组合。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum PlaybackTarget {
+    /// 同时发送到路由和本机试听。
+    #[default]
+    Both,
+    /// 只发送到本机默认播放设备。
+    Monitor,
+    /// 只发送到当前路由输出。
+    Route,
+}
+
 use super::monitor::{self, SharedMonitor};
 
 /// 引擎接收的文件播放请求。
@@ -25,6 +37,8 @@ pub(crate) struct FilePlaybackRequest {
     pub(crate) duration_hns: u64,
     /// 是否循环。
     pub(crate) looped: bool,
+    /// 本次播放启用的路由与本机试听目标。
+    pub(crate) target: PlaybackTarget,
 }
 
 impl From<&AudioEntry> for FilePlaybackRequest {
@@ -34,6 +48,7 @@ impl From<&AudioEntry> for FilePlaybackRequest {
             name: entry.name.clone(),
             duration_hns: entry.duration_hns,
             looped: entry.loop_playback,
+            target: PlaybackTarget::Both,
         }
     }
 }
@@ -122,6 +137,7 @@ fn start_streams(
     let mut info = None;
     let mut sfx_stream = None;
     if sfx_sender.is_some()
+        && request.target != PlaybackTarget::Monitor
         && let Ok((stream_info, rx)) = decode::stream_to_channel(
             request.path.clone(),
             start_hns,
@@ -134,12 +150,14 @@ fn start_streams(
     }
 
     let mut monitor_stream = None;
-    if let Ok((stream_info, rx)) = decode::stream_to_channel(
-        request.path.clone(),
-        start_hns,
-        request.looped,
-        cancel.clone(),
-    ) {
+    if request.target != PlaybackTarget::Route
+        && let Ok((stream_info, rx)) = decode::stream_to_channel(
+            request.path.clone(),
+            start_hns,
+            request.looped,
+            cancel.clone(),
+        )
+    {
         info = Some(stream_info);
         monitor_stream = Some(rx);
     }
@@ -158,10 +176,17 @@ fn start_streams(
             rx,
         });
     }
-    if let Some(rx) = monitor_stream
-        && monitor::play_stream(monitor_handle, info, rx, request.looped).is_err()
-    {
-        // 试听关闭不是播放失败；SFX 仍可能已经接收了该流。
+    if let Some(rx) = monitor_stream {
+        match monitor::play_stream(monitor_handle, info, rx, request.looped) {
+            Ok(()) => {}
+            Err(error) => {
+                // 试听没接住这路流；若路由也没接住，用户会看到「播放中但没声音」。
+                tracing::warn!("试听流未投递（{error}）");
+                if request.target == PlaybackTarget::Monitor {
+                    finish_with_error(control, Error::RenderInit("本机试听设备未就绪"));
+                }
+            }
+        }
     }
 }
 
@@ -233,18 +258,23 @@ pub(crate) fn state(control: &Arc<Mutex<PlaybackControl>>) -> FilePlaybackState 
 use super::AudioEngine;
 
 impl AudioEngine {
-    /// 播放音频库条目；解码和音频线程由引擎管理。
+    /// 按指定目的地播放音频库条目。
     pub fn play_file(
         &self,
         entry: &crate::config::AudioEntry,
         start_hns: u64,
+        target: PlaybackTarget,
     ) -> Result<(), Error> {
         self.stop_file();
+        let request = FilePlaybackRequest {
+            target,
+            ..FilePlaybackRequest::from(entry)
+        };
         start(
             &self.playback,
             &self.monitor,
             self.sfx_sender().ok(),
-            FilePlaybackRequest::from(entry),
+            request,
             start_hns,
         )
     }
@@ -257,5 +287,13 @@ impl AudioEngine {
     /// 读取当前文件播放状态。
     pub fn file_state(&self) -> FilePlaybackState {
         state(&self.playback)
+    }
+    pub(crate) fn sfx_sender(&self) -> Result<Sender<SfxCommand>, Error> {
+        self.sources
+            .lock()
+            .map_err(|_| Error::RenderInit("source lock poisoned"))?
+            .sfx_tx
+            .clone()
+            .ok_or(Error::RenderInit("sfx is closed"))
     }
 }

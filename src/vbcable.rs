@@ -33,8 +33,41 @@ pub fn install_latest() -> Result<(), Error> {
         Error::Cable("安装包里没有找到 Setup.exe，请到 vb-audio.com 手动安装。".into())
     })?;
     tracing::info!("running {}", setup.display());
-    run_as_admin(&setup)?;
+    run_as_admin(&setup, &[], "安装")?;
     Ok(())
+}
+
+/// 调官方卸载入口（提权）：优先 `VBCABLE_Setup_x64.exe -u`，
+/// 找不到安装包时提示用户到「应用和功能」手动卸载。
+///
+/// 卸载完成后驱动通常要重启系统才彻底移除，调用方应提示用户重启。
+pub fn uninstall() -> Result<(), Error> {
+    let setup = find_uninstall_setup().ok_or_else(|| {
+        Error::Cable("未找到卸载程序，请在「应用和功能」中卸载 VB-CABLE。".into())
+    })?;
+    tracing::info!("uninstalling via {}", setup.display());
+    run_as_admin(&setup, &["-u"], "卸载")?;
+    Ok(())
+}
+
+/// 找可用于卸载的官方 Setup：先看本程序解压目录，再看常见安装目录。
+fn find_uninstall_setup() -> Option<PathBuf> {
+    let work = std::env::temp_dir().join("mintcat-vbcable");
+    if work.is_dir()
+        && let Some(setup) = find_setup(&work)
+    {
+        return Some(setup);
+    }
+    // VB-Audio 官方安装程序默认落在这两个目录。
+    for dir in [
+        r"C:\Program Files\VB\CABLE",
+        r"C:\Program Files (x86)\VB\CABLE",
+    ] {
+        if let Some(setup) = find_setup(Path::new(dir)) {
+            return Some(setup);
+        }
+    }
+    None
 }
 
 /// 抓 Cable 页面里编号最大的 `VBCABLE_Driver_PackNN.zip`。
@@ -160,30 +193,33 @@ fn collect_setups(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// `runas` 启动安装程序并等待退出。
-fn run_as_admin(setup: &Path) -> Result<(), Error> {
+/// 以 `runas` 提权运行安装/卸载程序并等待退出；`args` 传给程序（卸载传 `-u`）。
+fn run_as_admin(exe: &Path, args: &[&str], action: &str) -> Result<(), Error> {
     use std::os::windows::ffi::OsStrExt;
-    let wide: Vec<u16> = setup
+    let wide: Vec<u16> = exe
         .as_os_str()
         .encode_wide()
         .chain(std::iter::once(0))
         .collect();
+    let params: String = args.join(" ");
+    let params_wide: Vec<u16> = params.encode_utf16().chain(std::iter::once(0)).collect();
     let mut info = SHELLEXECUTEINFOW {
         cbSize: size_of::<SHELLEXECUTEINFOW>() as u32,
         fMask: SEE_MASK_NOCLOSEPROCESS,
         lpVerb: w!("runas"),
         lpFile: PCWSTR(wide.as_ptr()),
+        lpParameters: PCWSTR(params_wide.as_ptr()),
         nShow: SW_SHOWNORMAL.0,
         ..Default::default()
     };
     unsafe {
         ShellExecuteExW(&mut info)
-            .map_err(|_| Error::Cable("已取消或无法提权安装 VB-CABLE。".into()))?;
+            .map_err(|_| Error::Cable(format!("已取消或无法提权{action} VB-CABLE。")))?;
         if !info.hProcess.is_invalid() {
             let wr = WaitForSingleObject(info.hProcess, INFINITE);
             let _ = CloseHandle(info.hProcess);
             if wr != WAIT_OBJECT_0 {
-                return Err(Error::Cable("安装程序异常结束。".into()));
+                return Err(Error::Cable(format!("{action}程序异常结束。")));
             }
         }
     }

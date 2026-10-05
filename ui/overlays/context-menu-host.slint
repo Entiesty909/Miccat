@@ -1,0 +1,52 @@
+//! 全局右键菜单宿主：把页面菜单状态接到 ContextMenu，避免 app-window 逐项透传。
+
+import { ContextMenu } from "context-menu.slint";
+
+/// 菜单宿主：属性与回调由 app-window 双向绑定。
+export component ContextMenuHost inherits Rectangle {
+    in-out property <bool> category-open: false;
+    in-out property <bool> entry-open: false;
+    in-out property <length> category-x: 0px;
+    in-out property <length> category-y: 0px;
+    in-out property <length> entry-x: 0px;
+    in-out property <length> entry-y: 0px;
+    in-out property <int> category-index: 0;
+    in-out property <string> category-edit-name: "";
+    in property <string> entry-hotkey: "";
+    callback category-new();
+    callback category-rename();
+    callback category-delete();
+    callback entry-play(int);
+    callback entry-add-route();
+    callback entry-hotkey-bind();
+    callback entry-hotkey-clear();
+    callback entry-remove();
+    callback entry-explorer();
+    callback entry-edit-file();
+
+    width: 100%;
+    height: 100%;
+    background: transparent;
+
+    if root.category-open || root.entry-open: ContextMenu {
+        category-open <=> root.category-open;
+        entry-open <=> root.entry-open;
+        category-x <=> root.category-x;
+        category-y <=> root.category-y;
+        entry-x <=> root.entry-x;
+        entry-y <=> root.entry-y;
+        category-index <=> root.category-index;
+        category-edit-name <=> root.category-edit-name;
+        entry-hotkey: root.entry-hotkey;
+        category-new => { root.category-new(); }
+        category-rename => { root.category-rename(); }
+        category-delete => { root.category-delete(); }
+        entry-play(i) => { root.entry-play(i); }
+        entry-add-route => { root.entry-add-route(); }
+        entry-hotkey-bind => { root.entry-hotkey-bind(); }
+        entry-hotkey-clear => { root.entry-hotkey-clear(); }
+        entry-remove => { root.entry-remove(); }
+        entry-explorer => { root.entry-explorer(); }
+        entry-edit-file => { root.entry-edit-file(); }
+    }
+}

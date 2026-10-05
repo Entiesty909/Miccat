@@ -1,0 +1,156 @@
+//! 常驻状态栏：显示转发状态、音源数量、总线音量与启停操作。
+
+import { Theme } from "../theme.slint";
+import { DiagState } from "../overlays/global-overlays.slint";
+import { PmButton } from "button.slint";
+import { Slider } from "std-widgets.slint";
+
+export component StatusBar inherits Rectangle {
+    in property <string> status-text: "未运行";
+    in property <int> status-kind: 0;
+    in property <string> error-text: "";
+    in property <bool> running: false;
+    in property <int> source-count: 0;
+    in-out property <bool> sources-expanded: true;
+    in-out property <float> master-volume: 100;
+    in property <bool> cable-busy: false;
+    callback sources-expanded-toggled(bool);
+    callback master-volume-edited(float);
+    callback start-stop();
+
+    height: root.error-text == ""
+        ? Theme.statusBarHeight
+        : Theme.statusBarHeight + 22px;
+    background: Theme.card;
+    border-width: 1px;
+    border-color: Theme.border;
+
+    VerticalLayout {
+        width: 100%;
+        padding-left: 28px;
+        padding-right: 28px;
+        padding-top: 10px;
+        padding-bottom: 10px;
+        spacing: 4px;
+        if root.error-text != "": HorizontalLayout {
+            width: 100%;
+            spacing: 8px;
+            Text {
+                text: root.error-text;
+                color: Theme.danger;
+                font-size: 12px;
+                wrap: word-wrap;
+                horizontal-stretch: 1;
+                vertical-alignment: TextVerticalAlignment.center;
+            }
+            Text {
+                text: "查看详情";
+                color: Theme.accent;
+                font-size: 12px;
+                vertical-alignment: TextVerticalAlignment.center;
+                TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { DiagState.toggle(); }
+                }
+            }
+        }
+        HorizontalLayout {
+            width: 100%;
+            height: 44px;
+            spacing: 8px;
+            VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 10px;
+                    height: 10px;
+                    border-radius: 5px;
+                    background: root.status-kind == 1
+                        ? Theme.ok
+                        : (root.status-kind == 2
+                            ? Theme.warn
+                            : (root.status-kind == 3 ? Theme.danger : Theme.text3));
+                }
+            }
+            Text {
+                text: root.status-text;
+                color: Theme.text;
+                font-size: 13px;
+                font-weight: 600;
+                vertical-alignment: TextVerticalAlignment.center;
+            }
+            Rectangle {
+                width: 1px;
+                height: 20px;
+                background: Theme.borderStrong;
+            }
+            Text {
+                text: "\{root.source-count} 个音频源";
+                color: Theme.text2;
+                font-size: 12px;
+                vertical-alignment: TextVerticalAlignment.center;
+            }
+            Rectangle {
+                width: 30px;
+                height: 30px;
+                Text {
+                    text: root.sources-expanded ? "\u{E70E}" : "\u{E70D}";
+                    font-family: "Segoe MDL2 Assets";
+                    color: Theme.text2;
+                    horizontal-alignment: center;
+                    vertical-alignment: TextVerticalAlignment.center;
+                }
+                TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.sources-expanded = !root.sources-expanded;
+                        root.sources-expanded-toggled(root.sources-expanded);
+                    }
+                }
+            }
+            Rectangle { horizontal-stretch: 1; background: transparent; }
+            Text {
+                text: "总音量";
+                color: Theme.text2;
+                font-size: 12px;
+                vertical-alignment: TextVerticalAlignment.center;
+            }
+            Text {
+                text: "\u{E767}";
+                font-family: "Segoe MDL2 Assets";
+                color: Theme.text2;
+                font-size: 16px;
+                vertical-alignment: TextVerticalAlignment.center;
+            }
+            Slider {
+                width: 220px;
+                minimum: 0;
+                maximum: 100;
+                value <=> root.master-volume;
+                changed(v) => { root.master-volume-edited(v); }
+            }
+            Text {
+                width: 44px;
+                text: "\{Math.round(root.master-volume)}%";
+                color: Theme.text;
+                font-size: 13px;
+                font-weight: 600;
+                horizontal-alignment: right;
+                vertical-alignment: TextVerticalAlignment.center;
+            }
+            if DiagState.count > 0: PmButton {
+                label: DiagState.unseen > 0
+                    ? "⚠  \{DiagState.count} 个问题（\{DiagState.unseen} 新）"
+                    : "⚠  \{DiagState.count} 个问题";
+                danger: true;
+                clicked => { DiagState.toggle(); }
+            }
+            PmButton {
+                label: root.running ? "■  停止" : "▶  开始转发";
+                filled: true;
+                danger: root.running;
+                enabled: !root.cable-busy;
+                clicked => { root.start-stop(); }
+            }
+        }
+    }
+}

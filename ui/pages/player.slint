@@ -1,35 +1,58 @@
-//! 音频库页面。右键菜单本体在 main.slint 的窗口顶层，这里只负责记录坐标与开关。
+//! 音频库：分类导航、本地文件表、文件详情和独立播放控制。
 
-import { LineEdit, CheckBox, Slider } from "std-widgets.slint";
+import { LineEdit } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
 import { Card } from "../components/card.slint";
 import { PmButton } from "../components/button.slint";
+import { CategorySidebar } from "../components/category-sidebar.slint";
+import { AudioList } from "../components/audio-list.slint";
+import { AudioDetail } from "../components/audio-detail.slint";
+import { AudioTransport } from "../components/audio-transport.slint";
 
 export component PlayerPage inherits Rectangle {
-    in-out property <string> output-name: "";
     in-out property <[string]> categories: ["全部", "未分类"];
+    in-out property <[int]> category-counts: [];
+    in-out property <[string]> audio-hotkeys: [];
     in-out property <int> category-index: 0;
     in-out property <int> category-drop-target: -1;
     in-out property <int> category-drop-position: -1;
-    in-out property <string> category-edit-name: "";
     in-out property <[string]> entries: [];
     in-out property <[string]> entry-durations: [];
+    in-out property <[string]> entry-metadata: [];
+    in-out property <[string]> entry-categories: [];
+    in-out property <[string]> entry-statuses: [];
+    in-out property <[string]> entry-paths: [];
+    in-out property <[string]> entry-sizes: [];
+    in-out property <[string]> entry-hotkeys: [];
+    in-out property <string> search: "";
     in-out property <int> entry-index: -1;
+    in-out property <bool> listening-entry-hotkey: false;
+    in-out property <int> entry-category-index: 0;
+    in-out property <int> page: 0;
+    in-out property <int> page-count: 1;
+    in-out property <int> total-count: 0;
+    in-out property <bool> sort-ascending: true;
+    in-out property <int> playing-entry-index: -1;
     in-out property <float> progress: 0;
     in-out property <bool> seeking-progress: false;
-    in-out property <string> search: "";
     in-out property <string> current-name: "";
     in-out property <string> current-position: "";
     in-out property <float> duration-seconds: 0;
+    in-out property <bool> paused: false;
+    in-out property <bool> preview-enabled: false;
+    in-out property <float> monitor-volume: 50;
     in-out property <bool> loop: false;
     in-out property <bool> playing: false;
-    in-out property <string> entry-edit-name: "";
+    in-out property <bool> route-running: false;
+    in-out property <[string]> devices: [];
+    in-out property <int> file-output-index: 0;
     in-out property <bool> category-menu-open: false;
     in-out property <bool> entry-menu-open: false;
     in-out property <length> category-menu-x: 0px;
     in-out property <length> category-menu-y: 0px;
     in-out property <length> entry-menu-x: 0px;
     in-out property <length> entry-menu-y: 0px;
+    in property <string> hotkey-label: "";
 
     callback category-changed(int);
     callback category-context(int);
@@ -37,291 +60,216 @@ export component PlayerPage inherits Rectangle {
     callback category-can-drop(data-transfer, int, int) -> bool;
     callback category-drop(data-transfer, int, int);
     callback entry-context(int);
-    callback entry-edit-tags();
-    callback entry-save-tags();
-    callback search-changed(string);
+    callback entry-selected(int);
     callback entry-double-clicked(int);
+    callback entry-play(int);
     callback progress-seek(float);
     callback add-files();
     callback stop();
-    callback open-settings();
-
+    callback play-action(int);
+    callback pause-toggle();
+    callback previous();
+    callback next();
+    callback preview-enabled-toggled(bool);
+    callback preview-volume-edited(float);
+    callback file-output-changed(int);
+    callback search-edited(string);
+    callback sort-toggled();
+    callback page-changed(int);
+    callback entry-category-changed(int);
+    callback loop-changed(bool);
+    callback entry-hotkey-bind();
+    callback hotkey-settings();
     background: transparent;
 
     VerticalLayout {
-        padding: Theme.padPage;
-        spacing: Theme.gap;
-
-        // 工具条
-        HorizontalLayout {
-            height: Theme.controlHeight;
-            spacing: 8px;
-            PmButton {
-                label: "+ 添加文件";
-                clicked => { root.add-files(); }
-            }
-            LineEdit {
-                horizontal-stretch: 1;
-                placeholder-text: "搜索音频…";
-                text <=> root.search;
-                edited(t) => { root.search-changed(t); }
-            }
-            Text {
-                text: root.output-name == "" ? "目标：未选择" : "目标：" + root.output-name;
-                color: Theme.text2;
-                font-size: 12px;
-                vertical-alignment: TextVerticalAlignment.center;
-            }
-        }
-
+        padding-left: 22px;
+        padding-right: 22px;
+        padding-top: 16px;
+        padding-bottom: 14px;
+        spacing: 12px;
         HorizontalLayout {
             vertical-stretch: 1;
-            spacing: Theme.gap;
-
-            // 分类树
-            Card {
-                width: 250px;
-                vertical-stretch: 1;
-                VerticalLayout {
-                    // 避免内容收缩，否则空白区 TouchArea 没有可命中的高度。
-                    height: 100%;
-                    Text {
-                        text: "音频分类";
-                        color: Theme.text2;
-                        font-size: 12px;
-                        font-weight: 600;
-                    }
-                    VerticalLayout {
-                        vertical-stretch: 1;
-                        for category[index] in root.categories: DragArea {
-                            height: 32px;
-                            allow-move: category != "全部" && category != "未分类";
-                            data: root.category-to-transfer(index);
-                            drag-finished(action) => {
-                                root.category-drop-target = -1;
-                                root.category-drop-position = -1;
-                            }
-                            Rectangle {
-                                width: 100%;
-                                height: 100%;
-                                background: root.category-drop-target == index
-                                    && root.category-drop-position == 1
-                                    ? Theme.accentSoft
-                                    : index == root.category-index
-                                        ? Theme.accentSoft
-                                        : transparent;
-                                border-radius: Theme.radiusControl;
-                                if category != "全部" && category != "未分类": DropArea {
-                                    width: 100%;
-                                    height: 100%;
-                                    can-drop(event) => {
-                                        let position = event.position.y < self.height * 0.25
-                                            ? 0
-                                            : (event.position.y > self.height * 0.75 ? 2 : 1);
-                                        if (root.category-can-drop(
-                                            event.data,
-                                            index,
-                                            position
-                                        )) {
-                                            root.category-drop-target = index;
-                                            root.category-drop-position = position;
-                                            return DragAction.move;
-                                        }
-                                        return DragAction.none;
-                                    }
-                                    dropped(event) => {
-                                        let position = event.position.y < self.height * 0.25
-                                            ? 0
-                                            : (event.position.y > self.height * 0.75 ? 2 : 1);
-                                        root.category-drop(event.data, index, position);
-                                        root.category-drop-target = -1;
-                                        root.category-drop-position = -1;
-                                        return event.proposed-action;
-                                    }
-                                }
-                                Text {
-                                    text: category;
-                                    x: 12px;
-                                    color: index == root.category-index ? Theme.accent : Theme.text;
-                                    vertical-alignment: TextVerticalAlignment.center;
-                                }
-                                if root.category-drop-target == index
-                                    && root.category-drop-position == 0: Rectangle {
-                                    width: 100%;
-                                    height: 2px;
-                                    background: Theme.accent;
-                                }
-                                if root.category-drop-target == index
-                                    && root.category-drop-position == 2: Rectangle {
-                                    y: parent.height - 2px;
-                                    width: 100%;
-                                    height: 2px;
-                                    background: Theme.accent;
-                                }
-                                TouchArea {
-                                    clicked => {
-                                        root.category-index = index;
-                                        root.category-changed(index);
-                                        root.category-menu-open = false;
-                                        root.entry-menu-open = false;
-                                    }
-                                    pointer-event(event) => {
-                                        if (event.button == PointerEventButton.right
-                                            && event.kind == PointerEventKind.down) {
-                                            root.category-index = index;
-                                            root.category-context(index);
-                                            root.category-menu-x =
-                                                self.absolute-position.x + self.mouse-x;
-                                            root.category-menu-y =
-                                                self.absolute-position.y + self.mouse-y;
-                                            root.category-menu-open = true;
-                                            root.entry-menu-open = false;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        TouchArea {
-                            width: 100%;
-                            vertical-stretch: 1;
-                            pointer-event(event) => {
-                                if (event.button == PointerEventButton.right
-                                    && event.kind == PointerEventKind.down) {
-                                    root.category-index = -1;
-                                    root.category-context(-1);
-                                    root.category-menu-x =
-                                        self.absolute-position.x + self.mouse-x;
-                                    root.category-menu-y =
-                                        self.absolute-position.y + self.mouse-y;
-                                    root.category-menu-open = true;
-                                    root.entry-menu-open = false;
-                                }
-                            }
-                        }
-                    }
+            min-height: 0px;
+            spacing: 12px;
+            CategorySidebar {
+                width: 228px;
+                categories <=> root.categories;
+                category-counts <=> root.category-counts;
+                audio-hotkeys <=> root.audio-hotkeys;
+                category-index <=> root.category-index;
+                category-drop-target <=> root.category-drop-target;
+                category-drop-position <=> root.category-drop-position;
+                category-menu-open <=> root.category-menu-open;
+                entry-menu-open <=> root.entry-menu-open;
+                category-menu-x <=> root.category-menu-x;
+                category-menu-y <=> root.category-menu-y;
+                hotkey-label: root.hotkey-label;
+                category-changed(i) => { root.category-changed(i); }
+                category-context(i) => { root.category-context(i); }
+                category-to-transfer(i) => { root.category-to-transfer(i); }
+                category-can-drop(data, target, position) => {
+                    root.category-can-drop(data, target, position);
                 }
+                category-drop(data, target, position) => {
+                    root.category-drop(data, target, position);
+                }
+                hotkey-settings => { root.hotkey-settings(); }
             }
-
-            // 音频列表
             Card {
                 horizontal-stretch: 1;
+                vertical-stretch: 1;
                 min-width: 0px;
-                VerticalLayout {
-                    HorizontalLayout {
-                        height: Theme.controlHeight;
-                        Text { text: "索引"; width: 52px; color: Theme.text2; }
-                        Text { text: "音频名称"; horizontal-stretch: 1; color: Theme.text2; }
-                        Text { text: "时长"; width: 76px; color: Theme.text2; }
-                        Text { text: "状态"; width: 64px; color: Theme.text2; }
-                    }
-                    VerticalLayout {
-                        vertical-stretch: 1;
-                        for name[index] in root.entries: Rectangle {
-                            height: 32px;
-                            background: index == root.entry-index ? Theme.accentSoft : transparent;
-                            Text {
-                                text: "\{index + 1}";
-                                x: 8px;
-                                width: 44px;
-                                color: Theme.text2;
-                            }
-                            Text {
-                                text: name;
-                                x: 56px;
-                                width: parent.width - 210px;
-                                color: Theme.text;
-                                overflow: elide;
-                            }
-                            Text {
-                                text: index < root.entry-durations.length
-                                    ? root.entry-durations[index]
-                                    : "—";
-                                x: parent.width - 142px;
-                                width: 76px;
-                                color: Theme.text2;
-                                horizontal-alignment: right;
-                            }
-                            Text {
-                                text: index == root.entry-index && root.playing ? "播放中" : "";
-                                x: parent.width - 66px;
-                                width: 58px;
-                                color: Theme.accent;
-                            }
-                            TouchArea {
-                                clicked => {
-                                    root.entry-index = index;
-                                    root.entry-double-clicked(index);
-                                    root.entry-menu-open = false;
-                                }
-                                pointer-event(event) => {
-                                    if (event.button == PointerEventButton.right
-                                        && event.kind == PointerEventKind.down) {
-                                        root.entry-index = index;
-                                        root.entry-context(index);
-                                        root.entry-menu-x = self.absolute-position.x + self.mouse-x;
-                                        root.entry-menu-y = self.absolute-position.y + self.mouse-y;
-                                        root.entry-menu-open = true;
-                                        root.category-menu-open = false;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Text {
-                        text: "双击播放；右键音频可选择播放目标和文件操作。";
-                        color: Theme.text3;
-                        font-size: 12px;
-                    }
-                }
-            }
-        }
-
-        // 播放条：状态 + 进度 + 进度文字 + 循环 + 停止
-        Card {
-            height: 70px;
-            VerticalLayout {
+                min-height: 0px;
                 HorizontalLayout {
-                    height: Theme.controlHeight;
+                    height: 44px;
                     spacing: 8px;
                     Text {
-                        text: root.playing ? "▶" : "■";
-                        width: 20px;
-                        color: root.playing ? Theme.accent : Theme.text3;
-                    }
-                    Text {
-                        text: root.current-name == "" ? "未播放" : root.current-name;
-                        width: 220px;
-                        color: Theme.text;
-                        overflow: elide;
-                    }
-                    Slider {
-                        horizontal-stretch: 1;
-                        minimum: 0;
-                        maximum: 1;
-                        value <=> root.progress;
-                        // 拖动时只跟手，松手才真正跳转，避免边拖边重启解码。
-                        changed(v) => { root.seeking-progress = true; }
-                        released(v) => {
-                            root.seeking-progress = false;
-                            root.progress-seek(v);
-                        }
-                    }
-                    Text {
-                        text: root.current-position;
-                        width: 90px;
+                        text: "\u{E721}";
+                        font-family: "Segoe MDL2 Assets";
                         color: Theme.text2;
+                        width: 20px;
+                        vertical-alignment: TextVerticalAlignment.center;
                     }
-                    CheckBox {
-                        text: "循环";
-                        checked <=> root.loop;
+                    LineEdit {
+                        horizontal-stretch: 1;
+                        text <=> root.search;
+                        placeholder-text: "搜索音频文件…";
+                        edited(text) => { root.search-edited(text); }
                     }
                     PmButton {
-                        label: "停止";
-                        enabled: root.playing;
-                        clicked => { root.stop(); }
+                        label: "添加音频";
+                        filled: true;
+                        clicked => { root.add-files(); }
+                    }
+                    PmButton {
+                        label: root.sort-ascending ? "↑ 名称" : "↓ 名称";
+                        clicked => { root.sort-toggled(); }
+                    }
+                }
+                Rectangle {
+                    width: 100%;
+                    height: 1px;
+                    background: Theme.border;
+                }
+                AudioList {
+                    vertical-stretch: 1;
+                    min-height: 0px;
+                    entries <=> root.entries;
+                    entry-durations <=> root.entry-durations;
+                    entry-hotkeys <=> root.entry-hotkeys;
+                    entry-categories <=> root.entry-categories;
+                    entry-statuses <=> root.entry-statuses;
+                    entry-index <=> root.entry-index;
+                    playing <=> root.playing;
+                    playing-entry-index <=> root.playing-entry-index;
+                    entry-menu-open <=> root.entry-menu-open;
+                    category-menu-open <=> root.category-menu-open;
+                    entry-menu-x <=> root.entry-menu-x;
+                    entry-menu-y <=> root.entry-menu-y;
+                    entry-context(index) => { root.entry-context(index); }
+                    entry-selected(index) => { root.entry-selected(index); }
+                    entry-double-clicked(index) => {
+                        root.entry-double-clicked(index);
+                    }
+                    entry-play(index) => { root.entry-play(index); }
+                }
+                Rectangle {
+                    width: 100%;
+                    height: 1px;
+                    background: Theme.border;
+                }
+                HorizontalLayout {
+                    height: 36px;
+                    Text {
+                        text: "共 \{root.total-count} 个音频文件";
+                        horizontal-stretch: 1;
+                        color: Theme.text2;
+                        font-size: 11px;
+                        vertical-alignment: TextVerticalAlignment.center;
+                    }
+                    PmButton {
+                        label: "‹";
+                        button-width: 34px;
+                        enabled: root.page > 0;
+                        clicked => { root.page-changed(root.page - 1); }
+                    }
+                    Text {
+                        text: "\{root.page + 1} / \{root.page-count}";
+                        width: 56px;
+                        color: Theme.accent;
+                        horizontal-alignment: center;
+                        vertical-alignment: TextVerticalAlignment.center;
+                    }
+                    PmButton {
+                        label: "›";
+                        button-width: 34px;
+                        enabled: root.page + 1 < root.page-count;
+                        clicked => { root.page-changed(root.page + 1); }
+                    }
+                    Text {
+                        text: "每页 20 条";
+                        width: 70px;
+                        color: Theme.text2;
+                        font-size: 11px;
+                        horizontal-alignment: right;
+                        vertical-alignment: TextVerticalAlignment.center;
                     }
                 }
             }
+            AudioDetail {
+                vertical-stretch: 1;
+                entries <=> root.entries;
+                metadata <=> root.entry-metadata;
+                categories <=> root.entry-categories;
+                durations <=> root.entry-durations;
+                sizes <=> root.entry-sizes;
+                paths <=> root.entry-paths;
+                category-options <=> root.categories;
+                devices <=> root.devices;
+                route-running <=> root.route-running;
+                hotkey: root.entry-index >= 0
+                    && root.entry-index < root.entry-hotkeys.length
+                    ? root.entry-hotkeys[root.entry-index]
+                    : "";
+                listening-hotkey: root.listening-entry-hotkey;
+                entry-index <=> root.entry-index;
+                category-index <=> root.entry-category-index;
+                output-index <=> root.file-output-index;
+                monitor-volume <=> root.monitor-volume;
+                preview-enabled <=> root.preview-enabled;
+                loop <=> root.loop;
+                play => { root.play-action(0); }
+                preview => { root.play-action(1); }
+                context => { root.entry-context(root.entry-index); }
+                output-changed(value) => { root.file-output-changed(value); }
+                category-changed(value) => {
+                    root.entry-category-changed(value);
+                }
+                monitor-volume-edited(value) => {
+                    root.preview-volume-edited(value);
+                }
+                preview-toggled(value) => {
+                    root.preview-enabled-toggled(value);
+                }
+                loop-toggled(value) => { root.loop-changed(value); }
+            }
+        }
+        if root.playing || root.paused: AudioTransport {
+            entry-index: root.entry-index;
+            entry-count: root.entries.length;
+            playing: root.playing;
+            paused: root.paused;
+            progress <=> root.progress;
+            seeking-progress <=> root.seeking-progress;
+            current-name: root.current-name;
+            current-position: root.current-position;
+            duration-seconds: root.duration-seconds;
+            previous => { root.previous(); }
+            pause-toggle => { root.pause-toggle(); }
+            stop => { root.stop(); }
+            next => { root.next(); }
+            progress-seek(value) => { root.progress-seek(value); }
         }
     }
 }

@@ -10,7 +10,7 @@ publish = false
 # Slint 1.18 会把 windows 拉到 0.62；必须对齐，否则 implement 宏和 IUnknownImpl 版本分裂。
 slint = { version = "1.11", default-features = false, features = ["std", "compat-1-2", "backend-winit", "renderer-software"] }
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "std", "ansi"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "std", "ansi", "registry"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 windows = { version = "0.62.2", features = [
@@ -23,8 +23,12 @@ windows = { version = "0.62.2", features = [
     "Win32_Media_Multimedia",
     "Win32_Security",
     "Win32_System_Com_StructuredStorage",
+    "Win32_System_DataExchange",
     "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Memory",
+    "Win32_System_Ole",
     "Win32_System_ProcessStatus",
+    "Win32_System_SystemInformation",
     "Win32_System_Threading",
     "Win32_System_Registry",
     "Win32_Media_MediaFoundation",

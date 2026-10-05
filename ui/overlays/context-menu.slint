@@ -13,10 +13,14 @@ export component ContextMenu inherits Rectangle {
     in-out property <int> category-index: 0;
     in-out property <string> category-edit-name: "";
     in-out property <bool> category-rename-open: false;
+    in property <string> entry-hotkey: "";
     callback category-new();
     callback category-rename();
     callback category-delete();
     callback entry-play(int);
+    callback entry-add-route();
+    callback entry-hotkey-bind();
+    callback entry-hotkey-clear();
     callback entry-remove();
     callback entry-explorer();
     callback entry-edit-file();
@@ -94,9 +98,9 @@ export component ContextMenu inherits Rectangle {
 
     if root.entry-open: Rectangle {
         x: min(max(0px, root.entry-x), root.width - 300px);
-        y: min(max(0px, root.entry-y), root.height - 300px);
+        y: min(max(0px, root.entry-y), root.height - 330px);
         width: 292px;
-        height: 292px;
+        height: 322px;
         background: #F8F8F8;
         border-color: #B8B8B8;
         border-width: 1px;
@@ -118,22 +122,30 @@ export component ContextMenu inherits Rectangle {
                 }
             }
             MenuItem {
-                label: "播放（扬声器和麦克风）";
+                label: "播放（进路由 + 本机试听）";
                 clicked => { root.entry-play(0); root.entry-open = false; }
             }
             MenuItem {
-                label: "仅在扬声器播放";
+                label: "仅本机试听";
                 clicked => { root.entry-play(1); root.entry-open = false; }
             }
             MenuItem {
-                label: "仅在麦克风播放";
-                clicked => { root.entry-play(2); root.entry-open = false; }
+                label: "添加到路由主页";
+                clicked => { root.entry-add-route(); root.entry-open = false; }
+            }
+            Rectangle { height: 1px; width: 100%; background: #E4E4E4; }
+            MenuItem {
+                label: root.entry-hotkey == ""
+                    ? "设置快捷键"
+                    : "快捷键：\{root.entry-hotkey}";
+                clicked => { root.entry-hotkey-bind(); root.entry-open = false; }
             }
             MenuItem {
-                label: "移除";
-                danger: true;
-                clicked => { root.entry-remove(); root.entry-open = false; }
+                label: "清除快捷键";
+                enabled: root.entry-hotkey != "";
+                clicked => { root.entry-hotkey-clear(); root.entry-open = false; }
             }
+            Rectangle { height: 1px; width: 100%; background: #E4E4E4; }
             MenuItem {
                 label: "在资源管理器中显示";
                 clicked => { root.entry-explorer(); root.entry-open = false; }
@@ -141,6 +153,11 @@ export component ContextMenu inherits Rectangle {
             MenuItem {
                 label: "编辑文件";
                 clicked => { root.entry-edit-file(); root.entry-open = false; }
+            }
+            MenuItem {
+                label: "从音频库移除";
+                danger: true;
+                clicked => { root.entry-remove(); root.entry-open = false; }
             }
         }
     }

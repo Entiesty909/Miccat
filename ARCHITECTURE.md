@@ -14,17 +14,20 @@ ProcessMic 是 Windows 本地桌面程序：以 WASAPI Process Loopback 捕获�
 |---|---|
 | `src/main.rs` | DPI、日志初始化、CLI/UI 组合根 |
 | `src/cli/mod.rs` | argv 派发、设备/进程命令、capture/route 与播放探针 |
-| `src/ui_bridge/` | Slint 组装、AppState、回调、UI 缓存、列表、持久化、状态轮询 |
+| `src/ui_bridge/` | Slint 组装、AppState、回调、缓存、持久化、状态轮询和异步设备/进程列表刷新 |
 | `src/engine.rs` | AudioEngine 权威状态、进程/麦生命周期、多输出打开与停止 |
-| `src/engine/{fanout,monitor,playback}.rs` | 多输出转换、本机试听、文件播放状态和解码调度 |
+| `src/engine/{fanout,monitor,playback,volume,status,peaks}.rs` | 多输出转换、本机试听、文件播放、增益、状态与峰值 API |
 | `src/audio/` | WASAPI capture/render、ring、格式转换、MF/WAV 解码、SFX、试听、CLI dump |
-| `src/library.rs` | 分类路径、搜索/可见索引、递归分类操作、音频文件验证 |
+| `src/library.rs`、`src/library/tests.rs` | 音频库领域规则与私有逻辑单元测试 |
 | `src/config/` | AppConfig 模型、JSON 存储/迁移、Windows 单实例互斥 |
 | `src/platform/` | 跨层共享的 COM 初始化 |
 | `src/process.rs`、`src/hotkey.rs`、`src/vbcable.rs` | 进程枚举、RegisterHotKey、VB-CABLE 安装 |
-| `ui/app-window.slint` | 主窗口和页面装配 |
-| `ui/overlays/context-menu.slint` | 全局右键菜单遮罩、坐标钳制和菜单项 |
-| `ui/pages/`、`ui/components/` | 页面与无业务权威的可复用控件 |
+| `src/diagnostics/` | 运行时调试开关、tracing 捕获、日志落盘与全局问题中心 |
+| `src/platform/clipboard.rs` | Win32 剪贴板文本写入（问题中心复制详情） |
+| `ui/app-window.slint` | 主窗口、顶栏、状态栏和全局右键菜单覆盖层 |
+| `ui/overlays/global-overlays.slint` | `DiagState` 全局状态与问题中心覆盖层宿主 |
+| `ui/components/page-host.slint` | 装配路由、音频库、设置三页并转发页面回调 |
+| `ui/pages/`、`ui/components/` | 页面内容与无业务权威的可复用控件；`add-source-dialog.slint` 和 `source-actions-menu.slint` 提供路由源操作 UI |
 
 完整文件树和文件规模规则见 [`FILE-CONVENTIONS.md`](FILE-CONVENTIONS.md)。
 
@@ -56,7 +59,9 @@ audio/com ─────────────→ platform::com
 - `AppState`：桥接层共享句柄，不是第三份音频运行时。
 - `UiCache` 保存筛选、索引、菜单/点击态和列表快照；其中仍复制部分配置数据，
   AppConfig/UiCache 单一权威尚未完全收敛。
-- Slint 属性：只作为显示投影和事件契约，不保存 PCM。
+- `src/ui_bridge/sources.rs`：将进程、当前音频文件、物理麦克风的实时状态投影为路由源行；不持有第二份引擎状态。
+- `OutputConfig.device_ids`：持久化多选 render 设备 ID；UI 使用 friendly name 显示，按 ID 恢复。
+Slint 属性只作为显示投影和事件契约，不保存 PCM。
 
 ## 运行线程
 
@@ -83,9 +88,18 @@ Capture、fanout、render 热循环使用预分配缓冲和固定容量 SPSC rin
 - Process Loopback 通过 `ActivateAudioInterfaceAsync` 并包含目标进程树；不以 endpoint loopback 猜测进程声。
 - `AudioEngine::open_outputs()` 建立每目标 render；`set_process_source()`、`add_process_source()`
   和 `set_mic_source()` 控制输入。
-- `play_file()`、`stop_file()`、`file_state()` 管理音频库流；试听 API 由 `engine/monitor.rs` 提供。
+- `play_file(entry, start_hns, target)`、`stop_file()`、`file_state()` 管理音频库流；`PlaybackTarget` 选择路由、本机监听或双路。
 - 错误使用 `Error` 与 `EngineStatus`；UI 展示 `user_message()`，底层 HRESULT/细节走 tracing。
+- `src/diagnostics/` 是全局诊断权威：`HubLayer` 捕获 WARN/ERROR 到问题中心（`ui_bridge` target 除外，
+  由桥接层用 `report_error` 上报用户短句与建议）；调试开关按组件分类控制日志文件级别，
+  控制台固定 info，问题中心不受开关影响。
 - 本机麦克风是捕获输入，不是 WASAPI 播放终点；虚拟线缆使用其播放端写入、录音端供语音软件选择。
+- **同一虚拟驱动的两个端点不能同时打开**：实测 VB-Cable 的「CABLE虚拟扬声器」与
+  「CABLE In 16ch」第二个 `Initialize` 返回 `AUDCLNT_E_DEVICE_IN_USE`（`0x8889000A`）。
+  判定按驱动接口名（`PKEY_DeviceInterface_FriendlyName`）分组；路由启动时把冲突目标
+  自动折叠到同一设备，引擎层保留可读错误兜底。
+- **试听（monitor）会占用系统默认播放设备**：`AudioEngine::stop()` 必须释放它，
+  否则随后对同一设备（或同驱动另一端点）的转发会撞 `0x8889000A`。
 
 ## 已知待收口事实
 

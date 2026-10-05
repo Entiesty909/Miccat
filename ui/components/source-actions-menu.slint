@@ -1,0 +1,53 @@
+//! 路由源更多操作菜单：只提供与当前源类型相关的动作。
+
+import { Theme } from "../theme.slint";
+import { MenuItem } from "menu-item.slint";
+
+export component SourceActionsMenu inherits Rectangle {
+    in property <int> kind: 0;
+    callback action(int);
+    callback closed();
+
+    width: 230px;
+    height: root.kind == 1 ? 206px : 126px;
+    background: Theme.card;
+    border-width: 1px;
+    border-color: Theme.borderStrong;
+    border-radius: Theme.radiusControl;
+
+    TouchArea {
+        clicked => { root.closed(); }
+    }
+    VerticalLayout {
+        padding: 8px;
+        spacing: 2px;
+        Text {
+            text: "源操作";
+            height: 20px;
+            color: Theme.text2;
+            font-size: 11px;
+            vertical-alignment: TextVerticalAlignment.center;
+        }
+        if root.kind == 1: MenuItem {
+            label: "设置快捷键";
+            clicked => { root.action(1); }
+        }
+        if root.kind != 1: MenuItem {
+            label: "单独转发";
+            clicked => { root.action(2); }
+        }
+        if root.kind == 1: MenuItem {
+            label: "在音频库中定位";
+            clicked => { root.action(3); }
+        }
+        if root.kind != 1: MenuItem {
+            label: "设置快捷键（仅音频文件）";
+            enabled: false;
+        }
+        MenuItem {
+            label: "删除此源";
+            danger: true;
+            clicked => { root.action(4); }
+        }
+    }
+}

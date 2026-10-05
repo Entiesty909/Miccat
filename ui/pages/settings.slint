@@ -1,11 +1,14 @@
-//! 设置页：输出设备、麦克风、虚拟线缆、热键、关于。输出与麦克风的唯一可编辑入口在这里。
+//! 设置页：以参考界面的左侧导航和分组卡片展示现有可用配置。
 
-import { ComboBox, CheckBox, ScrollView } from "std-widgets.slint";
-import { SliderRow } from "../components/slider-row.slint";
+import { CheckBox, ScrollView } from "std-widgets.slint";
+import { SectionTitle } from "../components/section-title.slint";
 import { Theme } from "../theme.slint";
+import { DiagState, HotkeyState } from "../overlays/global-overlays.slint";
+import { DiagnosticsCard } from "../components/diagnostics-card.slint";
 import { Card } from "../components/card.slint";
 import { PmButton } from "../components/button.slint";
 import { HotkeyField } from "../components/hotkey-field.slint";
+import { HotkeyCard } from "../components/hotkey-card.slint";
 
 export component SettingsPage inherits Rectangle {
     in-out property <[string]> devices: [];
@@ -17,191 +20,275 @@ export component SettingsPage inherits Rectangle {
     in-out property <bool> set-default-render: false;
     in-out property <bool> set-default-communications: false;
     in-out property <string> dest-hint: "";
-    in-out property <[string]> mics: [];
-    in-out property <int> mic-index: 0;
     in-out property <bool> running: false;
     in-out property <bool> cable-installed: false;
     in-out property <bool> cable-busy: false;
     in-out property <string> cable-text: "";
     in-out property <string> hotkey-label: "";
     in-out property <bool> listening-hotkey: false;
-    in-out property <bool> preview-enabled: false;
-    in-out property <float> preview-volume: 50;
     in-out property <string> about-text: "";
     callback refresh();
     callback install-cable();
+    callback uninstall-cable();
     callback begin-hotkey-capture();
     callback reset-hotkey();
+    callback begin-hotkey-row(int);
+    callback reset-hotkey-row(int);
+    callback hotkey-row-captured(int, string, bool, bool, bool);
     callback all-devices-toggled(bool);
     callback device-toggled(int, bool);
     callback set-default-mic-toggled(bool);
     callback set-default-render-toggled(bool);
     callback set-default-communications-toggled(bool);
-    callback preview-enabled-toggled(bool);
-    callback preview-volume-edited(float);
-    background: transparent;
+    in-out property <int> section-index: 0;
 
     ScrollView {
         width: 100%;
         height: 100%;
-
-        VerticalLayout {
-            padding: Theme.padPage;
-            spacing: Theme.gapLg;
-
+        HorizontalLayout {
+            padding: 24px;
+            spacing: 18px;
             Card {
-                HorizontalLayout {
+                width: 220px;
+                VerticalLayout {
                     Text {
-                        text: "输出与虚拟线缆";
+                        text: "设置";
+                        color: Theme.text;
+                        font-size: 18px;
+                        font-weight: 700;
+                    }
+                    Text {
+                        text: "ProcessMic";
                         color: Theme.text2;
                         font-size: 12px;
-                        font-weight: 600;
-                        vertical-alignment: TextVerticalAlignment.center;
+                    }
+                    Rectangle { height: 1px; width: 100%; background: Theme.border; }
+                    PmButton {
+                        label: "常规";
+                        selected: root.section-index == 0;
+                        flat: true;
+                        clicked => { root.section-index = 0; }
+                    }
+                    PmButton {
+                        label: "音频设备";
+                        selected: root.section-index == 1;
+                        flat: true;
+                        clicked => { root.section-index = 1; }
+                    }
+                    PmButton {
+                        label: "快捷键";
+                        selected: root.section-index == 2;
+                        flat: true;
+                        clicked => { root.section-index = 2; }
+                    }
+                    PmButton {
+                        label: "虚拟线缆";
+                        selected: root.section-index == 3;
+                        flat: true;
+                        clicked => { root.section-index = 3; }
+                    }
+                    PmButton {
+                        label: "关于";
+                        selected: root.section-index == 4;
+                        flat: true;
+                        clicked => { root.section-index = 4; }
+                    }
+                    PmButton {
+                        label: "诊断";
+                        selected: root.section-index == 5;
+                        flat: true;
+                        clicked => { root.section-index = 5; }
+                    }
+                    Rectangle { vertical-stretch: 1; background: transparent; }
+                    Text {
+                        text: root.running ? "运行中" : "未运行";
+                        color: root.running ? Theme.ok : Theme.text2;
+                        font-size: 12px;
+                    }
+                    Text {
+                        text: "修改后自动保存";
+                        color: Theme.text3;
+                        font-size: 12px;
+                    }
+                }
+            }
+            VerticalLayout {
+                horizontal-stretch: 1;
+                min-width: 0px;
+                spacing: 14px;
+                HorizontalLayout {
+                    height: 54px;
+                    VerticalLayout {
+                        spacing: 2px;
+                        Text {
+                            text: root.section-index == 0
+                                ? "设置"
+                                : (root.section-index == 1
+                                    ? "音频设备"
+                                    : (root.section-index == 2
+                                        ? "快捷键"
+                                        : (root.section-index == 3
+                                            ? "虚拟线缆"
+                                            : (root.section-index == 4
+                                                ? "关于"
+                                                : "诊断"))));
+                            color: Theme.text;
+                            font-size: 22px;
+                            font-weight: 700;
+                        }
+                        Text {
+                            text: "配置默认设备、快捷键和虚拟音频线缆。";
+                            color: Theme.text2;
+                            font-size: 13px;
+                        }
                     }
                     Rectangle { horizontal-stretch: 1; background: transparent; }
                     Text {
-                        text: root.cable-installed ? "VB-CABLE 已安装" : root.cable-text;
-                        color: root.cable-installed ? Theme.ok : Theme.text2;
+                        text: root.running ? "运行中不可修改设备" : "";
+                        color: Theme.warn;
                         font-size: 12px;
-                        font-weight: 600;
                         vertical-alignment: TextVerticalAlignment.center;
                     }
-                    if !root.cable-installed: PmButton {
-                        label: root.cable-busy ? "安装中…" : "安装 VB-CABLE";
-                        enabled: !root.cable-busy;
-                        clicked => { root.install-cable(); }
+                }
+                if root.section-index == 0: Card {
+                    SectionTitle { label: "常规"; }
+                    HorizontalLayout {
+                        height: 42px;
+                        Text {
+                            text: "当前状态";
+                            width: 140px;
+                            color: Theme.text;
+                            vertical-alignment: TextVerticalAlignment.center;
+                        }
+                        Text {
+                            text: root.running ? "正在转发" : "未运行";
+                            color: root.running ? Theme.ok : Theme.text2;
+                            vertical-alignment: TextVerticalAlignment.center;
+                        }
                     }
-                    if root.cable-installed: PmButton {
-                        label: root.cable-busy ? "升级中…" : "升级到最新版";
-                        enabled: !root.cable-busy;
-                        clicked => { root.install-cable(); }
+                    Text {
+                        text: "音频路由状态和配置保存由程序自动管理。";
+                        color: Theme.text2;
+                        font-size: 12px;
                     }
                 }
-                Text { text: "输出设备（可多选）"; color: Theme.text2; font-size: 12px; font-weight: 600; }
-                VerticalLayout {
-                    for name[index] in root.devices: CheckBox {
-                        text: name;
-                        checked: index < root.device-selected.length
-                            ? root.device-selected[index]
-                            : false;
+                if root.section-index == 0 || root.section-index == 1: Card {
+                    SectionTitle { label: "默认音频"; }
+                    HorizontalLayout {
+                        height: 42px;
+                        Text {
+                            text: "输出设备";
+                            width: 140px;
+                            color: Theme.text;
+                            vertical-alignment: TextVerticalAlignment.center;
+                        }
+                        Text {
+                            text: root.dest-hint;
+                            horizontal-stretch: 1;
+                            color: Theme.text2;
+                            overflow: elide;
+                            vertical-alignment: TextVerticalAlignment.center;
+                        }
+                        PmButton {
+                            label: "刷新设备";
+                            enabled: !root.running;
+                            clicked => { root.refresh(); }
+                        }
+                    }
+                    VerticalLayout {
+                        spacing: 3px;
+                        for name[index] in root.devices: CheckBox {
+                            text: name;
+                            checked: index < root.device-selected.length
+                                ? root.device-selected[index]
+                                : false;
+                            enabled: !root.running;
+                            toggled => { root.device-toggled(index, self.checked); }
+                        }
+                    }
+                    CheckBox {
+                        text: "显示全部播放设备（含物理扬声器）";
+                        checked <=> root.all-devices;
                         enabled: !root.running;
-                        toggled => { root.device-toggled(index, self.checked); }
+                        toggled => { root.all-devices-toggled(self.checked); }
+                    }
+                    CheckBox {
+                        text: "设为系统默认播放设备";
+                        checked <=> root.set-default-render;
+                        enabled: !root.running;
+                        toggled => { root.set-default-render-toggled(self.checked); }
+                    }
+                    CheckBox {
+                        text: "设为默认通信播放设备";
+                        checked <=> root.set-default-communications;
+                        enabled: !root.running;
+                        toggled => { root.set-default-communications-toggled(self.checked); }
+                    }
+                    if root.show-set-default-mic: CheckBox {
+                        text: "设为默认麦克风（停止转发后还原）";
+                        checked <=> root.set-default-mic;
+                        enabled: !root.running;
+                        toggled => { root.set-default-mic-toggled(self.checked); }
                     }
                 }
-                PmButton { label: "刷新设备"; enabled: !root.running; clicked => { root.refresh(); } }
-                CheckBox {
-                    text: "显示全部播放设备（含物理扬声器）";
-                    checked <=> root.all-devices;
+                if root.section-index == 0 || root.section-index == 2: HotkeyCard {
+                    toggle-label: root.hotkey-label;
+                    toggle-listening: root.listening-hotkey;
                     enabled: !root.running;
-                    toggled => { root.all-devices-toggled(self.checked); }
+                    begin-toggle => { root.begin-hotkey-capture(); }
+                    reset-toggle => { root.reset-hotkey(); }
+                    begin-row(row) => { root.begin-hotkey-row(row); }
+                    reset-row(row) => { root.reset-hotkey-row(row); }
                 }
-                if root.show-set-default-mic: CheckBox {
-                    text: "设为默认麦克风（停止转发后还原）";
-                    checked <=> root.set-default-mic;
-                    enabled: !root.running;
-                    toggled => { root.set-default-mic-toggled(self.checked); }
+                if root.section-index == 0
+                    || root.section-index == 3
+                    || root.section-index == 4: HorizontalLayout {
+                    height: 138px;
+                    if root.section-index == 0 || root.section-index == 3: Card {
+                        horizontal-stretch: 1;
+                        SectionTitle { label: "虚拟线缆"; }
+                        Text {
+                            text: root.cable-installed
+                                ? "VB-CABLE 已检测到"
+                                : root.cable-text;
+                            color: root.cable-installed ? Theme.ok : Theme.text2;
+                            font-size: 13px;
+                            vertical-alignment: TextVerticalAlignment.center;
+                        }
+                        if root.cable-installed: HorizontalLayout {
+                            spacing: 8px;
+                            PmButton {
+                                label: root.cable-busy ? "处理中…" : "升级到最新版";
+                                enabled: !root.cable-busy;
+                                clicked => { root.install-cable(); }
+                            }
+                            PmButton {
+                                label: "卸载";
+                                danger: true;
+                                enabled: !root.cable-busy;
+                                clicked => { root.uninstall-cable(); }
+                            }
+                            Rectangle { horizontal-stretch: 1; background: transparent; }
+                        }
+                        if !root.cable-installed: PmButton {
+                            label: root.cable-busy ? "处理中…" : "安装 VB-CABLE";
+                            enabled: !root.cable-busy;
+                            clicked => { root.install-cable(); }
+                        }
+                    }
+                    if root.section-index == 0 || root.section-index == 4: Card {
+                        horizontal-stretch: 1;
+                        SectionTitle { label: "关于"; }
+                        Text {
+                            text: root.about-text;
+                            color: Theme.text2;
+                            font-size: 12px;
+                            wrap: word-wrap;
+                        }
+                    }
                 }
-                CheckBox {
-                    text: "设为系统默认播放设备";
-                    checked <=> root.set-default-render;
-                    enabled: !root.running;
-                    toggled => { root.set-default-render-toggled(self.checked); }
-                }
-                CheckBox {
-                    text: "设为默认通信播放设备";
-                    checked <=> root.set-default-communications;
-                    enabled: !root.running;
-                    toggled => { root.set-default-communications-toggled(self.checked); }
-                }
-                Text {
-                    text: root.dest-hint;
-                    color: Theme.text2;
-                    font-size: 12px;
-                    wrap: word-wrap;
-                }
-            }
-
-            Card {
-                Text {
-                    text: "混入麦克风";
-                    color: Theme.text2;
-                    font-size: 12px;
-                    font-weight: 600;
-                }
-                ComboBox {
-                    model: root.mics;
-                    current-index <=> root.mic-index;
-                    enabled: !root.running;
-                }
-                Text {
-                    text: "物理麦克风会被混进同一条输出。要「我说话 + 音效一起进游戏」，就在游戏里把麦克风选成这只虚拟麦的录音端。";
-                    color: Theme.text3;
-                    font-size: 12px;
-                    wrap: word-wrap;
-                }
-            }
-
-            Card {
-                Text {
-                    text: "热键";
-                    color: Theme.text2;
-                    font-size: 12px;
-                    font-weight: 600;
-                }
-                HotkeyField {
-                    label: "开始/停止转发";
-                    combo: root.hotkey-label;
-                    listening: root.listening-hotkey;
-                    begin => { root.begin-hotkey-capture(); }
-                    reset => { root.reset-hotkey(); }
-                }
-                Text {
-                    text: "捕获方式（仅系统热键 / 全局钩子 / 关闭）与风险提示在后续阶段实装。";
-                    color: Theme.text3;
-                    font-size: 12px;
-                    wrap: word-wrap;
-                }
-            }
-
-            Card {
-                Text {
-                    text: "本地预览";
-                    color: Theme.text2;
-                    font-size: 12px;
-                    font-weight: 600;
-                }
-                CheckBox {
-                    text: "播放音频时同时在本机预览";
-                    checked <=> root.preview-enabled;
-                    enabled: !root.running;
-                    toggled => { root.preview-enabled-toggled(self.checked); }
-                }
-                SliderRow {
-                    label: "预览音量";
-                    value <=> root.preview-volume;
-                    enabled: root.preview-enabled;
-                    edited(v) => { root.preview-volume-edited(v); }
-                }
-                Text {
-                    text: "预览声音只送到本机默认播放设备，不进入虚拟麦克风；默认关闭。";
-                    color: Theme.text3;
-                    font-size: 12px;
-                    wrap: word-wrap;
-                }
-            }
-            Card {
-                Text {
-                    text: "关于";
-                    color: Theme.text2;
-                    font-size: 12px;
-                    font-weight: 600;
-                }
-                Text {
-                    text: root.about-text;
-                    color: Theme.text2;
-                    font-size: 12px;
-                    wrap: word-wrap;
-                }
+                if root.section-index == 0 || root.section-index == 5: DiagnosticsCard { }
+                Rectangle { vertical-stretch: 1; background: transparent; }
             }
         }
     }

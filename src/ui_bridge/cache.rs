@@ -4,6 +4,7 @@ use std::time::Instant;
 
 use crate::audio::device::DestDevice;
 use crate::config;
+use crate::engine::PlaybackTarget;
 use crate::process::ProcessInfo;
 
 /// Slint 显示所需的派生状态，不作为配置或音频状态权威。
@@ -19,14 +20,18 @@ pub(super) struct UiCache {
     pub(super) mic_ids: Vec<String>,
     /// 麦克风显示名，与 `mic_ids` 对齐。
     pub(super) mic_names: Vec<String>,
-    /// 进程筛选关键字。
-    pub(super) filter: String,
     /// 输出列表是否包含物理播放设备。
     pub(super) all_devices: bool,
     /// 多输出选择状态，与 `dests` 对齐。
     pub(super) device_selected: Vec<bool>,
     /// 当前已加入混音的进程 PID。
     pub(super) selected_pids: Vec<u32>,
+    /// 已加入但暂时关闭的进程 PID；关闭只影响路由，不移除卡片。
+    pub(super) disabled_pids: Vec<u32>,
+    /// 是否暂时从路由页隐藏音频文件源。
+    pub(super) file_source_hidden: bool,
+    /// 是否暂时从路由页隐藏麦克风源。
+    pub(super) mic_source_hidden: bool,
     /// 是否设置系统默认麦。
     pub(super) set_default_mic: bool,
     /// 是否设置默认播放设备。
@@ -39,10 +44,22 @@ pub(super) struct UiCache {
     pub(super) audio_entries: Vec<config::AudioEntry>,
     /// 当前分类路径。
     pub(super) audio_category: String,
+    /// 音频库当前名称筛选词。
+    pub(super) audio_search: String,
+    /// 音频库当前页，从零开始，分页大小固定为 20。
+    pub(super) audio_page: usize,
+    /// 音频库名称是否按升序显示。
+    pub(super) audio_sort_ascending: bool,
     /// 最近一次音频点击，用于区分单击选择与双击播放。
     pub(super) last_audio_click: Option<(usize, Instant)>,
     /// 菜单播放不经过第二次伪造点击。
     pub(super) force_audio_play: bool,
-    /// 搜索关键字。
-    pub(super) audio_search: String,
+    /// 暂停时可恢复的条目、采样位置和播放目标。
+    pub(super) paused_audio: Option<(config::AudioEntry, u64, PlaybackTarget)>,
+    /// 当前列表播放目标。
+    pub(super) playback_target: PlaybackTarget,
+    /// 用户选中的 render 设备 ID，供刷新设备列表时保留选择。
+    pub(super) selected_device_ids: Vec<String>,
+    /// 每个源静音前的增益，用于点击静音按钮后恢复。
+    pub(super) muted_volumes: [Option<f32>; 3],
 }

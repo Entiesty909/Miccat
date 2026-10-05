@@ -1,4 +1,4 @@
-//! 顶栏页签：路由、音频库、设置。声板与播放器合并为音频库。
+//! 顶栏页签：使用文字与底部指示线，不使用胶囊背景。
 
 import { Theme } from "../theme.slint";
 
@@ -7,39 +7,65 @@ component TabItem inherits Rectangle {
     in property <bool> active: false;
     callback clicked();
 
-    height: Theme.controlHeight;
+    height: 42px;
     min-width: 74px;
-    border-radius: 17px;
-    background: root.active ? Theme.card : transparent;
-    border-width: root.active ? 1px : 0px;
-    border-color: Theme.border;
+    background: transparent;
 
     HorizontalLayout {
-        padding-left: 16px;
-        padding-right: 16px;
+        padding-left: 14px;
+        padding-right: 14px;
         alignment: LayoutAlignment.center;
         Text {
             text: root.label;
-            color: root.active ? Theme.text : Theme.text2;
+            color: root.active ? Theme.accent : Theme.text2;
             font-size: 14px;
             font-weight: root.active ? 600 : 500;
             vertical-alignment: TextVerticalAlignment.center;
         }
     }
+    if root.active: Rectangle {
+        x: 8px;
+        y: parent.height - 2px;
+        width: parent.width - 16px;
+        height: 2px;
+        background: Theme.accent;
+    }
+
     ta := TouchArea {
         mouse-cursor: pointer;
         clicked => { root.clicked(); }
     }
+
+    states [
+        hovered when ta.has-hover: {
+            background: Theme.accentSoft;
+        }
+        pressed when ta.pressed: {
+            background: Theme.accentPressed;
+        }
+    ]
 }
 
 export component TabBar inherits HorizontalLayout {
     in property <int> current: 0;
     callback picked(int);
-    height: Theme.controlHeight;
-    spacing: 4px;
+    height: 42px;
+    spacing: 2px;
     alignment: start;
 
-    TabItem { label: "路由"; active: root.current == 0; clicked => { root.picked(0); } }
-    TabItem { label: "音频库"; active: root.current == 1; clicked => { root.picked(1); } }
-    TabItem { label: "设置"; active: root.current == 2; clicked => { root.picked(2); } }
+    TabItem {
+        label: "路由";
+        active: root.current == 0;
+        clicked => { root.picked(0); }
+    }
+    TabItem {
+        label: "音频库";
+        active: root.current == 1;
+        clicked => { root.picked(1); }
+    }
+    TabItem {
+        label: "设置";
+        active: root.current == 2;
+        clicked => { root.picked(2); }
+    }
 }

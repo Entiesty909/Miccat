@@ -1,6 +1,7 @@
 //! 应用配置：JSON 持久化、旧热键配置迁移、单实例互斥。
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 mod single_instance;
 mod store;
@@ -49,6 +50,15 @@ impl Hotkey {
 pub struct Hotkeys {
     /// 开始/停止转发。
     pub toggle_route: Hotkey,
+    /// 播放上一首；未绑定时不注册。
+    #[serde(default)]
+    pub previous_track: Option<Hotkey>,
+    /// 播放下一首。
+    #[serde(default)]
+    pub next_track: Option<Hotkey>,
+    /// 停止当前播放。
+    #[serde(default)]
+    pub stop_playback: Option<Hotkey>,
 }
 
 /// 输出设备与目标麦配置。
@@ -72,6 +82,18 @@ pub struct OutputConfig {
     pub set_default_communications: bool,
     /// 是否显示物理播放设备。
     pub all_devices: bool,
+    /// 多选的 render 设备 ID；为空时退回 `device_id`。
+    #[serde(default)]
+    pub device_ids: Vec<String>,
+    /// 进程来源使用的 render endpoint ID。
+    #[serde(default)]
+    pub process_output_id: Option<String>,
+    /// 音频文件来源使用的 render endpoint ID。
+    #[serde(default)]
+    pub file_output_id: Option<String>,
+    /// 麦克风来源使用的 render endpoint ID。
+    #[serde(default)]
+    pub mic_output_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -81,9 +103,12 @@ pub struct RouteConfig {
     /// 多进程输入名称；为空时使用 process_name。
     #[serde(default)]
     pub process_names: Vec<String>,
-    /// 开始转发时是否混入设置页选择的物理麦。
+    /// 开始转发时是否混入选择的物理麦克风。
     #[serde(default)]
     pub mix_mic: bool,
+    /// 选择混入的物理麦克风 ID。
+    #[serde(default)]
+    pub mic_id: Option<String>,
 }
 
 /// 三路混音增益。
@@ -123,9 +148,24 @@ pub struct AudioEntry {
     /// 文件时长，100 ns 为单位；旧配置为 0，启动时补全。
     #[serde(default)]
     pub duration_hns: u64,
+    /// 导入或迁移时读取的文件大小；用于音频库详情。
+    #[serde(default)]
+    pub file_size_bytes: u64,
+    /// 文件音频流的采样率，单位为 Hz。
+    #[serde(default)]
+    pub sample_rate: u32,
+    /// 文件音频流的声道数。
+    #[serde(default)]
+    pub channels: u16,
     /// 是否循环。
     #[serde(default)]
     pub loop_playback: bool,
+    /// 可选的应用内播放快捷键；未设置时不绑定。
+    #[serde(default)]
+    pub hotkey: Option<String>,
+    /// 全局播放热键（组合键，应用不在前台也生效）；旧字段 `hotkey` 为前台单键。
+    #[serde(default)]
+    pub hotkey_binding: Option<Hotkey>,
 }
 
 fn default_category() -> String {
@@ -133,6 +173,30 @@ fn default_category() -> String {
 }
 fn default_preview_volume() -> f32 {
     0.5
+}
+
+/// 调试开关持久化配置。
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DebugConfig {
+    /// 默认日志级别编码，见 `DebugLevel::code`。
+    #[serde(default = "default_debug_level")]
+    pub master: i32,
+    /// 分类键到级别编码的覆盖；缺省表示跟随默认。
+    #[serde(default)]
+    pub categories: BTreeMap<String, i32>,
+}
+
+fn default_debug_level() -> i32 {
+    3
+}
+
+impl Default for DebugConfig {
+    fn default() -> Self {
+        Self {
+            master: default_debug_level(),
+            categories: BTreeMap::new(),
+        }
+    }
 }
 
 /// 配置文件根对象。
@@ -160,6 +224,9 @@ pub struct AppConfig {
     /// 音频库条目。
     #[serde(default)]
     pub audio_entries: Vec<AudioEntry>,
+    /// 调试开关。
+    #[serde(default)]
+    pub debug: DebugConfig,
 }
 
 impl Default for AppConfig {
@@ -174,6 +241,7 @@ impl Default for AppConfig {
             preview_volume: 0.5,
             audio_categories: vec!["全部".into(), "未分类".into()],
             audio_entries: Vec::new(),
+            debug: DebugConfig::default(),
         }
     }
 }
@@ -202,24 +270,24 @@ pub fn slint_key_to_vk(text: &str) -> Option<u32> {
     if text == " " || text.eq_ignore_ascii_case("space") {
         return Some(0x20);
     }
-    if let Some(n) = text.strip_prefix('F').or_else(|| text.strip_prefix('f'))
-        && let Ok(i) = n.parse::<u32>()
-        && (1..=12).contains(&i)
+    if let Some(number) = text.strip_prefix('F').or_else(|| text.strip_prefix('f'))
+        && let Ok(number) = number.parse::<u32>()
+        && (1..=12).contains(&number)
     {
-        return Some(0x70 + i - 1);
+        return Some(0x70 + number - 1);
     }
-    let mut ch = text.chars();
-    let c = ch.next()?;
-    if ch.next().is_some() {
-        let v = c as u32;
-        if (0xF001..=0xF00C).contains(&v) {
-            return Some(0x70 + (v - 0xF001));
-        }
+    let mut characters = text.chars();
+    let key = characters.next()?;
+    if characters.next().is_some() {
         return None;
     }
-    let u = c.to_ascii_uppercase() as u32;
-    if (0x30..=0x39).contains(&u) || (0x41..=0x5A).contains(&u) {
-        Some(u)
+    let value = key as u32;
+    if (0xF001..=0xF00C).contains(&value) {
+        return Some(0x70 + value - 0xF001);
+    }
+    let value = key.to_ascii_uppercase() as u32;
+    if (0x30..=0x39).contains(&value) || (0x41..=0x5A).contains(&value) {
+        Some(value)
     } else {
         None
     }

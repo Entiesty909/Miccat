@@ -7,12 +7,13 @@ export component SliderRow inherits HorizontalLayout {
     in property <string> label: "";
     in property <bool> enabled: true;
     in-out property <float> value: 100;
+    in property <bool> show-label: true;
     callback edited(float);
 
     height: Theme.controlHeight;
     spacing: 8px;
 
-    Text {
+    if root.show-label: Text {
         text: root.label;
         color: root.enabled ? Theme.text2 : Theme.text3;
         font-size: 13px;

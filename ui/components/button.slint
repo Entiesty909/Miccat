@@ -1,4 +1,4 @@
-//! 扁平按钮。filled 主按钮、danger 危险按钮、默认次按钮三种外观由属性决定。
+//! 扁平按钮。主按钮使用 Windows 蓝色，次按钮保持白底细边框。
 
 import { Theme } from "../theme.slint";
 
@@ -6,23 +6,40 @@ export component PmButton inherits Rectangle {
     in property <string> label: "";
     in property <bool> enabled: true;
     in property <bool> filled: false;
+    in property <bool> selected: false;
     in property <bool> danger: false;
+    in property <bool> flat: false;
     callback clicked();
+    in property <bool> icon-only: false;
+    in property <length> button-width: 76px;
 
     height: Theme.controlHeight;
-    min-width: 76px;
+    min-width: root.button-width;
     border-radius: Theme.radiusControl;
     opacity: root.enabled ? 1.0 : 0.45;
-    background: root.danger ? #C42B1C : (root.filled ? #0078D4 : #FFFFFF);
-    border-width: 1px;
-    border-color: root.danger ? #A52A1A : (root.filled ? #006CBF : #AFAFAF);
+    background: root.danger
+        ? Theme.danger
+        : (root.selected
+            ? Theme.accentSoft
+            : (root.filled ? Theme.accent : (root.flat ? transparent : Theme.field)));
+    border-width: root.flat ? 0px : 1px;
+    border-color: root.danger
+        ? Theme.danger
+        : (root.selected
+            ? Theme.accentSoft
+            : (root.flat ? transparent : Theme.borderStrong));
+
     HorizontalLayout {
-        padding-left: 14px;
-        padding-right: 14px;
-        alignment: LayoutAlignment.center;
+        padding-left: root.button-width < 60px ? 4px : 12px;
+        padding-right: root.button-width < 60px ? 4px : 12px;
+        alignment: root.flat ? LayoutAlignment.start : LayoutAlignment.center;
         Text {
             text: root.label;
-            color: (root.filled || root.danger) ? Theme.onAccent : #1F1F1F;
+            color: root.selected
+                ? Theme.accent
+                : (root.filled || root.danger ? Theme.onAccent : Theme.text);
+            font-family: root.icon-only ? "Segoe MDL2 Assets" : "Segoe UI";
+            font-size: root.icon-only ? 16px : 13px;
             font-weight: 600;
             vertical-alignment: TextVerticalAlignment.center;
         }
@@ -35,8 +52,20 @@ export component PmButton inherits Rectangle {
     }
 
     states [
-        down when ta.pressed && root.enabled: {
-            opacity: 0.72;
+        hovered when ta.has-hover && root.enabled: {
+            background: root.danger
+                ? Theme.danger
+                : (root.filled || root.selected
+                    ? Theme.accentHover
+                    : Theme.accentSoft);
+        }
+        pressed when ta.pressed && root.enabled: {
+            background: root.danger
+                ? Theme.danger
+                : (root.filled || root.selected
+                    ? Theme.accentHover
+                    : Theme.accentPressed);
+            opacity: 0.82;
         }
     ]
 }

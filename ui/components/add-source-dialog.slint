@@ -1,0 +1,118 @@
+//! 添加音频源的页面内对话框：选择进程、麦克风或进入音频库。
+
+import { CheckBox, ComboBox } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { PmButton } from "button.slint";
+
+export component AddSourceDialog inherits Rectangle {
+    in-out property <[string]> processes: [];
+    in-out property <int> process-index: 0;
+    in-out property <[string]> mics: [];
+    in-out property <int> mic-index: 0;
+    in-out property <bool> mix-mic: false;
+    in property <bool> running: false;
+    callback process-add();
+    callback add-files();
+    callback mic-mix-changed(bool);
+    callback open-library();
+    callback closed();
+
+    width: 100%;
+    height: 100%;
+    background: transparent;
+
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        background: Theme.text;
+        opacity: 0.12;
+        TouchArea { }
+    }
+    Rectangle {
+        x: (root.width - 520px) / 2;
+        y: (root.height - 320px) / 2;
+        width: 520px;
+        height: 320px;
+        border-radius: Theme.radiusCard;
+        border-width: 1px;
+        border-color: Theme.borderStrong;
+        background: Theme.card;
+        VerticalLayout {
+            padding: 20px;
+            spacing: 12px;
+            Text {
+                text: "添加音频源";
+                color: Theme.text;
+                font-size: 17px;
+                font-weight: 600;
+            }
+            Text {
+                text: "从进程或音频库选择要添加的声音。";
+                color: Theme.text2;
+                font-size: 12px;
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                ComboBox {
+                    horizontal-stretch: 1;
+                    model: root.processes;
+                    current-index <=> root.process-index;
+                    enabled: !root.running;
+                }
+                PmButton {
+                    label: "添加进程";
+                    enabled: !root.running && root.processes.length > 0;
+                    clicked => { root.process-add(); }
+                }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                Text {
+                    text: "麦克风";
+                    color: Theme.text2;
+                    vertical-alignment: TextVerticalAlignment.center;
+                }
+                ComboBox {
+                    horizontal-stretch: 1;
+                    model: root.mics;
+                    current-index <=> root.mic-index;
+                    enabled: root.mics.length > 1 && !root.running;
+                    selected(value) => {
+                        root.mic-mix-changed(root.mix-mic);
+                    }
+                }
+                CheckBox {
+                    text: "混入";
+                    checked <=> root.mix-mic;
+                    enabled: root.mics.length > 1
+                        && (root.mic-index > 0 || root.mix-mic)
+                        && !root.running;
+                    toggled => { root.mic-mix-changed(self.checked); }
+                }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                PmButton {
+                    label: "从音频库选择";
+                    filled: true;
+                    clicked => { root.open-library(); }
+                }
+                PmButton {
+                    label: "导入音频文件";
+                    clicked => { root.add-files(); }
+                }
+                Rectangle { horizontal-stretch: 1; background: transparent; }
+                PmButton {
+                    label: "关闭";
+                    clicked => { root.closed(); }
+                }
+            }
+            Text {
+                text: "进入音频库后，在音频条目菜单中选择“添加到路由主页”。";
+                color: Theme.text3;
+                font-size: 11px;
+                wrap: word-wrap;
+            }
+        }
+    }
+}

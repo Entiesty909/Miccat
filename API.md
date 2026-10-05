@@ -13,7 +13,7 @@
 | `--list-devices` | 无 | 输出 WASAPI ID、Tab、设备友好名；包含当前过滤策略允许的输出端 |
 | `--capture <pid>` | `--wav capture.wav`，`--seconds 5` | Process Loopback 捕获并写 PCM16 WAV |
 | `--route <pid>` | 必须 `--device <wasapi-id>`；`--seconds 8` | 临时路由进程声；运行至少 0.5 秒后停止 |
-| `--snapshot-ui` | `--out snap.raw`；`--menu` 为条目菜单，`--category-menu` 模拟空树右键，`--category-row-menu` 模拟分类行右键 | 软件渲染 UI RGBA 快照；分类菜单未打开时命令失败 |
+| `--snapshot-ui` | `--out snap.raw`；`--page route\|player\|settings` 选择页面，默认 `player`；菜单参数限播放器页 | 软件渲染 UI RGBA 快照；分类菜单未打开时命令失败 |
 | `--probe-playback <file>` | seconds=8, start=0, out=probe.wav | 逐采样探针 |
 
 `--probe-playback` 可加 `--sfx` 或 `--raw`；非 raw 模式另写 `<out>.ref.wav`。
@@ -26,30 +26,35 @@
 `src/engine.rs` 的 `AudioEngine` 是内部音频运行时 API：
 
 - `new()`：创建空引擎。
-- `open_output(id)` / `open_outputs(ids)`：打开一个或多个 WASAPI render 目标。
+- `open_routed_outputs(ids, SourceOutputRoutes)`：为进程、文件、麦克风分别指定已打开 render 目标；相同 ID 复用一个目标，fanout 仅向对应目标写该源。
 - `set_process_source(pid)` / `add_process_source(pid, slot)`：切换首个进程源或增加额外进程槽。
 - `set_mic_source(Some(id))` / `set_mic_source(None)`：启用/关闭物理麦捕获输入。
-- `set_volume(v)`、`set_mic_volume(v)`、`set_master_volume(v)`：设置 0–1 线性增益。
+- `set_volume(v)`、`set_mic_volume(v)`、`set_sfx_volume(v)`、`set_master_volume(v)`：设置各自 0–1 线性增益。
+- `volume()`、`mic_volume()`、`sfx_volume()`、`is_running()`：读取运行期源增益/状态。
 - `set_monitor_default(enabled)` / `set_monitor_volume(v)`：启用系统默认设备试听及设置试听音量。
-- `play_file(entry, start_hns)` / `stop_file()` 启停音频库流。
-  `file_state()` 返回播放快照，位置单位为 100 ns。
-- `start(pid, device, mic)` / `stop()`：CLI 路由便利入口及总停止。
-- `status()`、`is_running()`、`sample_*_peak()`：读取状态、电平。
+- `play_file(entry, start_hns, target)` 启动音频库流；`PlaybackTarget::Both` 同时送路由和本机监听，`Monitor` 仅监听，`Route` 仅送活动路由。
+- `stop_file()` 停止播放；`file_state()` 返回播放快照，位置单位为 100 ns。
+`stop()` 停止并回收路由与播放线程；路由需按顺序显式打开输出、设置进程源及可选麦克风源。
 
 `EngineStatus` 值包括 `Idle`、`Running`、`ProcessExited`、`DeviceGone` 和 `Error(String)`。
 文件 seek 当前由调用方停止后再次调用 `play_file()`；没有独立 `seek_file()` API。
+音频源行的输出下拉绑定全局设备选择；多选输出 ID 保存于 `OutputConfig.device_ids`。
+源行静音为运行期操作，不改写持久化音量；源音量滑块更新 AudioEngine 增益和配置。
 内部命令通道、ring 和 WASAPI session 不属于 UI API。
 
 ## 音频库领域 API
 
-`src/library.rs` 的函数为 `pub(crate)`，供 bridge 组合：
-
-- `category_matches(entry, category)`：分类自身或任意后代匹配；`全部` 匹配所有条目。
-- `visible_entry_index(entries, category, search, index)`：将筛选后的可见下标映射回配置下标。
+`category_matches(entry, category)`：分类自身或任意后代匹配；`全部` 匹配所有条目。
+- `visible_entry_index(entries, category, index)`：把当前分类及后代中的可见下标映射回配置下标。
+`AudioEntry.duration_hns`、`file_size_bytes`、`sample_rate`、`channels` 为导入/迁移得到的文件元数据；`hotkey` 是可选的单键字符串。
+bridge 以分类、大小写不敏感名称筛选、名称排序和每页 20 条计算可见顺序；所有行操作按同一顺序映射回配置下标。
+音频条目单键快捷键在应用获得键盘焦点时触发，不是全局 RegisterHotKey；重复音频键和路由切换键冲突会拒绝。
 - `category_paths(categories, entries)`：展开配置和条目中的 `/` 父子路径；根项是否存在由配置决定。
 - `new_category(...)`：生成所选分类下不冲突的“未命名分类”名称。
 - `rename_category(...)`：递归更新父分类、全部子节点和音频条目路径。
 - `move_category(...)`：把整棵分类子树移动到目标分类下，或目标同级前/后；同步音频条目路径并拒绝循环/重名。
+- 音频条目快捷键仅接受 `slint_key_to_vk()` 支持的单键（F1–F12、字母、数字、Space），在应用获焦时播放绑定条目；重复绑定及与路由热键相同的主键拒绝。
+- 音频库列表按名称/分类筛选后再排序分页，分页大小为 20；列表和详情字段使用同一可见条目映射。
 - `delete_category(...)`：普通分类递归删除并把条目移到“未分类”；删除“未分类”只移除软件内条目；删除“全部”清空软件内全部条目。均不删除磁盘文件。
 - 导入音频归入当前选中的分类；配置版本 3 保留已删除根项状态，旧版本迁移时补入默认根项。
 - `validate_file(path)`：检查支持扩展名及音频元数据，失败返回统一 `Error`。

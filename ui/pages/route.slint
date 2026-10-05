@@ -1,178 +1,223 @@
-//! 路由页：进程声源 + 物理麦混入 + 输出状态。输出设备与麦克风的选择在设置页，
-//! 这里只显示当前目标，避免同一个属性被两处控件双向绑定。
+//! 路由页：以对齐的音源行和独立 render 目标选择配置进程、文件和麦克风。
 
-import { ComboBox, LineEdit } from "std-widgets.slint";
+import { ScrollView } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
-import { Card } from "../components/card.slint";
 import { PmButton } from "../components/button.slint";
-import { LevelMeter } from "../components/level-meter.slint";
-import { SliderRow } from "../components/slider-row.slint";
-
-//! 只读字段：显示当前值，改动入口在别处。
-component ReadOnlyField inherits Rectangle {
-    in property <string> text: "";
-    in property <string> placeholder: "";
-
-    height: Theme.controlHeight;
-    min-width: 0px;
-    background: Theme.field;
-    border-radius: Theme.radiusControl;
-    border-width: 1px;
-    border-color: Theme.border;
-
-    HorizontalLayout {
-        padding-left: 12px;
-        padding-right: 12px;
-        alignment: LayoutAlignment.center;
-        Text {
-            horizontal-stretch: 1;
-            text: root.text == "" ? root.placeholder : root.text;
-            color: root.text == "" ? Theme.text3 : Theme.text;
-            font-size: 13px;
-            font-weight: 600;
-            vertical-alignment: TextVerticalAlignment.center;
-            overflow: elide;
-        }
-    }
-}
+import { SourceRow } from "../components/source-row.slint";
+import { AddSourceDialog } from "../components/add-source-dialog.slint";
 
 export component RoutePage inherits Rectangle {
     in-out property <[string]> processes: [];
     in-out property <int> process-index: 0;
-    in-out property <string> selected-processes: "";
-    in-out property <string> process-filter: "";
-    in-out property <float> volume: 100;
-    in-out property <float> mic-volume: 100;
-    in-out property <[float]> capture-wave: [];
-    in-out property <[float]> mic-wave: [];
-    in-out property <[float]> render-wave: [];
-    in-out property <string> output-name: "";
-    in-out property <string> mic-name: "";
-    in-out property <string> dest-hint: "";
+    in-out property <[int]> source-kinds: [];
+    in-out property <[string]> source-icons: [];
+    in-out property <[string]> source-titles: [];
+    in-out property <[string]> source-subtitles: [];
+    in-out property <[string]> source-details: [];
+    in-out property <[string]> source-statuses: [];
+    in-out property <[bool]> source-active: [];
+    in-out property <[float]> source-volumes: [];
+    in-out property <[bool]> source-muted: [];
+    in-out property <[int]> source-output-indices: [];
+    in-out property <[string]> outputs: [];
+    in-out property <[bool]> source-paused: [];
+    in-out property <int> output-index: 0;
+    in-out property <[string]> mics: [];
+    in-out property <int> mic-index: 0;
+    in-out property <bool> mix-mic: false;
+    in-out property <bool> sources-expanded: true;
+    in-out property <bool> source-add-open: false;
     in-out property <bool> running: false;
-    in-out property <bool> has-mic: false;
-
     callback refresh();
-    callback filter-changed(string);
     callback process-add();
-    callback process-clear();
-    callback volume-edited(float);
-    callback mic-volume-edited(float);
+    callback add-files();
+    callback mic-mix-changed(bool);
+    callback source-active-toggled(int, bool);
+    callback source-volume-edited(int, float);
+    callback source-mute-toggled(int);
+    callback source-action(int, int);
+    callback source-pause(int);
+    callback source-stop(int);
+    callback source-output-changed(int, int);
     callback open-settings();
+    callback open-library();
+
     background: transparent;
 
-    HorizontalLayout {
-        padding: Theme.padPage;
-        spacing: Theme.gapLg;
+    VerticalLayout {
+        padding-left: 38px;
+        padding-right: 38px;
+        padding-top: 18px;
+        padding-bottom: 18px;
+        spacing: 13px;
 
-        Card {
-            horizontal-stretch: 1;
-            min-width: 0px;
-            HorizontalLayout {
-                vertical-stretch: 0;
-                Text {
-                    text: "声音来源";
-                    color: Theme.text2;
-                    font-size: 12px;
-                    font-weight: 600;
-                    vertical-alignment: TextVerticalAlignment.center;
-                }
-                Rectangle { horizontal-stretch: 1; background: transparent; }
-                Text {
-                    text: root.running ? "捕获中" : "未捕获";
-                    color: root.running ? Theme.ok : Theme.text3;
-                    font-size: 12px;
-                    vertical-alignment: TextVerticalAlignment.center;
-                }
-            }
-            LineEdit {
-                min-width: 0px;
-                placeholder-text: "筛选进程…";
-                text <=> root.process-filter;
-                enabled: !root.running;
-                edited(t) => { root.filter-changed(t); }
-            }
-            HorizontalLayout {
-                vertical-stretch: 0;
-                ComboBox {
-                    min-width: 0px;
-                    horizontal-stretch: 1;
-                    model: root.processes;
-                    current-index <=> root.process-index;
-                    enabled: !root.running;
-                }
-                PmButton {
-                    label: "刷新";
-                    enabled: !root.running;
-                    clicked => { root.refresh(); }
-                }
-            }
-            HorizontalLayout {
-                spacing: 8px;
-                LineEdit {
-                    horizontal-stretch: 1;
-                    text <=> root.selected-processes;
-                    enabled: false;
-                    placeholder-text: "多个进程输入…";
-                }
-                PmButton {
-                    label: "加入";
-                    enabled: !root.running;
-                    clicked => { root.process-add(); }
-                }
-                PmButton {
-                    label: "清空";
-                    enabled: !root.running;
-                    clicked => { root.process-clear(); }
-                }
-            }
-            LevelMeter { samples: root.capture-wave; tint: Theme.ok; }
-            SliderRow {
-                label: "音量";
-                value <=> root.volume;
-                edited(v) => { root.volume-edited(v); }
-            }
-        }
-
-        Card {
-            horizontal-stretch: 1;
-            min-width: 0px;
-            HorizontalLayout {
-                vertical-stretch: 0;
-                Text {
-                    text: "送到哪里";
-                    color: Theme.text2;
-                    font-size: 12px;
-                    font-weight: 600;
-                    vertical-alignment: TextVerticalAlignment.center;
-                }
-                Rectangle { horizontal-stretch: 1; background: transparent; }
-                Text {
-                    text: root.running ? "输出中" : "未渲染";
-                    color: root.running ? Theme.accent : Theme.text3;
-                    font-size: 12px;
-                    vertical-alignment: TextVerticalAlignment.center;
-                }
-            }
-            ReadOnlyField {
-                text: root.output-name;
-                placeholder: "未选择输出设备";
-            }
-            HorizontalLayout {
-                alignment: end;
-                PmButton {
-                    label: "更改输出设备";
-                    enabled: !root.running;
-                    clicked => { root.open-settings(); }
-                }
-            }
-            LevelMeter { samples: root.render-wave; tint: #5856D6; }
+        HorizontalLayout {
+            width: 100%;
+            height: 58px;
+            spacing: 10px;
             Text {
-                text: root.dest-hint;
-                color: Theme.text2;
-                font-size: 12px;
-                wrap: word-wrap;
+                text: "\u{E7F4}";
+                font-family: "Segoe MDL2 Assets";
+                color: Theme.accent;
+                font-size: 28px;
+                width: 42px;
+                vertical-alignment: TextVerticalAlignment.center;
+            }
+            VerticalLayout {
+                spacing: 2px;
+                Text {
+                    text: "音频路由";
+                    color: Theme.text;
+                    font-size: 20px;
+                    font-weight: 700;
+                }
+                Text {
+                    text: "管理你的音频源和输出设备，构建属于你的声音路由。";
+                    color: Theme.text2;
+                    font-size: 13px;
+                }
+            }
+            Rectangle { horizontal-stretch: 1; background: transparent; }
+            PmButton {
+                label: "＋  添加音频源";
+                filled: true;
+                clicked => { root.source-add-open = !root.source-add-open; }
             }
         }
+
+        HorizontalLayout {
+            height: 38px;
+            Text {
+                text: "当前音频源";
+                color: Theme.text;
+                font-size: 15px;
+                font-weight: 600;
+                vertical-alignment: TextVerticalAlignment.center;
+            }
+            Rectangle { horizontal-stretch: 1; background: transparent; }
+            PmButton {
+                label: "刷新进程";
+                enabled: !root.running;
+                clicked => { root.refresh(); }
+            }
+        }
+
+        VerticalLayout {
+            vertical-stretch: 1;
+            min-height: 0px;
+            spacing: 8px;
+            if root.sources-expanded
+                && root.source-titles.length == 0: Rectangle {
+                height: 104px;
+                width: 100%;
+                border-radius: 8px;
+                border-width: 1px;
+                border-color: Theme.border;
+                background: Theme.card;
+                VerticalLayout {
+                    vertical-stretch: 1;
+                    alignment: LayoutAlignment.center;
+                    Text {
+                        text: "暂无音频源";
+                        color: Theme.text;
+                        font-size: 16px;
+                        font-weight: 600;
+                        horizontal-alignment: center;
+                    }
+                    Text {
+                        text: "选择进程，或从音频库播放本地文件。";
+                        color: Theme.text2;
+                        font-size: 13px;
+                        horizontal-alignment: center;
+                    }
+                }
+            }
+            if root.sources-expanded: ScrollView {
+                width: 100%;
+                vertical-stretch: 1;
+                min-height: 0px;
+                VerticalLayout {
+                    width: 100%;
+                    spacing: 8px;
+                    for title[index] in root.source-titles: SourceRow {
+                        kind: index < root.source-kinds.length
+                            ? root.source-kinds[index]
+                            : 0;
+                        row-index: index;
+                        icon: index < root.source-icons.length
+                            ? root.source-icons[index]
+                            : "";
+                        title: title;
+                        subtitle: index < root.source-subtitles.length
+                            ? root.source-subtitles[index]
+                            : "";
+                        detail: index < root.source-details.length
+                            ? root.source-details[index]
+                            : "";
+                        status: index < root.source-statuses.length
+                            ? root.source-statuses[index]
+                            : "";
+                        active: index < root.source-active.length
+                            ? root.source-active[index]
+                            : false;
+                        muted: index < root.source-muted.length
+                            ? root.source-muted[index]
+                            : false;
+                        paused: index < root.source-paused.length
+                            ? root.source-paused[index]
+                            : false;
+                        route-running: root.running;
+                        mics <=> root.mics;
+                        mic-selection-changed => {
+                            root.mic-mix-changed(root.mix-mic);
+                        }
+                        outputs <=> root.outputs;
+                        initial-output-index: index < root.source-output-indices.length
+                            ? root.source-output-indices[index]
+                            : root.output-index;
+                        volume: index < root.source-volumes.length
+                            ? root.source-volumes[index]
+                            : 100;
+                        active-toggled(value) => {
+                            root.source-active-toggled(index, value);
+                        }
+                        volume-edited(value) => {
+                            root.source-volume-edited(index, value);
+                        }
+                        mute-toggled => { root.source-mute-toggled(index); }
+                        action(code) => {
+                            root.source-action(index, code);
+                        }
+                        output-changed(target) => {
+                            root.source-output-changed(index, target);
+                        }
+                        pause => { root.source-pause(index); }
+                        stop => { root.source-stop(index); }
+                    }
+                }
+            }
+        }
+    }
+    if root.source-add-open: AddSourceDialog {
+        processes <=> root.processes;
+        process-index <=> root.process-index;
+        mics <=> root.mics;
+        mic-index <=> root.mic-index;
+        mix-mic <=> root.mix-mic;
+        running: root.running;
+        process-add => {
+            root.process-add();
+            root.source-add-open = false;
+        }
+        add-files => {
+            root.add-files();
+            root.source-add-open = false;
+        }
+        mic-mix-changed(value) => { root.mic-mix-changed(value); }
+        open-library => {
+            root.source-add-open = false;
+            root.open-library();
+        }
+        closed => { root.source-add-open = false; }
     }
 }

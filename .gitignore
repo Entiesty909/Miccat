@@ -5,6 +5,7 @@ data
 /.vs
 .DS_Store
 /target
+/target-ui
 /target-relink
 /capture.wav
 *.pdb

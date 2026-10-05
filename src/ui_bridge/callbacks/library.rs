@@ -7,6 +7,7 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
     register_2(ui, state);
     register_3(ui, state);
     register_drag(ui, state);
+    register_loop(ui, state);
 }
 
 fn register_1(ui: &MainWindow, state: &AppState) {
@@ -16,9 +17,13 @@ fn register_1(ui: &MainWindow, state: &AppState) {
         let ui_weak = ui.as_weak();
         let cache = cache.clone();
         ui.on_audio_category_changed(move |index| {
-            if let Some(category) = category_paths(&cache).get(index as usize).cloned() {
-                cache.borrow_mut().audio_category = category;
+            let category = category_paths(&cache).get(index as usize).cloned();
+            let mut view = cache.borrow_mut();
+            view.audio_page = 0;
+            if let Some(category) = category {
+                view.audio_category = category;
             }
+            drop(view);
             if let Some(ui) = ui_weak.upgrade() {
                 update_audio_list(&ui, &cache);
             }
@@ -334,5 +339,42 @@ fn category_drop_position(value: i32) -> Option<crate::library::CategoryDropPosi
         1 => Some(crate::library::CategoryDropPosition::Into),
         2 => Some(crate::library::CategoryDropPosition::After),
         _ => None,
+    }
+}
+
+fn register_loop(ui: &MainWindow, state: &AppState) {
+    {
+        let engine = state.engine.clone();
+        let cache = state.cache.clone();
+        let app_config = state.app_config.clone();
+        let save_queue = state.save_queue.clone();
+        let ui_weak = ui.as_weak();
+        ui.on_audio_loop_changed(move |looped| {
+            let Some(ui) = ui_weak.upgrade() else {
+                return;
+            };
+            let index = ui.get_audio_entry_index().max(0) as usize;
+            let Some(actual) = visible_entry(&cache, index) else {
+                return;
+            };
+            let Some(entry) = cache.borrow().audio_entries.get(actual).cloned() else {
+                return;
+            };
+            let state = engine.file_state();
+            let mut updated = entry;
+            updated.loop_playback = looped;
+            cache.borrow_mut().audio_entries[actual] = updated.clone();
+            app_config.borrow_mut().audio_entries = cache.borrow().audio_entries.clone();
+            save_queue.schedule();
+            if state.playing && state.path == updated.path {
+                let target = cache.borrow().playback_target;
+                if engine
+                    .play_file(&updated, state.position_hns, target)
+                    .is_ok()
+                {
+                    ui.set_player_paused(false);
+                }
+            }
+        });
     }
 }

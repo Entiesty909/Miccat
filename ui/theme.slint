@@ -1,30 +1,37 @@
-//! 视觉 token。软件渲染器，质感靠层次、间距、字重、配色，不用模糊/发光/动画。
+//! 视觉 token。软件渲染器使用扁平边框、紧凑间距和明确状态色。
 
 export global Theme {
-    // 底色与容器
-    out property <color> bg: #F0F0F0;
+    // 页面与控件颜色
+    out property <color> bg: #F5F9FE;
     out property <color> card: #FFFFFF;
     out property <color> field: #FFFFFF;
-    out property <color> border: #D0D0D0;
-    out property <color> accent: #0078D4;
-    out property <color> accentSoft: #E5F1FB;
-    out property <color> ok: #107C10;
-    out property <color> warn: #C19C00;
-    out property <color> danger: #C42B1C;
+    out property <color> border: #DCE7F2;
+    out property <color> borderStrong: #C8D8E8;
+    out property <color> accent: #1677E8;
+    out property <color> accentHover: #0D66D0;
+    out property <color> accentSoft: #E8F2FF;
+    out property <color> playingSoft: #F2F7FC;
+    out property <color> accentPressed: #D5E8FF;
+    out property <color> ok: #22B879;
+    out property <color> warn: #D98A18;
+    out property <color> danger: #D94B55;
     out property <color> onAccent: #FFFFFF;
-    out property <color> text: #1F1F1F;
-    out property <color> text2: #606060;
-    out property <color> text3: #888888;
-    out property <length> radiusCard: 4px;
-    out property <length> radiusControl: 2px;
+    out property <color> text: #172435;
+    out property <color> text2: #657487;
+    out property <color> text3: #8A98A8;
+
+    // 页面与组件使用统一的紧凑间距和轻量圆角。
+    out property <length> radiusCard: 8px;
+    out property <length> radiusControl: 5px;
     out property <length> padPage: 20px;
     out property <length> padCard: 16px;
+    out property <length> padSection: 12px;
     out property <length> gap: 10px;
-    out property <length> gapLg: 14px;
+    out property <length> gapLg: 16px;
 
-    // 尺寸
-    out property <length> controlHeight: 34px;
-    out property <length> topBarHeight: 56px;
-    out property <length> statusBarHeight: 56px;
-    out property <length> meterHeight: 36px;
+    // 主窗口与固定栏尺寸。
+    out property <length> controlHeight: 36px;
+    out property <length> topBarHeight: 96px;
+    out property <length> statusBarHeight: 64px;
+    out property <length> meterHeight: 28px;
 }

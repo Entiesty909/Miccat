@@ -1,0 +1,78 @@
+//! 全局覆盖层宿主：问题中心跨页面共享状态，避免逐层透传。
+
+import { DiagnosticPanel } from "diagnostic-panel.slint";
+
+/// 快捷键行的共享状态：设置页读写，AppFocusScope 读录制行号。
+export global HotkeyState {
+    in-out property <string> previous: "";
+    in-out property <string> next: "";
+    in-out property <string> stop: "";
+    in-out property <bool> listening-previous: false;
+    in-out property <bool> listening-next: false;
+    in-out property <bool> listening-stop: false;
+    in-out property <int> listening-row: -1;
+}
+
+/// 跨页面共享的诊断与调试开关状态；由桥接层写入。
+export global DiagState {
+    in-out property <bool> open: false;
+    in-out property <int> tab: 0;
+    in-out property <int> unseen: 0;
+    in-out property <int> count: 0;
+    in-out property <[int]> severities: [];
+    in-out property <[string]> titles: [];
+    in-out property <[string]> sources: [];
+    in-out property <[string]> times: [];
+    in-out property <[string]> details: [];
+    in-out property <[string]> hints: [];
+    in-out property <int> selected: -1;
+    in-out property <int> debug-master: 3;
+    in-out property <[string]> debug-category-labels: [];
+    in-out property <[int]> debug-category-levels: [];
+    callback toggle();
+    callback close();
+    callback select(int);
+    callback clear();
+    callback remove();
+    callback copy();
+    callback open-log();
+    callback debug-master-changed(int);
+    callback debug-category-changed(int, int);
+}
+
+/// 顶层覆盖层：把问题中心接到全局状态。
+export component GlobalOverlays inherits Rectangle {
+    width: 100%;
+    height: 100%;
+    background: transparent;
+
+    DiagnosticPanel {
+        open <=> DiagState.open;
+        tab <=> DiagState.tab;
+        unseen <=> DiagState.unseen;
+        count <=> DiagState.count;
+        severities <=> DiagState.severities;
+        titles <=> DiagState.titles;
+        sources <=> DiagState.sources;
+        times <=> DiagState.times;
+        details <=> DiagState.details;
+        hints <=> DiagState.hints;
+        selected <=> DiagState.selected;
+        debug-master <=> DiagState.debug-master;
+        debug-category-labels <=> DiagState.debug-category-labels;
+        debug-category-levels <=> DiagState.debug-category-levels;
+        close => { DiagState.close(); }
+        select(index) => { DiagState.select(index); }
+        clear-all => { DiagState.clear(); }
+        copy => { DiagState.copy(); }
+        remove => { DiagState.remove(); }
+        open-log => { DiagState.open-log(); }
+        debug-master-changed(level) => {
+            DiagState.debug-master-changed(level);
+        }
+        debug-category-changed(index, level) => {
+            DiagState.debug-category-changed(index, level);
+        }
+    }
+
+}

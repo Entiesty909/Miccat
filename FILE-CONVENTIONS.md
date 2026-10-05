@@ -8,6 +8,7 @@
 - 每个文件只承担一个清楚的职责；新模块必须有顶层 `//!` 说明。
 - `foo.rs` 可配 `foo/` 子目录拆职责；拆分必须迁移调用点，不留双实现或兼容壳。
 - 当前目录职责见 [`ARCHITECTURE.md`](ARCHITECTURE.md)，API 与状态边界见 [`BACKEND.md`](BACKEND.md)。
+- `ui/app-window.slint` 负责窗口/全局覆盖层；三页装配与回调转发放 `ui/components/page-host.slint`。
 - Slint 页面只编排视图；可复用控件进 `ui/components/`，覆盖层进 `ui/overlays/`。
 
 ## 2. 命名与接口
@@ -23,8 +24,8 @@
 - `.rs` ≤ 400 行；`.slint` ≤ 300 行；单函数 ≤ 100 行；单闭包 ≤ 30 行。
 - 单行超过 100 字符必须换行；缩进 4 空格；一行表达一件事。
 - `.rs` 用 `cargo fmt`；Slint 保持一行一个属性/绑定，长条件和嵌套三元拆行。
-- 当前三个历史超限文件仍待拆：`src/engine.rs` 432 行、`src/audio/capture.rs` 451 行、`ui/app-window.slint` 383 行。
-- `scripts/check-lines.ps1` 为这三个文件设置“不增长”基线；门禁通过只表示未超过基线，不表示已达到行数预算。
+- `src/library.rs` 行为逻辑与 `src/library/tests.rs` 单元测试分离；测试作为子模块访问私有实现，不增加业务 API。
+- `src/library.rs` 生产逻辑应保持在 400 行内；引擎与 capture 的历史超限基线由 `scripts/check-lines.ps1` 约束为不增长。
 
 ## 4. 依赖与 unsafe
 
@@ -43,7 +44,7 @@ ui/ → ui_bridge/ → engine/ → audio/
 ## 5. 测试与工具
 
 - 纯逻辑以观察行为和边界编单测；不写依赖真实声卡的测试。
-- 当前领域单测位于 `src/library.rs`；PCM/WAV/配置迁移等计划测试见 [`docs/refactor-plan.md`](docs/refactor-plan.md)。
+- 音频库纯逻辑单测位于 `src/library/tests.rs`，由 `src/library.rs` 的 `#[cfg(test)] mod tests;` 引入；PCM/WAV/配置迁移等计划测试见 [`docs/refactor-plan.md`](docs/refactor-plan.md)。
 - `scripts/check.cmd` 执行格式、`clippy -- -D warnings`、构建和行数门禁。
 - `scripts/smoke.cmd` 执行设备/进程枚举及默认态、条目菜单 UI 快照。
 - 真实路由、WAV 逐采样比对和桌面交互的验证方法见 [`DEBUGGING.md`](DEBUGGING.md)。

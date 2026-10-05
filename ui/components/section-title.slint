@@ -1,0 +1,20 @@
+//! 设置页使用的区块标题：标题下方一条细分隔线。
+
+import { Theme } from "../theme.slint";
+
+export component SectionTitle inherits VerticalLayout {
+    in property <string> label: "";
+    height: 28px;
+    spacing: 4px;
+    Text {
+        text: root.label;
+        color: Theme.text;
+        font-size: 14px;
+        font-weight: 600;
+    }
+    Rectangle {
+        height: 1px;
+        width: 100%;
+        background: Theme.border;
+    }
+}

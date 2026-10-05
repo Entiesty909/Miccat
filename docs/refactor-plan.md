@@ -366,15 +366,16 @@ dev/ ──► 任意（仅调试）
 ### S3 — Slint 结构重构 + 契约收窄
 
 - 已完成：窗口入口迁移为 `ui/app-window.slint`，右键菜单覆盖层迁移为 `ui/overlays/context-menu.slint`；菜单遮罩、坐标钳制和动作收在组件内。
-- 未完成：通用列表组件、滚动虚拟化、主题 token 全量收口。
-- 验收：Slint 构建、CLI/UI 快照冒烟通过；桌面手工右键交互未自动化。
+- 已完成：按《重构ui.md》统一全局 Windows 10 视觉 token，重排路由、音频库和设置页；保留既有属性、回调和业务入口。
+- 已完成：音频库条目列表加入 `ScrollView`，分类空白区域和分类行右键快照均通过。
+- 未完成：`ListView` 虚拟化、通用 `list-row` 等列表组件、`empty-state` 接入。
+- 验收：Slint 构建、CLI/UI 快照冒烟通过；真实设备路由、试听听感和桌面鼠标交互未自动化。
 
 - `main.slint` → `app-window.slint`（≤200）；130 行菜单层 → `overlays/context-menu.slint` 组件
   （`items` 模型 + 坐标 + 内部钳制，消灭 11 处 `xxx-menu-open = false` 与硬编码 132px/292px）。
 - 音频库专属属性/回调（9 个只被顶层菜单触发的回调）从窗口收拢到页面内。
-- 抽 6 个缺失组件（§3.2），替换 3+11+8+2+6+5 处重复结构；`empty-state` 真正投入使用。
-- `theme.slint` 补字号/字重/间距 token，清掉 16 处裸色 + 40 处裸字号。
-- 音频库条目列表加 `ScrollView`（修「条目不可滚动」）+ `ListView` 虚拟化；分类/条目/设备行统一 `list-row`。
+- `theme.slint` 已补齐字号、颜色、圆角、间距、控件尺寸和状态色 token；通用结构组件仍待后续切片。
+- 音频库条目列表已加 `ScrollView`；`ListView` 虚拟化和 `list-row` 统一组件仍未完成。
 - 删除 §1.8 的 11 个死属性/死回调，并同步删 `ui_bridge` 里对应注册。
 - 验收：`--snapshot-ui` 三种状态（列表/分类菜单/条目菜单）截图 + 手工 5 条主路径；
 ### S4 — 音频与引擎按职责拆文件

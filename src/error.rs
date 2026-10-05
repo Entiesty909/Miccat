@@ -16,6 +16,8 @@ pub enum Error {
     CaptureInit(&'static str),
     /// 渲染端 Initialize / 打开设备失败。
     RenderInit(&'static str),
+    /// 同一驱动的多个端点不能同时打开（如 VB-Cable 的扬声器与 In 16ch）。
+    DeviceBusy(String),
     /// mix 格式无法解析或无法转换。
     Format(&'static str),
     /// WAV 等文件 IO。
@@ -37,6 +39,7 @@ impl Error {
             }
             Self::ProcessNotFound(_) => "进程已退出".into(),
             Self::CaptureInit(_) => "无法捕获该进程的音频".into(),
+            Self::DeviceBusy(detail) => detail.clone(),
             Self::Format(_) => "采样率或音频格式不兼容".into(),
             Self::TimedOut(_) => "音频设备初始化超时".into(),
             Self::Com(_) => "无法初始化音频系统".into(),
@@ -44,6 +47,48 @@ impl Error {
             Self::InvalidArgs(msg) => msg.clone(),
             Self::Cable(msg) => msg.clone(),
         }
+    }
+
+    /// 稳定的诊断代码，用于归类与复制。
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::Com(_) => "E-COM",
+            Self::ProcessNotFound(_) => "E-PROC",
+            Self::DeviceNotFound => "E-DEV",
+            Self::CaptureInit(_) => "E-CAPTURE",
+            Self::RenderInit(_) => "E-RENDER",
+            Self::DeviceBusy(_) => "E-BUSY",
+            Self::Format(_) => "E-FORMAT",
+            Self::Io(_) => "E-IO",
+            Self::TimedOut(_) => "E-TIMEOUT",
+            Self::InvalidArgs(_) => "E-ARGS",
+            Self::Cable(_) => "E-CABLE",
+        }
+    }
+
+    /// 建议用户采取的动作；无建议时返回空串。
+    pub fn hint(&self) -> &'static str {
+        match self {
+            Self::Com(_) => "确认系统音频服务已启动；若刚插拔设备，请在设置页点「刷新设备」。",
+            Self::ProcessNotFound(_) => "在路由页重新选择仍在运行的进程。",
+            Self::DeviceNotFound | Self::RenderInit(_) => {
+                "在设置页重新选择输出设备；必要时重新插拔耳机/线缆。"
+            }
+            Self::DeviceBusy(_) => {
+                "把「输出设备」改到另一只设备，或在设置页勾选「显示全部播放设备」后换一个。"
+            }
+            Self::CaptureInit(_) => "确认该进程正在播放声音，并以相同权限运行。",
+            Self::Format(_) => "在设置页切换输出设备，或换一个采样率兼容的设备。",
+            Self::Io(_) => "检查磁盘空间与文件是否被占用。",
+            Self::TimedOut(_) => "稍后重试；若持续失败，请在问题中心查看日志。",
+            Self::InvalidArgs(_) => "",
+            Self::Cable(_) => "以管理员身份重试安装，或手动安装 VB-CABLE 后重启。",
+        }
+    }
+
+    /// 技术细节（含 HRESULT），供问题中心详情展示。
+    pub fn detail(&self) -> String {
+        self.to_string()
     }
 }
 
@@ -55,6 +100,7 @@ impl fmt::Display for Error {
             Self::DeviceNotFound => write!(f, "audio device not found"),
             Self::CaptureInit(msg) => write!(f, "capture init: {msg}"),
             Self::RenderInit(msg) => write!(f, "render init: {msg}"),
+            Self::DeviceBusy(msg) => write!(f, "device busy: {msg}"),
             Self::Format(msg) => write!(f, "format: {msg}"),
             Self::Io(e) => write!(f, "io: {e}"),
             Self::TimedOut(msg) => write!(f, "timeout: {msg}"),

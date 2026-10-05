@@ -39,7 +39,8 @@ pub(crate) fn run() -> Result<(), Error> {
                 .ok_or_else(|| Error::InvalidArgs("missing --device <id>".into()))?;
             let seconds = parse_flag_f32(&args, "--seconds").unwrap_or(8.0);
             let engine = AudioEngine::new();
-            engine.start(pid, device, None)?;
+            engine.open_output(device)?;
+            engine.set_process_source(pid)?;
             println!("routing pid {pid} for {seconds}s");
             thread::sleep(Duration::from_secs_f32(seconds.max(0.5)));
             engine.stop();
@@ -53,7 +54,26 @@ pub(crate) fn run() -> Result<(), Error> {
             let menu = args_has(&args, "--menu");
             let category_menu = args_has(&args, "--category-menu");
             let category_row_menu = args_has(&args, "--category-row-menu");
-            ui_bridge::snapshot_to_file(&out, menu, category_menu, category_row_menu)?;
+            let page = parse_flag_str(&args, "--page").unwrap_or("player");
+            let diagnostics = args_has(&args, "--diagnostics");
+            let diagnostics_log = args_has(&args, "--diagnostics-log");
+            let diagnostics_badge = args_has(&args, "--diagnostics-badge");
+            let diagnostics_live = args_has(&args, "--diagnostics-live");
+            let settings_section = parse_flag_u32(&args, "--section")
+                .map(|value| value as i32)
+                .unwrap_or(-1);
+            ui_bridge::snapshot_to_file(ui_bridge::SnapshotOptions {
+                path: &out,
+                page,
+                entry_menu: menu,
+                empty_category_menu: category_menu,
+                category_row_menu,
+                diagnostics,
+                diagnostics_log,
+                diagnostics_badge,
+                diagnostics_live,
+                settings_section,
+            })?;
         }
         "--probe-playback" => {
             let file = parse_flag_str(&args, "--probe-playback")
@@ -187,22 +207,26 @@ fn probe_playback(
     }
     stop.store(true, std::sync::atomic::Ordering::Release);
 
-    let compare = got.len().min(reference.samples.len());
-    // 跳转后要对齐到参考里的对应位置：解码器 seek 可能落在最近的可定位点上，
-    // 所以先在期望位置附近找一个最佳偏移，再逐采样比较。
+    // 丢弃生产线程启动时写入的静音，再按 seek 附近的样本对齐。
+    let leading_silence = got
+        .iter()
+        .position(|sample| sample.abs() > 1e-5)
+        .unwrap_or(0);
+    let captured = &got[leading_silence..];
     let skip_frames = (start_hns as u128 * rate as u128 / 10_000_000) as usize;
     let skip = skip_frames * channels as usize;
-    let probe_len = (channels as usize * 2000).min(got.len());
+    let probe_len = (channels as usize * 2000).min(captured.len());
+    let search_samples = (rate as usize * channels as usize).max(channels as usize * 4096);
     let mut offset = skip;
     if probe_len > 0 {
         let mut best = f64::MAX;
-        let low = skip.saturating_sub(channels as usize * 4096);
-        let high = (skip + channels as usize * 4096).min(reference.samples.len());
+        let low = skip.saturating_sub(search_samples);
+        let high = (skip + search_samples).min(reference.samples.len());
         let mut candidate = low;
         while candidate + probe_len <= high {
             let err: f64 = (0..probe_len)
                 .step_by(channels as usize * 7)
-                .map(|i| (got[i] - reference.samples[candidate + i]).abs() as f64)
+                .map(|i| (captured[i] - reference.samples[candidate + i]).abs() as f64)
                 .sum();
             if err < best {
                 best = err;
@@ -211,10 +235,12 @@ fn probe_playback(
             candidate += channels as usize;
         }
     }
-    let compare = compare.min(reference.samples.len().saturating_sub(offset));
+    let compare = captured
+        .len()
+        .min(reference.samples.len().saturating_sub(offset));
     let mut first = None;
     let mut mismatch = 0usize;
-    for (i, sample) in got.iter().enumerate().take(compare) {
+    for (i, sample) in captured.iter().enumerate().take(compare) {
         if (*sample - reference.samples[offset + i]).abs() > 1e-3 {
             mismatch += 1;
             if first.is_none() {
@@ -263,7 +289,8 @@ fn print_help() {
          --list-devices\n\
          --capture <pid> --wav <path> --seconds N\n\
          --route <pid> --device <id> --seconds N\n\
-         --snapshot-ui --out <path> [--menu | --category-menu | --category-row-menu]\n\
+         --snapshot-ui --out <path> [--page route|player|settings] [菜单参数]\n\
+         --probe-audio --device <id> [--mode reopen|monitor|multi] [--device2 <id>]\n\
          --probe-playback <file> [--seconds N] [--start N] [--out path]"
     );
 }

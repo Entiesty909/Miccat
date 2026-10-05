@@ -2,8 +2,11 @@
 
 mod fanout;
 mod monitor;
+mod output;
 mod playback;
-
+mod status;
+mod volume;
+pub(crate) use playback::PlaybackTarget;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -12,9 +15,7 @@ use crate::audio::buffer::SpscRing;
 use crate::audio::capture::{open_mic_capture, open_process_capture, run_capture_loop};
 use crate::audio::com;
 use crate::audio::format::{AudioFormat, Converter, SampleKind};
-use crate::audio::render::open_render_device;
 use crate::error::Error;
-use fanout::{FanoutTarget, run_fanout, spawn_target_render};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EngineStatus {
@@ -24,12 +25,24 @@ pub enum EngineStatus {
     DeviceGone,
     Error(String),
 }
+#[derive(Clone, Copy)]
+pub(crate) struct SourceOutputRoutes {
+    /// 在打开的 render 列表中承接进程源的下标。
+    pub(crate) process: usize,
+    /// 在打开的 render 列表中承接音频文件源的下标。
+    pub(crate) file: usize,
+    /// 在打开的 render 列表中承接麦克风源的下标。
+    pub(crate) mic: usize,
+}
 
 pub(super) struct TargetState {
     pub(super) format: AudioFormat,
     pub(super) process_rings: Vec<Arc<SpscRing>>,
     pub(super) mic_ring: Arc<SpscRing>,
     pub(super) sfx_ring: Arc<SpscRing>,
+    pub(super) process_enabled: bool,
+    pub(super) mic_enabled: bool,
+    pub(super) sfx_enabled: bool,
     pub(super) render: JoinHandle<()>,
 }
 
@@ -63,9 +76,6 @@ pub struct AudioEngine {
     mic_volume: Arc<AtomicU32>,
     sfx_volume: Arc<AtomicU32>,
     master: Arc<AtomicU32>,
-    capture_peak: Arc<AtomicU32>,
-    mic_peak: Arc<AtomicU32>,
-    render_peak: Arc<AtomicU32>,
     running: Arc<AtomicBool>,
     status: Arc<Mutex<EngineStatus>>,
     monitor: monitor::SharedMonitor,
@@ -87,9 +97,6 @@ impl AudioEngine {
             mic_volume: Arc::new(AtomicU32::new(1.0f32.to_bits())),
             sfx_volume: Arc::new(AtomicU32::new(1.0f32.to_bits())),
             master: Arc::new(AtomicU32::new(1.0f32.to_bits())),
-            capture_peak: Arc::new(AtomicU32::new(0)),
-            mic_peak: Arc::new(AtomicU32::new(0)),
-            render_peak: Arc::new(AtomicU32::new(0)),
             running: Arc::new(AtomicBool::new(false)),
             status: Arc::new(Mutex::new(EngineStatus::Idle)),
             output: Mutex::new(None),
@@ -98,150 +105,15 @@ impl AudioEngine {
             playback: playback::shared(),
         }
     }
-    pub fn is_running(&self) -> bool {
-        self.running.load(Ordering::Acquire)
-    }
-    pub fn status(&self) -> EngineStatus {
-        self.status
-            .lock()
-            .map(|g| g.clone())
-            .unwrap_or(EngineStatus::Error("status lock".into()))
-    }
-    pub fn set_volume(&self, v: f32) {
-        self.volume
-            .store(v.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
-    }
-    pub fn set_mic_volume(&self, v: f32) {
-        self.mic_volume
-            .store(v.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
-    }
-    pub fn set_master_volume(&self, v: f32) {
-        self.master
-            .store(v.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
-    }
-    pub fn sample_capture_peak(&self) -> f32 {
-        crate::audio::peak::sample_and_decay(&self.capture_peak, 0.62)
-    }
-    pub fn sample_mic_peak(&self) -> f32 {
-        crate::audio::peak::sample_and_decay(&self.mic_peak, 0.62)
-    }
-    pub fn sample_render_peak(&self) -> f32 {
-        crate::audio::peak::sample_and_decay(&self.render_peak, 0.62)
-    }
-
-    /// 单输出兼容入口。
-    pub fn open_output(&self, device_id: &str) -> Result<(), Error> {
-        self.open_outputs(&[device_id.to_owned()])
-    }
-
-    /// 打开多个输出；每个输出拥有独立 ring/render，fan-out 负责格式转换。
-    pub fn open_outputs(&self, device_ids: &[String]) -> Result<(), Error> {
-        self.stop();
-        if device_ids.is_empty() {
-            return Err(Error::RenderInit("no output devices"));
-        }
-        let _com = com::init_mta()?;
-        let mut clients = Vec::with_capacity(device_ids.len());
-        for id in device_ids {
-            clients.push(open_render_device(id)?);
-        }
-        let canonical = clients[0].format;
-        let mix_format = copy_wave(clients[0].mix_format());
-        let capacity =
-            ((canonical.sample_rate as usize).saturating_mul(canonical.channels as usize) / 2)
-                .max(8192);
-        let process_rings: Vec<Arc<SpscRing>> = (0..4)
-            .map(|_| Arc::new(SpscRing::with_capacity_samples(capacity)))
-            .collect();
-        let mic_ring = Arc::new(SpscRing::with_capacity_samples(capacity));
-        let sfx_ring = Arc::new(SpscRing::with_capacity_samples(capacity));
-        let stop = Arc::new(AtomicBool::new(false));
-        let mut targets = Vec::new();
-        for client in clients {
-            let target = client.format;
-            let target_capacity =
-                ((target.sample_rate as usize).saturating_mul(target.channels as usize) / 2)
-                    .max(8192);
-            let target_process: Vec<Arc<SpscRing>> = (0..4)
-                .map(|_| Arc::new(SpscRing::with_capacity_samples(target_capacity)))
-                .collect();
-            let target_mic = Arc::new(SpscRing::with_capacity_samples(target_capacity));
-            let target_sfx = Arc::new(SpscRing::with_capacity_samples(target_capacity));
-            let status = self.status.clone();
-            let running = self.running.clone();
-            let render = spawn_target_render(
-                self,
-                client,
-                target_process.clone(),
-                target_mic.clone(),
-                target_sfx.clone(),
-                stop.clone(),
-                status,
-                running,
-            )?;
-            targets.push(TargetState {
-                format: target,
-                process_rings: target_process,
-                mic_ring: target_mic,
-                sfx_ring: target_sfx,
-                render,
-            });
-        }
-        let fanout_stop = stop.clone();
-        let process_source = process_rings.clone();
-        let mic_source = mic_ring.clone();
-        let sfx_source = sfx_ring.clone();
-        let fanout_targets = targets
-            .iter()
-            .map(|t| FanoutTarget::new(t, canonical))
-            .collect::<Vec<_>>();
-        let fanout = thread::Builder::new()
-            .name("audio-fanout".into())
-            .spawn(move || {
-                run_fanout(
-                    process_source,
-                    mic_source,
-                    sfx_source,
-                    fanout_targets,
-                    fanout_stop,
-                    canonical,
-                )
-            })
-            .map_err(|_| Error::RenderInit("spawn output fanout"))?;
-        let (sfx_tx, sfx_rx) = crate::audio::sfx::channel();
-        let sfx_stop = Arc::new(AtomicBool::new(false));
-        let sfx_stop_thread = sfx_stop.clone();
-        let sfx_ring_thread = sfx_ring.clone();
-        let sfx_thread = thread::Builder::new()
-            .name("sfx-mixer".into())
-            .spawn(move || {
-                crate::audio::sfx::run_sfx_loop(sfx_ring_thread, canonical, sfx_stop_thread, sfx_rx)
-            })
-            .map_err(|_| Error::RenderInit("spawn sfx thread"))?;
-        if let Ok(mut output) = self.output.lock() {
-            *output = Some(OutputState {
-                stop,
-                process_rings,
-                mic_ring,
-                render_format: canonical,
-                mix_format,
-                fanout,
-                targets,
-            });
-        }
-        if let Ok(mut sources) = self.sources.lock() {
-            sources.sfx_tx = Some(sfx_tx);
-            sources.sfx_stop = Some(sfx_stop);
-            sources.sfx = Some(sfx_thread);
-        }
-        self.set_status(EngineStatus::Running);
-        self.running.store(true, Ordering::Release);
-        Ok(())
-    }
 
     pub fn set_process_source(&self, pid: u32) -> Result<(), Error> {
         self.stop_process_source();
         self.add_process_source(pid, 0)
+    }
+
+    /// 运行中热切换物理麦：停旧开新，复用已建立的输出。
+    pub fn replace_mic_source(&self, mic_id: Option<&str>) -> Result<(), Error> {
+        self.set_mic_source(mic_id)
     }
     pub fn add_process_source(&self, pid: u32, slot: usize) -> Result<(), Error> {
         let _com = com::init_mta()?;
@@ -262,12 +134,11 @@ impl AudioEngine {
         let stop = Arc::new(AtomicBool::new(false));
         let thread_stop = stop.clone();
         let status = self.status.clone();
-        let peak = self.capture_peak.clone();
         let thread = thread::Builder::new()
             .name(format!("wasapi-capture-{slot}"))
             .spawn(move || {
                 let _com = com::init_mta();
-                run_capture_loop(capture, ring, converter, thread_stop, peak, |err| {
+                run_capture_loop(capture, ring, converter, thread_stop, |err| {
                     let mapped = match err {
                         Error::ProcessNotFound(_) => EngineStatus::ProcessExited,
                         Error::DeviceNotFound => EngineStatus::DeviceGone,
@@ -281,6 +152,14 @@ impl AudioEngine {
             .map_err(|_| Error::CaptureInit("spawn capture thread"))?;
         if let Ok(mut sources) = self.sources.lock() {
             sources.process.push(ProcessThread { stop, thread });
+        }
+        Ok(())
+    }
+    /// 按当前启用列表重建进程捕获线程，保持已打开的 render 输出。
+    pub fn replace_process_sources(&self, pids: &[u32]) -> Result<(), Error> {
+        self.stop_process_source();
+        for (slot, pid) in pids.iter().copied().enumerate() {
+            self.add_process_source(pid, slot)?;
         }
         Ok(())
     }
@@ -302,12 +181,11 @@ impl AudioEngine {
         );
         let stop = Arc::new(AtomicBool::new(false));
         let thread_stop = stop.clone();
-        let peak = self.mic_peak.clone();
         let thread = thread::Builder::new()
             .name("wasapi-mic".into())
             .spawn(move || {
                 let _com = com::init_mta();
-                run_capture_loop(mic, ring, conv, thread_stop, peak, |_| {});
+                run_capture_loop(mic, ring, conv, thread_stop, |_| {});
             })
             .map_err(|_| Error::CaptureInit("spawn mic thread"))?;
         if let Ok(mut s) = self.sources.lock() {
@@ -316,27 +194,14 @@ impl AudioEngine {
         }
         Ok(())
     }
-    pub fn start(&self, pid: u32, device_id: &str, mic_id: Option<&str>) -> Result<(), Error> {
-        self.open_output(device_id)?;
-        self.set_process_source(pid)?;
-        self.set_mic_source(mic_id)?;
-        Ok(())
-    }
-    pub(crate) fn sfx_sender(
-        &self,
-    ) -> Result<std::sync::mpsc::Sender<crate::audio::sfx::SfxCommand>, Error> {
-        self.sources
-            .lock()
-            .map_err(|_| Error::RenderInit("source lock poisoned"))?
-            .sfx_tx
-            .clone()
-            .ok_or(Error::RenderInit("sfx is closed"))
-    }
     pub fn stop(&self) {
         self.stop_file();
         self.stop_process_source();
         self.stop_mic_source();
         self.stop_sfx_source();
+        // 试听引擎持有系统默认播放设备；不释放会让随后的转发 Initialize
+        // 撞上 AUDCLNT_E_DEVICE_IN_USE（0x8889000A）。
+        monitor::release(&self.monitor);
         if let Some(o) = self.output.lock().ok().and_then(|mut g| g.take()) {
             o.stop.store(true, Ordering::Release);
             let _ = o.fanout.join();

@@ -1,0 +1,244 @@
+//! 音频库详情面板：展示选中文件的本地元数据和真实播放设置。
+
+import { CheckBox, ComboBox, ScrollView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { Card } from "card.slint";
+import { PmButton } from "button.slint";
+import { SliderRow } from "slider-row.slint";
+
+export component AudioDetail inherits Card {
+    in property <[string]> entries: [];
+    in property <[string]> metadata: [];
+    in property <[string]> categories: [];
+    in property <[string]> durations: [];
+    in property <[string]> sizes: [];
+    in property <[string]> paths: [];
+    in property <[string]> category-options: [];
+    in property <[string]> devices: [];
+    in property <string> hotkey: "";
+    in property <bool> listening-hotkey: false;
+    in property <int> entry-index: -1;
+    in property <bool> route-running: false;
+    in-out property <int> category-index: 0;
+    in-out property <int> output-index: 0;
+    in-out property <float> monitor-volume: 50;
+    in-out property <bool> preview-enabled: false;
+    in-out property <bool> loop: false;
+    callback play();
+    callback preview();
+    callback context();
+    callback output-changed(int);
+    callback category-changed(int);
+    callback monitor-volume-edited(float);
+    callback preview-toggled(bool);
+    callback loop-toggled(bool);
+    callback hotkey-bind();
+
+    width: 340px;
+    vertical-stretch: 1;
+
+    min-height: 0px;
+    ScrollView {
+        width: 100%;
+        height: 100%;
+        VerticalLayout {
+            width: 100%;
+            alignment: LayoutAlignment.start;
+            spacing: 8px;
+            HorizontalLayout {
+                height: 78px;
+                spacing: 12px;
+                Rectangle {
+                    width: 68px;
+                    height: 68px;
+                    border-radius: 8px;
+                    background: Theme.accentSoft;
+                    Text {
+                        text: "\u{E8D6}";
+                        font-family: "Segoe MDL2 Assets";
+                        font-size: 30px;
+                        color: Theme.accent;
+                        horizontal-alignment: center;
+                        vertical-alignment: TextVerticalAlignment.center;
+                    }
+                }
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    min-width: 0px;
+                    Text {
+                        text: root.entry-index >= 0
+                            && root.entry-index < root.entries.length
+                            ? root.entries[root.entry-index]
+                            : "未选择音频";
+                        color: Theme.text;
+                        font-size: 15px;
+                        font-weight: 700;
+                        overflow: elide;
+                    }
+                    Text {
+                        text: root.entry-index >= 0
+                            && root.entry-index < root.metadata.length
+                            ? root.metadata[root.entry-index]
+                            : "从本地音频库选择文件";
+                        color: Theme.text2;
+                        font-size: 10px;
+                        overflow: elide;
+                    }
+                    Rectangle {
+                        width: 72px;
+                        height: 22px;
+                        border-radius: 4px;
+                        background: Theme.accentSoft;
+                        Text {
+                            text: root.entry-index >= 0
+                                && root.entry-index < root.categories.length
+                                ? root.categories[root.entry-index]
+                                : "未分类";
+                            width: 100%;
+                            color: Theme.accent;
+                            font-size: 10px;
+                            horizontal-alignment: center;
+                            vertical-alignment: TextVerticalAlignment.center;
+                            overflow: elide;
+                        }
+                    }
+                }
+            }
+            HorizontalLayout {
+                height: 38px;
+                spacing: 6px;
+                PmButton {
+                    label: "▶  播放";
+                    filled: true;
+                    enabled: root.entry-index >= 0;
+                    clicked => { root.play(); }
+                }
+                PmButton {
+                    label: "\u{E767}  本机试听";
+                    enabled: root.entry-index >= 0;
+                    clicked => { root.preview(); }
+                }
+                PmButton {
+                    label: "\u{E712}";
+                    icon-only: true;
+                    button-width: 34px;
+                    enabled: root.entry-index >= 0;
+                    clicked => { root.context(); }
+                }
+            }
+            Rectangle { height: 1px; width: 100%; background: Theme.border; }
+            Text {
+                text: "播放设置";
+                color: Theme.text;
+                font-size: 13px;
+                font-weight: 600;
+            }
+            Text { text: "输出设备"; color: Theme.text2; font-size: 11px; }
+            ComboBox {
+                model: root.devices;
+                current-index <=> root.output-index;
+                enabled: root.entry-index >= 0 && !root.route-running;
+                selected(value) => { root.output-changed(root.output-index); }
+            }
+            SliderRow {
+                label: "音量";
+                value <=> root.monitor-volume;
+                edited(value) => { root.monitor-volume-edited(value); }
+            }
+            PmButton {
+                label: root.listening-hotkey
+                    ? "按下快捷键…"
+                    : (root.hotkey == "" ? "设置快捷键" : "快捷键  \{root.hotkey}");
+                enabled: root.entry-index >= 0;
+                clicked => { root.hotkey-bind(); }
+            }
+            CheckBox {
+                text: "循环播放";
+                checked <=> root.loop;
+                enabled: root.entry-index >= 0;
+                toggled => { root.loop-toggled(self.checked); }
+            }
+            ComboBox {
+                model: root.category-options;
+                current-index <=> root.category-index;
+                enabled: root.entry-index >= 0;
+                selected(value) => { root.category-changed(root.category-index); }
+            }
+            CheckBox {
+                text: "路由播放时本机监听";
+                checked <=> root.preview-enabled;
+                toggled => { root.preview-toggled(self.checked); }
+            }
+            Rectangle { height: 1px; width: 100%; background: Theme.border; }
+            Text {
+                text: "文件信息";
+                color: Theme.text;
+                font-size: 13px;
+                font-weight: 600;
+            }
+            HorizontalLayout {
+                Text { text: "文件名"; width: 68px; color: Theme.text2; font-size: 10px; }
+                Text {
+                    text: root.entry-index >= 0
+                        && root.entry-index < root.entries.length
+                        ? root.entries[root.entry-index]
+                        : "—";
+                    horizontal-stretch: 1;
+                    color: Theme.text2;
+                    font-size: 10px;
+                    overflow: elide;
+                }
+            }
+            HorizontalLayout {
+                Text { text: "格式/码率"; width: 68px; color: Theme.text2; font-size: 10px; }
+                Text {
+                    text: root.entry-index >= 0
+                        && root.entry-index < root.metadata.length
+                        ? root.metadata[root.entry-index]
+                        : "—";
+                    horizontal-stretch: 1;
+                    color: Theme.text2;
+                    font-size: 10px;
+                    overflow: elide;
+                }
+            }
+            HorizontalLayout {
+                Text { text: "时长"; width: 68px; color: Theme.text2; font-size: 10px; }
+                Text {
+                    text: root.entry-index >= 0
+                        && root.entry-index < root.durations.length
+                        ? root.durations[root.entry-index]
+                        : "—";
+                    color: Theme.text2;
+                    font-size: 10px;
+                }
+            }
+            HorizontalLayout {
+                Text { text: "文件大小"; width: 68px; color: Theme.text2; font-size: 10px; }
+                Text {
+                    text: root.entry-index >= 0
+                        && root.entry-index < root.sizes.length
+                        ? root.sizes[root.entry-index]
+                        : "—";
+                    color: Theme.text2;
+                    font-size: 10px;
+                }
+            }
+            HorizontalLayout {
+                Text { text: "路径"; width: 68px; color: Theme.text2; font-size: 10px; }
+                Text {
+                    text: root.entry-index >= 0
+                        && root.entry-index < root.paths.length
+                        ? root.paths[root.entry-index]
+                        : "—";
+                    horizontal-stretch: 1;
+                    min-width: 0px;
+                    color: Theme.text3;
+                    font-size: 9px;
+                    overflow: elide;
+                }
+            }
+            Rectangle { vertical-stretch: 1; background: transparent; }
+        }
+    }
+}

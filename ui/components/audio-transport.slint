@@ -1,0 +1,84 @@
+//! 音频库底部播放条：播放导航、实时位置和拖动进度。
+
+import { Slider } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { Card } from "card.slint";
+import { PmButton } from "button.slint";
+
+export component AudioTransport inherits Card {
+    in property <int> entry-index: -1;
+    in property <int> entry-count: 0;
+    in property <bool> playing: false;
+    in property <bool> paused: false;
+    in-out property <float> progress: 0;
+    in-out property <bool> seeking-progress: false;
+    in property <string> current-name: "";
+    in property <string> current-position: "";
+    in property <float> duration-seconds: 0;
+    callback previous();
+    callback pause-toggle();
+    callback stop();
+    callback next();
+    callback progress-seek(float);
+
+    height: 58px;
+
+    HorizontalLayout {
+        spacing: 5px;
+        PmButton {
+            label: "\u{E892}";
+            icon-only: true;
+            button-width: 36px;
+            enabled: root.entry-index > 0;
+            clicked => { root.previous(); }
+        }
+        PmButton {
+            label: root.paused ? "\u{E768}" : "\u{E769}";
+            icon-only: true;
+            button-width: 36px;
+            enabled: root.playing || root.paused;
+            clicked => { root.pause-toggle(); }
+        }
+        PmButton {
+            label: "\u{E71A}";
+            icon-only: true;
+            button-width: 36px;
+            enabled: root.playing || root.paused;
+            clicked => { root.stop(); }
+        }
+        PmButton {
+            label: "\u{E893}";
+            icon-only: true;
+            button-width: 36px;
+            enabled: root.entry-index >= 0
+                && root.entry-index < root.entry-count - 1;
+            clicked => { root.next(); }
+        }
+        Text {
+            text: root.current-position;
+            width: 82px;
+            color: Theme.text2;
+            font-size: 10px;
+            vertical-alignment: TextVerticalAlignment.center;
+        }
+        Slider {
+            horizontal-stretch: 1;
+            minimum: 0;
+            maximum: 1;
+            value <=> root.progress;
+            enabled: root.duration-seconds > 0;
+            changed(value) => { root.seeking-progress = true; }
+            released(value) => {
+                root.seeking-progress = false;
+                root.progress-seek(value);
+            }
+        }
+        Text {
+            text: root.current-name;
+            width: 175px;
+            color: Theme.text2;
+            overflow: elide;
+            vertical-alignment: TextVerticalAlignment.center;
+        }
+    }
+}

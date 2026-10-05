@@ -110,7 +110,6 @@ pub fn run_render_loop(
     sfx_volume: Arc<AtomicU32>,
     master: Arc<AtomicU32>,
     stop: Arc<AtomicBool>,
-    peak: Arc<AtomicU32>,
     on_fail: impl FnOnce(Error),
 ) {
     if let Err(e) = unsafe { session.client.Start() } {
@@ -196,7 +195,6 @@ pub fn run_render_loop(
                 *s = (*s * master_vol).clamp(-1.0, 1.0);
             }
         }
-        super::peak::hold_peak(&peak, &tmp[..samples]);
         if !ptr_data.is_null() {
             let nbytes = samples * session.format.kind.bytes();
             let dst = unsafe { std::slice::from_raw_parts_mut(ptr_data, nbytes) };
@@ -232,4 +230,30 @@ fn classify_render_error(e: windows::core::Error) -> Error {
     } else {
         e.into()
     }
+}
+
+/// 把裸 `AUDCLNT_E_DEVICE_IN_USE` 翻译成可读原因。
+///
+/// 打开渲染设备失败时调用；命中 0x8889000A 说明同驱动的另一端点已占用，
+/// 直接报 HRESULT 用户看不懂。
+pub(crate) fn describe_open_failure(device_id: &str, error: Error) -> Error {
+    let Error::Com(com) = &error else {
+        return error;
+    };
+    if com.code().0 as u32 != 0x8889_000A {
+        return error;
+    }
+    let label = crate::audio::device::list_destinations(true)
+        .ok()
+        .and_then(|devices| {
+            devices
+                .into_iter()
+                .find(|device| device.render_id == device_id)
+                .map(|device| device.label)
+        })
+        .unwrap_or_else(|| device_id.to_string());
+    Error::DeviceBusy(format!(
+        "「{label}」已被同一驱动的另一个端点占用。\n\
+         该驱动不允许两个端点同时输出，请把其中一路改到别的设备。"
+    ))
 }

@@ -35,16 +35,25 @@ ProcessMic 是 Windows 桌面进程音频路由器：以 WASAPI Process Loopback
 scripts\check.cmd
 scripts\smoke.cmd
 scripts\build-dev.cmd test
+scripts\dev.cmd
+scripts\build-debug.cmd
+scripts\build-release.cmd
 ```
 
-`check.cmd` 包含格式、严格 Clippy、构建与行数门禁；`smoke.cmd` 枚举设备/进程，生成默认 UI 和条目菜单快照，并模拟空树右键且断言菜单打开。真实设备声音与物理鼠标仍需人工验收。
+`check.cmd` 包含格式、严格 Clippy、构建与行数门禁；`smoke.cmd` 枚举设备/进程，生成默认 UI 和条目菜单快照，并模拟空树右键且断言菜单打开。
+`dev.cmd` 监听 `src`/`ui`/`Cargo.toml` 改动，自动重编并重启（`-Release`、`-NoRun` 可选）；
+`build-debug.cmd` / `build-release.cmd` 分别产出 debug 与 release 的 exe 并打印路径。
+真实设备声音与物理鼠标仍需人工验收。
 
 ## 当前重构状态
 
-S1–S6 均有中文阶段提交。`scripts/check.cmd` 的严格 Clippy、构建和行数门禁通过；
-17 个音频库/配置迁移领域单测和设备/进程/UI 快照冒烟通过。
+S1–S6 重构阶段均有历史记录。最近变更：
+- [`docs/step-52-route-source-actions.md`](docs/step-52-route-source-actions.md)：源卡片状态保留、紧凑音量布局、源操作菜单与单独转发。
+- [`docs/step-50-home-layout-playback-hotkeys.md`](docs/step-50-home-layout-playback-hotkeys.md)：主页排版/卡片交互、播放暂停语义、右键菜单现代化、全局多热键与冲突检测。
+- [`docs/step-49-user-feedback-fixes.md`](docs/step-49-user-feedback-fixes.md)：八项用户反馈修复（开发脚本、0x8889000A 根因、实时切换、输出下拉、列表点击）。
+- [`docs/step-48-diagnostics.md`](docs/step-48-diagnostics.md)：全局错误诊断与调试输出系统（问题中心、运行时调试开关、日志落盘）。
+- [`docs/step-47-route-controls.md`](docs/step-47-route-controls.md)：路由页交互接线审查。
+- [`docs/step-46-library-tests.md`](docs/step-46-library-tests.md)：分离音频库单元测试，恢复 `library.rs` 行数门禁。
+- [`docs/step-45-reference-ui-and-source-logic.md`](docs/step-45-reference-ui-and-source-logic.md)：参考图驱动的页面与音频行为。
 
-重构计划仍有未完成验收：RAM/CPU/启动时间基线、真实 `--capture` 逐采样对比、`--route` 听感和桌面交互；
-S3 滚动/虚拟化、S4 capture/engine 与 PCM 原语拆分、S5 config/UI 文案映射仍未完成。
-S6 的 PCM/WAV 测试及剩余可见性收口仍待补。
-`src/engine.rs`、`src/audio/capture.rs`、`ui/app-window.slint` 仍高于常规行数预算，门禁只限制不增长。
+本轮源逻辑构建、Clippy、测试和路由快照结果以 Step 52 实测为准。
