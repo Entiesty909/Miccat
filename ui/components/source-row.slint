@@ -1,7 +1,7 @@
 //! 路由页单条真实音频源：名称、输出目标、增益、启用状态和操作入口。
 
-import { ComboBox } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
+import { MarqueeComboBox } from "marquee-combo-box.slint";
 import { PmButton } from "button.slint";
 import { SliderRow } from "slider-row.slint";
 import { SourceActionsMenu } from "source-actions-menu.slint";
@@ -121,7 +121,7 @@ export component SourceRow inherits Rectangle {
                     vertical-alignment: center;
                 }
             }
-            if root.kind == 2: ComboBox {
+            if root.kind == 2: MarqueeComboBox {
                 model: root.mics;
                 height: 34px;
                 current-index <=> root.mic-index;
@@ -150,45 +150,14 @@ export component SourceRow inherits Rectangle {
                 text: "输出设备";
                 color: Theme.text2;
             }
-            Rectangle {
+            MarqueeComboBox {
                 width: 100%;
                 height: 34px;
-                output-combo := ComboBox {
-                    width: 100%;
-                    height: 100%;
-                    model: root.outputs;
-                    current-index <=> root.output-index;
-                    enabled: !root.route-running;
-                    selected(value) => {
-                        root.output-changed(root.output-index);
-                    }
-                }
-                Rectangle {
-                    x: 1px;
-                    y: 1px;
-                    width: parent.width - 30px;
-                    height: parent.height - 2px;
-                    clip: true;
-                    background: Theme.field;
-                    label := Text {
-                        text: output-combo.current-value;
-                        width: label.preferred-width;
-                        x: label.preferred-width > parent.width
-                            ? -min(label.preferred-width - parent.width, 260px)
-                            : 0px;
-                        y: 0px;
-                        height: 100%;
-                        color: Theme.text;
-                        font-size: 12px;
-                        vertical-alignment: center;
-                        animate x {
-                            duration: 5000ms;
-                            delay: 700ms;
-                            easing: ease-in-out;
-                            iteration-count: 1000000;
-                            direction: alternate;
-                        }
-                    }
+                model: root.outputs;
+                current-index <=> root.output-index;
+                enabled: !root.route-running;
+                selected(value) => {
+                    root.output-changed(root.output-index);
                 }
             }
         }

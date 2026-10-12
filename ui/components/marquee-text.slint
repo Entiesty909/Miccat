@@ -1,0 +1,83 @@
+//! 仅在文字溢出且宿主报告悬停时缓慢滚动的可复用文字视口。
+
+import { Theme } from "../theme.slint";
+
+export component MarqueeText inherits Rectangle {
+    in property <string> text: "";
+    in property <color> text-color: Theme.text;
+    in property <length> font-size: 12px;
+    in property <int> font-weight: 400;
+    in property <string> font-family: "Segoe UI";
+    in property <bool> hovered: false;
+
+    property <length> offset: 0px;
+    property <length> step: 1.2px;
+    property <bool> moving-forward: true;
+    property <int> pause-ticks: 0;
+    property <length> maximum-offset: max(
+        0px,
+        label.preferred-width - root.width
+    );
+
+    width: 100%;
+    min-width: 0px;
+    background: transparent;
+    clip: true;
+
+    function reset-scroll() {
+        root.offset = 0px;
+        root.moving-forward = true;
+        root.pause-ticks = 12;
+    }
+
+    label := Text {
+        x: -root.offset;
+        y: 0px;
+        width: label.preferred-width;
+        height: 100%;
+        text: root.text;
+        color: root.text-color;
+        font-size: root.font-size;
+        font-weight: root.font-weight;
+        font-family: root.font-family;
+        horizontal-alignment: left;
+        vertical-alignment: center;
+        overflow: clip;
+        wrap: no-wrap;
+    }
+
+    Timer {
+        interval: 33ms;
+        running: root.hovered && root.maximum-offset > 0px;
+
+        triggered() => {
+            if root.pause-ticks > 0 {
+                root.pause-ticks -= 1;
+            } else if root.moving-forward {
+                if root.offset + root.step >= root.maximum-offset {
+                    root.offset = root.maximum-offset;
+                    root.moving-forward = false;
+                    root.pause-ticks = 18;
+                } else {
+                    root.offset += root.step;
+                }
+            } else if root.offset <= root.step {
+                root.offset = 0px;
+                root.moving-forward = true;
+                root.pause-ticks = 12;
+            } else {
+                root.offset -= root.step;
+            }
+        }
+    }
+
+    changed hovered => {
+        root.reset-scroll();
+    }
+    changed text => {
+        root.reset-scroll();
+    }
+    changed width => {
+        root.reset-scroll();
+    }
+}

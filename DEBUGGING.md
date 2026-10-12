@@ -85,6 +85,8 @@ Live Preview 只保留属性、模型和回调；改变 Rust 代码直接使用�
 - 菜单不消失或位置不对：检查 `ui/overlays/context-menu.slint` 遮罩、坐标钳制和页面上报；
   分类菜单常态 132 px、重命名编辑态 182 px、条目菜单 292 px。
 - 页面渲染：`--snapshot-ui --page route|player|settings --out <file>`；菜单参数仅支持 player 页面。
+- 跑马灯下拉：主页源卡片与添加进程对话框使用 `MarqueeComboBox`；检查 `ListView` 选项上的 `TouchArea.has-hover`、`Text.preferred-width` 和 `MarqueeText` Timer。关闭弹窗后选项子树应销毁，计时器停止。
+- 长文本不滚动：先确认实测显示宽度大于选项视口，且鼠标确实悬停在该选项；短文本保持静止。
 - 路由和设置页刷新共用异步列表刷新：worker 枚举进程/物理麦/输出设备，`status.rs` 在 UI 线程应用整组结果。
 - 麦克风下拉变更通过 `mic-mix-changed` 保存当前 ID；选“不混入”时混麦自动关闭。
 - 文件源更多按钮用播放文件路径映射当前筛选/分页；若目标不可见，不应改为对其他选中条目操作。

@@ -2,6 +2,7 @@
 
 import { CheckBox, ComboBox } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
+import { MarqueeComboBox } from "marquee-combo-box.slint";
 import { PmButton } from "button.slint";
 
 export component AddSourceDialog inherits Rectangle {
@@ -53,7 +54,7 @@ export component AddSourceDialog inherits Rectangle {
             }
             HorizontalLayout {
                 spacing: 8px;
-                ComboBox {
+                MarqueeComboBox {
                     horizontal-stretch: 1;
                     model: root.processes;
                     current-index <=> root.process-index;

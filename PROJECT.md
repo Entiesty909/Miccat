@@ -47,6 +47,8 @@ Miccat 是 Windows 桌面进程音频路由器：以 WASAPI Process Loopback 捕
 ## 当前重构状态
 
 S1–S6 重构阶段均有历史记录。最近变更：
+- [`docs/step-63-marquee-toggle-selection.md`](docs/step-63-marquee-toggle-selection.md)：增加跑马灯总开关，并让蓝色指示条只标记实际选中项。
+- [`docs/step-62-marquee-dropdown.md`](docs/step-62-marquee-dropdown.md)：封装跑马灯文字/下拉列表并接入路由首页与进程选择。
 - [`docs/step-61-live-preview.md`](docs/step-61-live-preview.md)：Slint 1.18 官方 Live Preview 与开发脚本，验证窗口进程内重载。
 - [`docs/step-52-route-source-actions.md`](docs/step-52-route-source-actions.md)：源卡片状态保留、紧凑音量布局、源操作菜单与单独转发。
 - [`docs/step-53-route-card-layout.md`](docs/step-53-route-card-layout.md)：路由源卡片统一布局、真实麦克风下拉、右侧菜单和底部音量控制组。

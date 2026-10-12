@@ -18,6 +18,9 @@
 `ui/components/category-sidebar.slint`：真实 `/` 分类路径、拖拽排序、右键操作。
 `ui/pages/settings.slint`：常规/音频设备/快捷键/VB-CABLE/关于导航；设备、默认角色、热键与安装操作走现有 bridge 回调。
 `ui/components/*.slint`：只复用无领域权威控件；图标使用 Windows `Segoe MDL2 Assets`，不新增依赖或图片包。
+
+`ui/components/marquee-text.slint`：按 Slint `Text.preferred-width` 测量单行文本，裁剪视口；只在溢出文字悬停时启动计时滚动，离开复位。
+`ui/components/marquee-combo-box.slint`：复用字符串模型与 `current-index` 的下拉框；选项列表由 `PopupWindow` / 虚拟化 `ListView` 承载。
 `ui/theme.slint`：统一颜色、圆角、间距、控件尺寸与状态色。
 
 Rust 桥接：
@@ -64,8 +67,22 @@ Rust 桥接：
   绑定按 id 分区：`1..=4` 内置动作，`1000 + 条目下标` 为条目；`WM_HOTKEY` 的 `wParam` 即 id。
 - 冲突检测三层：自家 `(mods, vk)` 全等比较、外部占用（`RegisterHotKey` 失败经
   `take_failures()` 回报 UI）、无修饰键单键拒绝（会吞掉正常输入）。
-
 - 音频条目旧字段 `hotkey`（前台单键，仅在窗口获焦时触发）仍保留；新绑定优先显示。
+
+
+### 路由跑马灯下拉
+
+- 路由源卡片的输出设备、物理麦克风下拉，以及“添加音频源”对话框的进程下拉使用 `MarqueeComboBox`；对话框中的麦克风下拉和音频库/设置页的其他下拉维持标准 `ComboBox`。
+- 菜单选项复用 `MarqueeText`，用实际 `preferred-width` 判断溢出；只激活鼠标所在选项的计时器。移开鼠标回到起点，文字末端短暂停留后往返循环。
+- `PopupWindow.is-open` 控制选项列表子树；关闭菜单后列表行与其计时器立即销毁。`ListView` 只实例化可见选项。
+- `MarqueeComboBox.marquee-enabled` 是可绑定的跑马灯总开关，默认 `true`；设为 `false` 时已选值和展开选项均停止跑马灯并以省略方式显示。
+- 蓝色左侧指示条只绑定 `current-index` 所指向的实际已选项；鼠标悬停只改变悬停底色，不会移动选中指示条。
+- `marquee-enabled=false` 时，闭合值和选项使用普通 `Text`，不创建 `MarqueeText` Timer；闭合文字视口固定约 `82%`，为右侧箭头保留安全区域。
+- 当前索引仍 two-way 绑定到原属性；进程选择仍由 `process-index` 映射到缓存 PID，再触发原 `process-add` 回调。
+
+### 下拉框视觉决策
+
+本轮选择“保留标准 `ComboBox`，让 `MarqueeComboBox` 复刻其视觉结构”，不把所有下拉框强行替换为新控件。这样保留标准控件的成熟行为，同时避免同页出现明显割裂：同样的白色字段底、细边框、圆角、下拉箭头、悬停/按下底色和弹出列表内边距。已选项在重开列表时使用标准控件同类的浅灰选中底色；这属于样式统一，不另加独立的特殊交互。
 
 ### 开发期 Live Preview
 

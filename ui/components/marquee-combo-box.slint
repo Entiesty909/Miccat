@@ -1,0 +1,328 @@
+//! 使用虚拟化列表呈现选项，并只在打开时创建弹出列表。
+
+import { ListView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { MarqueeText } from "marquee-text.slint";
+
+export component MarqueeComboBox inherits FocusScope {
+    in property <[string]> model: [];
+    in-out property <int> current-index: 0;
+    in property <bool> marquee-enabled: true;
+    callback selected(string);
+
+    out property <string> current-value:
+        root.current-index >= 0
+        && root.current-index < root.model.length
+        ? root.model[root.current-index]
+        : "";
+
+    out property <bool> popup-open: popup.is-open;
+    property <int> highlighted-index: 0;
+    in-out property <length> popup-scroll-y: 0px;
+    property <length> row-height: 32px;
+    property <int> visible-item-count: min(6, root.model.length);
+    property <length> popup-height: root.visible-item-count * root.row-height + 8px;
+
+    width: 100%;
+    height: Theme.controlHeight;
+    min-width: 0px;
+    horizontal-stretch: 1;
+    accessible-role: combobox;
+    accessible-enabled: root.enabled;
+    accessible-expandable: true;
+    accessible-expanded: root.popup-open;
+    accessible-value: root.current-value;
+    accessible-action-expand => { root.toggle-popup(); }
+
+    function clamp-index(index: int) -> int {
+        if root.model.length == 0 {
+            return 0;
+        }
+        return min(max(index, 0), root.model.length - 1);
+    }
+
+    function reset-scroll() {
+        root.popup-scroll-y = -max(
+            0,
+            root.highlighted-index - root.visible-item-count + 1
+        ) * root.row-height;
+    }
+
+    function open-popup() {
+        if root.enabled && root.model.length > 0 {
+            root.highlighted-index = root.clamp-index(root.current-index);
+            root.reset-scroll();
+            popup.show();
+        }
+    }
+
+    function toggle-popup() {
+        if root.popup-open {
+            popup.close();
+        } else {
+            root.open-popup();
+        }
+    }
+
+    function scroll-highlight-into-view() {
+        let item-top = root.highlighted-index * root.row-height;
+        let visible-top = -root.popup-scroll-y;
+        if item-top < visible-top {
+            root.popup-scroll-y = -item-top;
+        } else if item-top + root.row-height > visible-top + root.popup-height {
+            root.popup-scroll-y = -(
+                item-top + root.row-height - root.popup-height
+            );
+        }
+    }
+
+    function move-highlight(delta: int) {
+        root.highlighted-index = root.clamp-index(
+            root.highlighted-index + delta
+        );
+        root.scroll-highlight-into-view();
+    }
+
+    function choose(index: int) {
+        if index >= 0 && index < root.model.length {
+            root.current-index = index;
+            root.selected(root.model[index]);
+        }
+        popup.close();
+    }
+
+    changed current-index => {
+        root.highlighted-index = root.clamp-index(root.current-index);
+    }
+    changed model => {
+        if root.model.length == 0 {
+            popup.close();
+        } else {
+            root.highlighted-index = root.clamp-index(root.current-index);
+            root.reset-scroll();
+        }
+    }
+    changed enabled => {
+        if !root.enabled {
+            popup.close();
+        }
+    }
+
+    key-pressed(event) => {
+        if root.enabled
+            && !root.popup-open
+            && (event.text == Key.DownArrow
+                || event.text == Key.UpArrow
+                || event.text == Key.Return
+                || event.text == Key.Space) {
+            root.open-popup();
+            accept
+        } else {
+            reject
+        }
+    }
+
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        border-radius: 3px;
+        border-width: 1px;
+        border-color: Theme.borderStrong;
+        background: trigger.pressed
+            ? Theme.accentPressed
+            : (trigger.has-hover ? Theme.playingSoft : Theme.field);
+        opacity: root.enabled ? 1 : 0.45;
+
+        value-viewport := Rectangle {
+            x: 10px;
+            y: 1px;
+            width: 82%;
+            height: parent.height - 2px;
+            clip: true;
+            background: transparent;
+
+            if root.marquee-enabled: selected-value := Text {
+                x: -(root.marquee-enabled
+                    && trigger.has-hover
+                    && selected-value.preferred-width > parent.width
+                    ? min(
+                        selected-value.preferred-width - parent.width,
+                        260px
+                    )
+                    : 0px);
+                y: 0px;
+                width: selected-value.preferred-width;
+                height: parent.height;
+                text: root.current-value;
+                color: Theme.text;
+                font-size: 12px;
+                vertical-alignment: center;
+                overflow: clip;
+                wrap: no-wrap;
+                animate x {
+                    duration: 5000ms;
+                    delay: 700ms;
+                    easing: ease-in-out;
+                    iteration-count: -1;
+                    direction: alternate;
+                    enabled: root.marquee-enabled
+                        && trigger.has-hover
+                        && selected-value.preferred-width > parent.width;
+                }
+            }
+            if !root.marquee-enabled: Text {
+                width: 100%;
+                height: 100%;
+                text: root.current-value;
+                color: Theme.text;
+                font-size: 12px;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+
+        Text {
+            x: parent.width - 27px;
+            width: 18px;
+            height: 100%;
+            text: "\u{E70D}";
+            font-family: "Segoe MDL2 Assets";
+            font-size: 12px;
+            color: Theme.text2;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+
+    trigger := TouchArea {
+        width: 100%;
+        height: 100%;
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.toggle-popup(); }
+    }
+
+    popup := PopupWindow {
+        x: 0px;
+        y: -4px;
+        width: root.width;
+        height: root.popup-height;
+        close-policy: close-on-click-outside;
+
+        if root.popup-open: popup_focus := FocusScope {
+            width: 100%;
+            height: 100%;
+            init => { self.focus(); }
+
+            key-pressed(event) => {
+                if event.text == Key.DownArrow {
+                    root.move-highlight(1);
+                    accept
+                } else if event.text == Key.UpArrow {
+                    root.move-highlight(-1);
+                    accept
+                } else if event.text == Key.Home {
+                    root.highlighted-index = 0;
+                    root.scroll-highlight-into-view();
+                    accept
+                } else if event.text == Key.End {
+                    root.highlighted-index = root.model.length - 1;
+                    root.scroll-highlight-into-view();
+                    accept
+                } else if event.text == Key.Return
+                    || event.text == Key.Space {
+                    root.choose(root.highlighted-index);
+                    accept
+                } else if event.text == Key.Escape {
+                    popup.close();
+                    accept
+                } else {
+                    reject
+                }
+            }
+
+            Rectangle {
+                width: 100%;
+                height: 100%;
+                background: #F8F8F8;
+                border-width: 1px;
+                border-color: #D0D0D0;
+                border-radius: 7px;
+                drop-shadow-blur: 16px;
+                drop-shadow-offset-y: 8px;
+                drop-shadow-color: #40000000;
+
+                ListView {
+                    x: 4px;
+                    y: 4px;
+                    width: parent.width - 8px;
+                    height: parent.height - 8px;
+                    content-y <=> root.popup-scroll-y;
+                    vertical-scrollbar-policy: as-needed;
+
+                    for item[index] in root.model: Rectangle {
+                        x: 3px;
+                        width: parent.width - 6px;
+                        height: root.row-height;
+
+                        item-background := Rectangle {
+                            y: 2px;
+                            width: parent.width;
+                            height: parent.height - 4px;
+                            border-radius: 4px;
+                            background: item-area.has-hover
+                                ? #F2F2F2
+                                : (root.current-index == index
+                                    || root.highlighted-index == index
+                                    ? #E8E8E8
+                                    : transparent);
+
+                            selector := Rectangle {
+                                x: 0px;
+                                y: (parent.height - self.height) / 2;
+                                width: 3px;
+                                height: root.current-index == index ? 16px : 0px;
+                                background: Theme.accent;
+                                border-radius: 2px;
+                            }
+
+                            if root.marquee-enabled: MarqueeText {
+                                x: 16px;
+                                y: 0px;
+                                width: max(0px, parent.width - 20px);
+                                height: parent.height;
+                                text: item;
+                                text-color: Theme.text;
+                                font-size: 12px;
+                                hovered: item-area.has-hover;
+                            }
+                            if !root.marquee-enabled: Text {
+                                x: 16px;
+                                y: 0px;
+                                width: max(0px, parent.width - 20px);
+                                height: parent.height;
+                                text: item;
+                                color: Theme.text;
+                                font-size: 12px;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                        }
+
+                        item-area := TouchArea {
+                            width: 100%;
+                            height: 100%;
+                            mouse-cursor: pointer;
+                            clicked => { root.choose(index); }
+                            changed has-hover => {
+                                if self.has-hover {
+                                    root.highlighted-index = index;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
