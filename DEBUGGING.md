@@ -38,10 +38,16 @@ target\debug\mintcat-proc-mic.exe --snapshot-ui --page settings --section 5 --ou
 
 ## 1. 通用顺序
 
-1. `scripts\build-dev.cmd build` 拿编译反馈（Slint 语法错误只在编译期暴露）。
+1. 普通 `scripts\build-dev.cmd build` 的 Slint 错误在构建期报告；Live Preview 模式下语法错误由运行时 reload 检测，旧界面保持显示。
 2. 用 CLI 把问题从 UI 里剥出来：`--list-processes` / `--list-devices` /
    `--capture <pid> [--wav out.wav] [--seconds N]` / `--route <pid> --device <id> [--seconds N]`。
 3. 在能复现的最小路径上改；改完按 `AGENTS.md` 第 5 节真跑一遍（截图 / CLI 输出 / WAV 比对）。
+
+## Slint Live Preview 开发
+
+从仓库根运行 `./dev.ps1`。脚本设置 `SLINT_LIVE_PREVIEW=1` 并执行 `cargo build --features slint/live-preview`；首次会完整编译。保存 `.slint` 后由当前进程实时 reload，不触发监听器的 Rust 重编译。改 `.rs`、`build.rs` 或 `Cargo.toml` 会重新构建并重启。
+
+Live Preview 只保留属性、模型和回调；改变 Rust 代码直接使用的 Slint 属性或回调 API 后可能退出，需要重新编译/启动。语法错误时前一版界面保持显示。正式版本使用 `scripts\build-release.cmd`，该命令不添加 Live Preview feature。
 
 ---
 

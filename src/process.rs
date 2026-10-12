@@ -36,14 +36,13 @@ pub struct ProcessInfo {
 }
 
 impl ProcessInfo {
-    /// ComboBox 显示文本。正在出声的加标记。
+    /// ComboBox 显示进程名、PID 和可选窗口标题。
     pub fn label(&self) -> String {
-        let mark = if self.sounding { "出声 · " } else { "" };
         match &self.title {
             Some(title) if !title.is_empty() => {
-                format!("{mark}{}  [{}]  {}", self.name, self.pid, title)
+                format!("{}  [{}]  {}", self.name, self.pid, title)
             }
-            _ => format!("{mark}{}  [{}]", self.name, self.pid),
+            _ => format!("{}  [{}]", self.name, self.pid),
         }
     }
 }
@@ -253,4 +252,33 @@ unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL 
 fn wchar_to_string(buf: &[u16]) -> String {
     let end = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
     String::from_utf16_lossy(&buf[..end])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ProcessInfo;
+
+    #[test]
+    fn label_does_not_mark_sounding_processes() {
+        let process = ProcessInfo {
+            pid: 42,
+            name: "player.exe".into(),
+            title: Some("窗口标题".into()),
+            sounding: true,
+        };
+
+        assert_eq!(process.label(), "player.exe  [42]  窗口标题");
+    }
+
+    #[test]
+    fn label_shows_name_and_pid_without_a_window_title() {
+        let process = ProcessInfo {
+            pid: 42,
+            name: "player.exe".into(),
+            title: None,
+            sounding: false,
+        };
+
+        assert_eq!(process.label(), "player.exe  [42]");
+    }
 }

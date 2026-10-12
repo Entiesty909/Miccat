@@ -1,12 +1,10 @@
 ﻿<#
-开发循环：改代码 -> 自动重新编译 -> 自动重启。
+Slint Live Preview 开发循环：.slint 保存后由运行进程自动重载；Rust 改动重编并重启。
 
 用法：
-    scripts\dev.cmd                 # debug 构建，编译成功后启动程序
-    scripts\dev.cmd -Release        # release 构建
-    scripts\dev.cmd -NoRun          # 只监听并编译，不启动程序
-
-说明：Rust 没有真正的热重载，这里用轮询 + 重编 + 重启逼近 npm run dev 的体验。
+    .\dev.ps1                 # debug + 进程内 Slint 热更新
+    scripts\dev.cmd -Release  # release 构建并监听 Rust 改动，不启用热更新
+    scripts\dev.cmd -NoRun    # 只监听并编译
 #>
 [CmdletBinding()]
 param(
@@ -19,11 +17,11 @@ $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path.TrimEnd('\')
 $buildProfile = if ($Release) { 'release' } else { 'debug' }
 $exePath = Join-Path $root "target\$buildProfile\mintcat-proc-mic.exe"
 
-# 监听目标：仓库根下的这些路径。
-$watchPaths = @('src', 'ui', 'build.rs', 'Cargo.toml') | ForEach-Object { Join-Path $root $_ }
+# Slint 文件由进程内 Live Preview 监听，不触发 Cargo 重编译。
+$watchPaths = @('src', 'build.rs', 'Cargo.toml', 'Cargo.lock') | ForEach-Object { Join-Path $root $_ }
 # 产物目录与第三方目录不参与监听。
 $excludeDirs = @('target', 'target-ui', '.git', 'node_modules')
-$extensions = @('.rs', '.slint', '.toml')
+$extensions = @('.rs', '.toml', '.lock')
 $pollIntervalMs = 500
 
 function Get-WatchStamp {
@@ -61,7 +59,13 @@ function Start-Build {
     Start-Sleep -Milliseconds 300
 
     $arguments = @('build')
-    if ($Release) { $arguments += '--release' }
+    if ($Release) {
+        $arguments += '--release'
+        Remove-Item Env:SLINT_LIVE_PREVIEW -ErrorAction SilentlyContinue
+    } else {
+        $env:SLINT_LIVE_PREVIEW = '1'
+        $arguments += @('--features', 'slint/live-preview')
+    }
     & (Join-Path $PSScriptRoot 'build-dev.cmd') @arguments
     if ($LASTEXITCODE -ne 0) {
         Write-Host "[$(Get-Date -Format 'HH:mm:ss')] 编译失败，等待下次改动"
@@ -79,17 +83,20 @@ function Start-Build {
     Write-Host "[$(Get-Date -Format 'HH:mm:ss')] 编译成功，已启动"
 }
 
-Write-Host '开发循环：改代码 -> 自动重编 -> 自动重启'
-Write-Host "构建配置：$buildProfile"
+if ($Release) {
+    Write-Host '模式：Release（禁用 Slint Live Preview）'
+} else {
+    Write-Host '模式：Debug + Slint Live Preview'
+}
 if ($NoRun) { Write-Host '模式：-NoRun（只编译，不启动程序）' }
-Write-Host '监听目录（递归，.rs / .slint / .toml）：'
+Write-Host '监听目录（递归，.rs / .toml）；.slint 由运行中的 Slint interpreter 自动重载。'
 foreach ($watchPath in $watchPaths) { Write-Host "  $watchPath" }
 Write-Host '按 Ctrl+C 退出。'
 
 $lastStamp = Get-WatchStamp
 if ($lastStamp -eq [datetime]::MinValue) { $lastStamp = (Get-Date).ToUniversalTime() }
 
-Start-Build -Message '首次编译…'
+Start-Build -Message '首次编译（Slint Live Preview）…'
 
 while ($true) {
     Start-Sleep -Milliseconds $pollIntervalMs

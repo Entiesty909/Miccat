@@ -206,7 +206,7 @@ COM 失败映射为上述类型。
 | `serde` / `serde_json` | AppConfig 本地 JSON 存储与迁移 | 手写序列化易错 | 小 | **已使用** |
 | `clap` / `tokio` / `cpal` / `rodio` / 其他大型音频框架 | 无必要 | 标准库 / Win32 已覆盖 | 避免新增 | **不要** |
 
-Slint features（目标最小）：`std`、`backend-winit`、`renderer-software`、`compat-1-2`。不用 femtovg/skia/qt。
+Slint 1.18 features（正式构建）：`std`、`backend-winit`、`renderer-software`、`compat-1-18`。开发命令可额外启用官方 `live-preview` feature 和构建环境变量；发布不启用。
 
 Release profile：
 

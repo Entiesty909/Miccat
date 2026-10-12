@@ -60,7 +60,17 @@ Rust 桥接：
   绑定按 id 分区：`1..=4` 内置动作，`1000 + 条目下标` 为条目；`WM_HOTKEY` 的 `wParam` 即 id。
 - 冲突检测三层：自家 `(mods, vk)` 全等比较、外部占用（`RegisterHotKey` 失败经
   `take_failures()` 回报 UI）、无修饰键单键拒绝（会吞掉正常输入）。
+
 - 音频条目旧字段 `hotkey`（前台单键，仅在窗口获焦时触发）仍保留；新绑定优先显示。
+
+### 开发期 Live Preview
+
+`dev.ps1` 默认使用 Slint 1.18 的官方 Live Preview：以 `--features slint/live-preview` 构建并设置编译环境变量 `SLINT_LIVE_PREVIEW=1`。Slint interpreter 在运行时监听 `.slint` 源文件，修改界面后保留进程、属性、模型与回调；修改 Slint 与 Rust 交互的属性/回调签名时仍须重编并重启。
+
+Live Preview 是开发专用功能，不写入 `Cargo.toml` 默认 features。正式 `scripts\build-release.cmd` 不启用此 feature。`dev.ps1` 不监视 `.slint` 文件做 Cargo 重建；仅 Rust/build/Cargo 文件改变时重新构建和重启。
+
+`SLINT_LIVE_PREVIEW=1` 必须在构建时设置，工作目录保持仓库根目录以便运行进程读取 `ui/` 下的源文件。
+
 
 ## 4. 音频库语义
 

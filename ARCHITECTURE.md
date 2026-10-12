@@ -5,8 +5,9 @@
 ProcessMic 是 Windows 本地桌面程序：以 WASAPI Process Loopback 捕获指定进程，混音后送入 render 设备。
 本地音频库支持 SFX 路由和本机试听。
 
-技术栈：Rust 2024 单 crate、Slint、windows-rs 0.62、WASAPI、Media Foundation、Serde JSON 和 tracing。
+技术栈：Rust 2024 单 crate、Slint 1.18、windows-rs 0.62、WASAPI、Media Foundation、Serde JSON 和 tracing。
 没有 Web 服务、HTTP API、数据库、网络账户或异步运行时。
+`slint/live-preview` 仅由 `dev.ps1` 在开发构建时通过命令行启用；发布构建不包含该 feature。
 
 ## 目录职责
 

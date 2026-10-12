@@ -31,23 +31,23 @@ ProcessMic 是 Windows 桌面进程音频路由器：以 WASAPI Process Loopback
 
 ## 构建与冒烟
 
-```bat
-scripts\check.cmd
-scripts\smoke.cmd
-scripts\build-dev.cmd test
-scripts\dev.cmd
-scripts\build-debug.cmd
-scripts\build-release.cmd
+```powershell
+.\scripts\check.cmd
+.\scripts\smoke.cmd
+.\scripts\build-dev.cmd test
+.\dev.ps1
+.\scripts\build-debug.cmd
+.\scripts\build-release.cmd
 ```
 
 `check.cmd` 包含格式、严格 Clippy、构建与行数门禁；`smoke.cmd` 枚举设备/进程，生成默认 UI 和条目菜单快照，并模拟空树右键且断言菜单打开。
-`dev.cmd` 监听 `src`/`ui`/`Cargo.toml` 改动，自动重编并重启（`-Release`、`-NoRun` 可选）；
-`build-debug.cmd` / `build-release.cmd` 分别产出 debug 与 release 的 exe 并打印路径。
-真实设备声音与物理鼠标仍需人工验收。
+`dev.ps1` 默认启用 Slint Live Preview：`.slint` 文件由运行中的进程重载，Rust 改动仍会重编并重启；`scripts\dev.cmd -Release` 禁用开发热更新。
+`build-debug.cmd` / `build-release.cmd` 分别产出 debug 与 release 的 exe 并打印路径。真实设备声音与物理鼠标仍需人工验收。
 
 ## 当前重构状态
 
 S1–S6 重构阶段均有历史记录。最近变更：
+- [`docs/step-61-live-preview.md`](docs/step-61-live-preview.md)：Slint 1.18 官方 Live Preview 与开发脚本，验证窗口进程内重载。
 - [`docs/step-52-route-source-actions.md`](docs/step-52-route-source-actions.md)：源卡片状态保留、紧凑音量布局、源操作菜单与单独转发。
 - [`docs/step-50-home-layout-playback-hotkeys.md`](docs/step-50-home-layout-playback-hotkeys.md)：主页排版/卡片交互、播放暂停语义、右键菜单现代化、全局多热键与冲突检测。
 - [`docs/step-49-user-feedback-fixes.md`](docs/step-49-user-feedback-fixes.md)：八项用户反馈修复（开发脚本、0x8889000A 根因、实时切换、输出下拉、列表点击）。

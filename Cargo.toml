@@ -7,8 +7,8 @@ description = "Lightweight Windows process audio router"
 publish = false
 
 [dependencies]
-# Slint 1.18 会把 windows 拉到 0.62；必须对齐，否则 implement 宏和 IUnknownImpl 版本分裂。
-slint = { version = "1.11", default-features = false, features = ["std", "compat-1-2", "backend-winit", "renderer-software"] }
+# Slint 1.18 与 windows-rs 0.62 对齐，避免 COM 接口类型跨版本。
+slint = { version = "~1.18", default-features = false, features = ["std", "compat-1-18", "backend-winit", "renderer-software"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "std", "ansi", "registry"] }
 serde = { version = "1", features = ["derive"] }
@@ -42,7 +42,7 @@ windows = { version = "0.62.2", features = [
 windows-core = "0.62.2"
 
 [build-dependencies]
-slint-build = "1.11"
+slint-build = "~1.18"
 
 [profile.release]
 opt-level = 3
