@@ -4,7 +4,7 @@ setlocal
 call "%~dp0build-dev.cmd" build --release
 if errorlevel 1 exit /b 1
 
-set "EXE=%~dp0..\target\release\mintcat-proc-mic.exe"
+set "EXE=%~dp0..\target\release\miccat.exe"
 for %%I in ("%EXE%") do set "EXE=%%~fI"
 if not exist "%EXE%" (
     echo [error] binary not found: %EXE%

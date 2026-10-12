@@ -142,6 +142,9 @@ pub struct AudioEntry {
     pub name: String,
     /// 文件路径。
     pub path: String,
+    /// 可选的自定义 Windows 图标路径；为空时使用音频文件关联图标。
+    #[serde(default)]
+    pub icon_path: Option<String>,
     /// 所属分类路径；使用 `/` 分隔父分类和子分类。
     #[serde(default = "default_category")]
     pub category: String,

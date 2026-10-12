@@ -14,8 +14,9 @@ param(
 
 $ErrorActionPreference = 'Continue'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path.TrimEnd('\')
+Set-Location -LiteralPath $root
 $buildProfile = if ($Release) { 'release' } else { 'debug' }
-$exePath = Join-Path $root "target\$buildProfile\mintcat-proc-mic.exe"
+$exePath = Join-Path $root "target\$buildProfile\miccat.exe"
 
 # Slint 文件由进程内 Live Preview 监听，不触发 Cargo 重编译。
 $watchPaths = @('src', 'build.rs', 'Cargo.toml', 'Cargo.lock') | ForEach-Object { Join-Path $root $_ }
@@ -54,7 +55,7 @@ function Start-Build {
 
     Write-Host "[$(Get-Date -Format 'HH:mm:ss')] $Message"
     # 先结束正在运行的程序：否则 cargo 覆盖 exe 时报「拒绝访问 os error 5」。
-    Stop-Process -Name 'mintcat-proc-mic' -Force -ErrorAction SilentlyContinue
+    Stop-Process -Name 'miccat' -Force -ErrorAction SilentlyContinue
     # 等一会儿，确保文件句柄已经释放。
     Start-Sleep -Milliseconds 300
 

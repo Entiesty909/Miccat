@@ -11,7 +11,7 @@ import { PageHost } from "components/page-host.slint";
 export { DiagState, HotkeyState }
 
 export component MainWindow inherits Window {
-    title: "ProcessMic";
+    title: "Miccat";
     min-width: 900px;
     min-height: 600px;
     preferred-width: 1280px;
@@ -30,6 +30,7 @@ export component MainWindow inherits Window {
     in-out property <bool> mix-mic: false;
     in-out property <[int]> source-kinds: [];
     in-out property <[string]> source-icons: [];
+    in-out property <[image]> source-icon-images: [];
     in-out property <[string]> source-titles: [];
     in-out property <[string]> source-subtitles: [];
     in-out property <[string]> source-details: [];
@@ -179,8 +180,6 @@ export component MainWindow inherits Window {
         VerticalLayout {
             AppHeader {
                 current <=> root.page;
-                status-text: root.status-text;
-                status-kind: root.status-kind;
                 picked(i) => {
                     root.page = i;
                     root.audio-category-menu-open = false;
@@ -198,6 +197,7 @@ export component MainWindow inherits Window {
                 process-index <=> root.process-index;
                 source-kinds <=> root.source-kinds;
                 source-icons <=> root.source-icons;
+                source-icon-images <=> root.source-icon-images;
                 source-titles <=> root.source-titles;
                 source-subtitles <=> root.source-subtitles;
                 source-details <=> root.source-details;

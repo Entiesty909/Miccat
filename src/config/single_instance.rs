@@ -19,7 +19,7 @@ impl Drop for SingleInstance {
 
 /// 获取命名互斥体；返回 None 表示已有实例。
 pub(crate) fn acquire_single_instance() -> Result<Option<SingleInstance>, windows::core::Error> {
-    let handle = unsafe { CreateMutexW(None, true, w!("Local\\ProcessMic.SingleInstance"))? };
+    let handle = unsafe { CreateMutexW(None, true, w!("Local\\Miccat.SingleInstance"))? };
     if unsafe { windows::Win32::Foundation::GetLastError() } == ERROR_ALREADY_EXISTS {
         unsafe {
             let _ = CloseHandle(handle);

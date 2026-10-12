@@ -61,7 +61,7 @@ bridge 以分类、大小写不敏感名称筛选、名称排序和每页 20 条
 
 ## 配置与错误
 
-`config::load()` / `config::save()` 操作 `%APPDATA%\ProcessMic\config.json`。
+`config::load()` / `config::save()` 操作 `%APPDATA%\\Miccat\\config.json`。
 保存失败只记 tracing；UI 修改经 `SaveQueue` 防抖，并在退出时 flush。
 
 `Error::user_message()` 返回 UI 短句；底层 HRESULT/IO 原因通过 `Display` 和 tracing 记录。

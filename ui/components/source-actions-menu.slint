@@ -1,4 +1,4 @@
-//! 路由源更多操作菜单：只提供与当前源类型相关的动作。
+//! 路由源更多操作菜单：提供当前源类型可用的操作。
 
 import { Theme } from "../theme.slint";
 import { MenuItem } from "menu-item.slint";
@@ -9,7 +9,7 @@ export component SourceActionsMenu inherits Rectangle {
     callback closed();
 
     width: 230px;
-    height: root.kind == 1 ? 206px : 126px;
+    height: root.kind == 1 ? 158px : 96px;
     background: Theme.card;
     border-width: 1px;
     border-color: Theme.borderStrong;
@@ -28,21 +28,17 @@ export component SourceActionsMenu inherits Rectangle {
             font-size: 11px;
             vertical-alignment: TextVerticalAlignment.center;
         }
-        if root.kind == 1: MenuItem {
-            label: "设置快捷键";
-            clicked => { root.action(1); }
-        }
-        if root.kind != 1: MenuItem {
-            label: "单独转发";
+        MenuItem {
+            label: "单独转发此源";
             clicked => { root.action(2); }
         }
         if root.kind == 1: MenuItem {
             label: "在音频库中定位";
             clicked => { root.action(3); }
         }
-        if root.kind != 1: MenuItem {
-            label: "设置快捷键（仅音频文件）";
-            enabled: false;
+        if root.kind == 1: MenuItem {
+            label: "设置快捷键";
+            clicked => { root.action(1); }
         }
         MenuItem {
             label: "删除此源";

@@ -10,6 +10,7 @@ export component SourceRow inherits Rectangle {
     in property <int> kind: 0;
     in property <int> row-index: 0;
     in property <string> icon: "";
+    in property <image> icon-image;
     in property <string> title: "";
     in property <string> subtitle: "";
     in property <string> detail: "";
@@ -33,147 +34,223 @@ export component SourceRow inherits Rectangle {
     callback output-changed(int);
     callback mic-selection-changed();
     callback action(int);
+    callback actions-requested();
+    callback actions-closed();
     callback pause();
     callback stop();
-    in-out property <bool> actions-open: false;
+    in property <bool> actions-open: false;
 
-    // 麦克风行保留下拉框；其余行只展示标题，避免多余文本撑高卡片。
-    height: root.kind == 2 ? 158px : 108px;
+    height: 112px;
     width: 100%;
     background: Theme.card;
     border-radius: Theme.radiusCard;
-    border-width: 1px;
-    border-color: root.active ? Theme.accent : Theme.border;
+    border-width: root.active ? 2px : 1px;
+    border-color: root.active ? Theme.accent : Theme.borderStrong;
+
+    Rectangle {
+        x: 16px;
+        y: (root.height - self.height) / 2;
+        width: 56px;
+        height: 56px;
+        border-radius: 12px;
+        background: root.kind == 0
+            ? Theme.accentSoft
+            : (root.kind == 1 ? #EEE9FF : #DDF6F0);
+        Text {
+            text: root.icon;
+            font-family: "Segoe MDL2 Assets";
+            color: root.kind == 2 ? #188E7A : Theme.accent;
+            font-size: 28px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+        Image {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: 36px;
+            height: 36px;
+            image-fit: contain;
+            source: root.icon-image;
+        }
+    }
 
     HorizontalLayout {
         padding-left: 16px;
         padding-right: 16px;
         spacing: 14px;
-        Text {
-            text: "\u{E8A7}";
-            font-family: "Segoe MDL2 Assets";
-            color: Theme.text3;
-            font-size: 18px;
-            width: 18px;
-            vertical-alignment: TextVerticalAlignment.center;
-        }
+
         Rectangle {
             width: 56px;
-            height: 56px;
-            border-radius: 12px;
-            background: root.kind == 0
-                ? Theme.accentSoft
-                : (root.kind == 1 ? #EEE9FF : #DDF6F0);
-            Text {
-                text: root.icon;
-                font-family: "Segoe MDL2 Assets";
-                color: root.kind == 2 ? #188E7A : Theme.accent;
-                font-size: 28px;
-                horizontal-alignment: center;
-                vertical-alignment: TextVerticalAlignment.center;
-            }
+            height: 1px;
+            background: transparent;
         }
+
         VerticalLayout {
-            min-width: 140px;
-            preferred-width: 220px;
-            spacing: 4px;
-            Text {
-                text: root.title;
-                color: Theme.text;
-                font-size: 15px;
-                font-weight: 600;
-                overflow: elide;
+            min-width: 210px;
+            preferred-width: 250px;
+            alignment: LayoutAlignment.center;
+            HorizontalLayout {
+                width: 100%;
+                height: 24px;
+                spacing: 8px;
+                Rectangle {
+                    width: 42px;
+                    height: 22px;
+                    border-radius: 11px;
+                    background: root.active ? Theme.accent : Theme.borderStrong;
+                    Rectangle {
+                        x: root.active ? 22px : 2px;
+                        y: 2px;
+                        width: 18px;
+                        height: 18px;
+                        border-radius: 9px;
+                        background: Theme.card;
+                    }
+                    TouchArea {
+                        enabled: !root.route-running || root.kind == 1;
+                        clicked => { root.active-toggled(!root.active); }
+                    }
+                }
+                Text {
+                    text: root.title;
+                    color: Theme.text;
+                    font-size: 15px;
+                    font-weight: 600;
+                    horizontal-stretch: 1;
+                    overflow: elide;
+                    vertical-alignment: center;
+                }
             }
             if root.kind == 2: ComboBox {
                 model: root.mics;
+                height: 34px;
                 current-index <=> root.mic-index;
                 enabled: !root.route-running;
                 selected(value) => { root.mic-selection-changed(); }
             }
+            if root.kind != 2: Text {
+                text: root.subtitle;
+                color: Theme.text2;
+                font-size: 11px;
+                overflow: elide;
+            }
+            if root.kind == 0: Text {
+                text: root.detail;
+                color: Theme.text3;
+                font-size: 11px;
+                overflow: elide;
+            }
         }
+
         VerticalLayout {
-            min-width: 150px;
-            preferred-width: 220px;
-            spacing: 6px;
+            min-width: 190px;
+            preferred-width: 230px;
+            alignment: LayoutAlignment.center;
             Text {
                 text: "输出设备";
                 color: Theme.text2;
-                font-size: 12px;
             }
-            ComboBox {
-                model: root.outputs;
-                width: 100%;
-                current-index <=> root.output-index;
-                enabled: !root.route-running;
-                selected(value) => {
-                    root.output-changed(root.output-index);
-                }
-            }
-        }
-        HorizontalLayout {
-            width: 180px;
-            spacing: 4px;
             Rectangle {
-                width: 42px;
-                height: 22px;
-                border-radius: 11px;
-                background: root.active ? Theme.accent : Theme.borderStrong;
+                width: 100%;
+                height: 34px;
+                output-combo := ComboBox {
+                    width: 100%;
+                    height: 100%;
+                    model: root.outputs;
+                    current-index <=> root.output-index;
+                    enabled: !root.route-running;
+                    selected(value) => {
+                        root.output-changed(root.output-index);
+                    }
+                }
                 Rectangle {
-                    x: root.active ? 22px : 2px;
-                    y: 2px;
-                    width: 18px;
-                    height: 18px;
-                    border-radius: 9px;
-                    background: Theme.card;
+                    x: 1px;
+                    y: 1px;
+                    width: parent.width - 30px;
+                    height: parent.height - 2px;
+                    clip: true;
+                    background: Theme.field;
+                    label := Text {
+                        text: output-combo.current-value;
+                        width: label.preferred-width;
+                        x: label.preferred-width > parent.width
+                            ? -min(label.preferred-width - parent.width, 260px)
+                            : 0px;
+                        y: 0px;
+                        height: 100%;
+                        color: Theme.text;
+                        font-size: 12px;
+                        vertical-alignment: center;
+                        animate x {
+                            duration: 5000ms;
+                            delay: 700ms;
+                            easing: ease-in-out;
+                            iteration-count: 1000000;
+                            direction: alternate;
+                        }
+                    }
                 }
-                TouchArea {
-                    enabled: !root.route-running || root.kind == 1;
-                    clicked => { root.active-toggled(!root.active); }
-                }
-            }
-            if root.kind != 1: PmButton {
-                label: root.muted ? "\u{E74F}" : "\u{E767}";
-                icon-only: true;
-                button-width: 42px;
-                clicked => { root.mute-toggled(); }
-            }
-            if root.kind == 1: PmButton {
-                label: root.paused ? "\u{E768}" : "\u{E769}";
-                icon-only: true;
-                button-width: 42px;
-                enabled: root.active || root.paused;
-                clicked => { root.pause(); }
-            }
-            if root.kind == 1: PmButton {
-                label: "\u{E71A}";
-                icon-only: true;
-                button-width: 42px;
-                enabled: root.active || root.paused;
-                clicked => { root.stop(); }
-            }
-            PmButton {
-                label: "\u{E712}";
-                icon-only: true;
-                button-width: 42px;
-                enabled: !root.route-running || root.kind == 1;
-                clicked => { root.actions-open = !root.actions-open; }
             }
         }
+
         VerticalLayout {
             horizontal-stretch: 1;
-            min-width: 220px;
-            spacing: 6px;
-            Text {
-                text: "音量";
-                color: Theme.text2;
-                font-size: 12px;
+            min-width: 210px;
+            alignment: LayoutAlignment.center;
+            HorizontalLayout {
+                width: 100%;
+                Text {
+                    text: "音量";
+                    color: Theme.text2;
+                    font-size: 12px;
+                }
             }
             SliderRow {
                 show-label: false;
                 value <=> root.volume;
                 edited(value) => { root.volume-edited(value); }
+            }
+        }
+
+        VerticalLayout {
+            width: 174px;
+            alignment: LayoutAlignment.center;
+            HorizontalLayout {
+                width: 100%;
+                height: 36px;
+                spacing: 6px;
+                alignment: LayoutAlignment.end;
+                if root.kind != 1: PmButton {
+                    label: root.muted ? "\u{E74F}" : "\u{E767}";
+                    icon-only: true;
+                    button-width: 36px;
+                    clicked => { root.mute-toggled(); }
+                }
+                if root.kind == 1: PmButton {
+                    label: root.paused ? "\u{E768}" : "\u{E769}";
+                    icon-only: true;
+                    button-width: 36px;
+                    enabled: root.active || root.paused;
+                    clicked => { root.pause(); }
+                }
+                if root.kind == 1: PmButton {
+                    label: "\u{E71A}";
+                    icon-only: true;
+                    button-width: 36px;
+                    enabled: root.active || root.paused;
+                    clicked => { root.stop(); }
+                }
+                if !root.actions-open: PmButton {
+                    label: "\u{E712}";
+                    icon-only: true;
+                    button-width: 36px;
+                    enabled: !root.route-running || root.kind == 1;
+                    clicked => { root.actions-requested(); }
+                }
+            }
         }
     }
+
     if root.actions-open: Rectangle {
         width: 100%;
         height: 100%;
@@ -183,11 +260,11 @@ export component SourceRow inherits Rectangle {
             x: max(0px, root.width - 246px);
             y: 8px;
             action(code) => {
-                root.actions-open = false;
+                root.actions-closed();
                 root.action(code);
             }
-            closed => { root.actions-open = false; }
+            closed => { root.actions-closed(); }
         }
     }
 }
-}
+

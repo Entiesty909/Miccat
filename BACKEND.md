@@ -2,7 +2,7 @@
 
 ## “后端”的含义
 
-ProcessMic 没有服务端进程、HTTP/REST API、WebSocket、登录、数据库或网络协议。
+Miccat 没有服务端进程、HTTP/REST API、WebSocket、登录、数据库或网络协议。
 本文“后端”指本地 Rust 引擎、音频库领域规则、配置存储和 Windows 适配层。
 系统接口包括 WASAPI、Media Foundation、Process API 和 Win32/COM。
 
@@ -72,7 +72,7 @@ PID → Process Loopback capture → 源 SPSC ring
 
 ## 配置与持久化
 
-配置路径为 `%APPDATA%\ProcessMic\config.json`。
+配置路径为 `%APPDATA%\\Miccat\\config.json`。
 `config::load()` / `config::save()` 从 `config/mod.rs` re-export；实现位于 `config/store.rs`。
 读配置处理缺省、损坏和旧热键格式；写入失败只记录 tracing。
 

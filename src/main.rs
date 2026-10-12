@@ -1,4 +1,4 @@
-//! ProcessMic：无参数开 UI；`--list-*` / `--capture` / `--route` 走 CLI。
+//! Miccat：无参数开 UI；`--list-*` / `--capture` / `--route` 走 CLI。
 
 mod audio;
 mod cli;
@@ -31,7 +31,7 @@ fn main() {
         &saved.debug.categories,
     ));
     tracing::info!(
-        "ProcessMic {} 启动，日志文件 {}",
+        "Miccat {} 启动，日志文件 {}",
         env!("CARGO_PKG_VERSION"),
         diagnostics::log_path().display()
     );

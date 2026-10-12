@@ -1,4 +1,4 @@
-//! 诊断日志落盘：%APPDATA%\ProcessMic\logs\processmic.log，超 2 MiB 时截断重开。
+//! 诊断日志落盘：%APPDATA%\Miccat\logs\miccat.log，超 2 MiB 时截断重开。
 
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
@@ -11,10 +11,10 @@ const MAX_LOG_BYTES: u64 = 2 * 1024 * 1024;
 pub(crate) fn path() -> std::path::PathBuf {
     match std::env::var_os("APPDATA") {
         Some(base) if !base.is_empty() => PathBuf::from(base)
-            .join("ProcessMic")
+            .join("Miccat")
             .join("logs")
-            .join("processmic.log"),
-        _ => PathBuf::from("processmic.log"),
+            .join("miccat.log"),
+        _ => PathBuf::from("miccat.log"),
     }
 }
 

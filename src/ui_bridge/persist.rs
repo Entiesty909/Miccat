@@ -27,7 +27,7 @@ impl SaveQueue {
     pub(super) fn new(app_config: Rc<RefCell<config::AppConfig>>) -> Result<Rc<Self>, Error> {
         let (sender, receiver) = mpsc::channel();
         let worker = thread::Builder::new()
-            .name("processmic-config-save".into())
+            .name("miccat-config-save".into())
             .spawn(move || save_worker(receiver))?;
         Ok(Rc::new(Self {
             app_config,

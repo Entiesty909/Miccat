@@ -6,7 +6,7 @@
 设备/初始化问题 → --list-devices / --route 看端点与初始化
 播放/进度问题   → `--probe-playback` 对齐解码流与 SFX/本机试听时钟，并忽略生产端启动静音
 UI 渲染问题     → --snapshot-ui --out <file> [--menu | --category-menu] 出真 RGBA 图
-错误/日志问题   → 问题中心（状态栏「N 个问题」或设置页「诊断」）；日志在 %APPDATA%\ProcessMic\logs\processmic.log
+错误/日志问题   → 问题中心（状态栏「N 个问题」或设置页「诊断」）；日志在 %APPDATA%\\Miccat\\logs\\miccat.log
 ```
 
 ---
@@ -25,11 +25,11 @@ UI 渲染问题     → --snapshot-ui --out <file> [--menu | --category-menu] �
 排障入口：
 
 ```bat
-target\debug\mintcat-proc-mic.exe --snapshot-ui --diagnostics --out diag.raw
-target\debug\mintcat-proc-mic.exe --snapshot-ui --diagnostics-log --out diaglog.raw
-target\debug\mintcat-proc-mic.exe --snapshot-ui --diagnostics-badge --out badge.raw
-target\debug\mintcat-proc-mic.exe --snapshot-ui --diagnostics-live --out live.raw
-target\debug\mintcat-proc-mic.exe --snapshot-ui --page settings --section 5 --out diagset.raw
+miccat.exe --snapshot-ui --diagnostics --out diag.raw
+miccat.exe --snapshot-ui --diagnostics-log --out diaglog.raw
+miccat.exe --snapshot-ui --diagnostics-badge --out badge.raw
+miccat.exe --snapshot-ui --diagnostics-live --out live.raw
+miccat.exe --snapshot-ui --page settings --section 5 --out diagset.raw
 ```
 
 `--diagnostics-live` 不填示例条目，直接渲染当前真实捕获结果，用于验证「事件 → HubLayer → 问题中心」链路。

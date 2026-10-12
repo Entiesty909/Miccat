@@ -149,6 +149,8 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
             if let Some(process) = cache.processes.first() {
                 rows.kinds.push(0);
                 rows.icons.push("\u{E7F4}".into());
+                rows.icon_images
+                    .push(crate::platform::icon::process_icon(process.pid));
                 rows.titles.push(process.name.clone().into());
                 rows.subtitles.push("进程音频".into());
                 rows.details.push(format!("PID: {}", process.pid).into());
@@ -161,9 +163,9 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
                 super::super::sources::add_file_row(
                     &mut rows,
                     &entry.name,
+                    &entry.path,
                     "已导入",
-                    false,
-                    false,
+                    (false, false),
                     persisted.mix.sfx,
                     0,
                 );
@@ -182,6 +184,7 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
             {
                 rows.kinds.push(2);
                 rows.icons.push("\u{E720}".into());
+                rows.icon_images.push(slint::Image::default());
                 rows.titles.push(name.clone().into());
                 rows.subtitles.push("麦克风音频".into());
                 rows.details.push(name.clone().into());
@@ -237,7 +240,7 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
             .window()
             .take_snapshot()
             .map_err(|e| Error::InvalidArgs(e.to_string()))?;
-        dispatch_right_click(&ui, slint::LogicalPosition::new(100.0, 256.0));
+        dispatch_right_click(&ui, slint::LogicalPosition::new(100.0, 202.0));
         if !ui.get_audio_category_menu_open() || ui.get_audio_category_index() != 2 {
             return Err(Error::InvalidArgs(
                 "category row right-click did not open its matching menu".into(),

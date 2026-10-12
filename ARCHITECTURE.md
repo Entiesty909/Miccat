@@ -1,8 +1,8 @@
-# ARCHITECTURE.md — ProcessMic 当前架构
+# ARCHITECTURE.md — Miccat 当前架构
 
 ## 产品与技术边界
 
-ProcessMic 是 Windows 本地桌面程序：以 WASAPI Process Loopback 捕获指定进程，混音后送入 render 设备。
+Miccat 是 Windows 本地桌面程序：以 WASAPI Process Loopback 捕获指定进程，混音后送入 render 设备。
 本地音频库支持 SFX 路由和本机试听。
 
 技术栈：Rust 2024 单 crate、Slint 1.18、windows-rs 0.62、WASAPI、Media Foundation、Serde JSON 和 tracing。
@@ -22,7 +22,7 @@ ProcessMic 是 Windows 本地桌面程序：以 WASAPI Process Loopback 捕获�
 | `src/library.rs`、`src/library/tests.rs` | 音频库领域规则与私有逻辑单元测试 |
 | `src/config/` | AppConfig 模型、JSON 存储/迁移、Windows 单实例互斥 |
 | `src/platform/` | 跨层共享的 COM 初始化 |
-| `src/process.rs`、`src/hotkey.rs`、`src/vbcable.rs` | 进程枚举、RegisterHotKey、VB-CABLE 安装 |
+| `src/process.rs`、`src/hotkey.rs`、`src/vbcable.rs`、`src/platform/icon.rs` | 进程枚举、RegisterHotKey、VB-CABLE 安装、Win32 exe/文件图标提取 |
 | `src/diagnostics/` | 运行时调试开关、tracing 捕获、日志落盘与全局问题中心 |
 | `src/platform/clipboard.rs` | Win32 剪贴板文本写入（问题中心复制详情） |
 | `ui/app-window.slint` | 主窗口、顶栏、状态栏和全局右键菜单覆盖层 |
@@ -56,7 +56,7 @@ audio/com ─────────────→ platform::com
 ## 状态权威
 
 - `AudioEngine`：进程/麦/输出运行态、音量、电平、试听和文件播放控制。
-- `AppConfig`：本地持久化配置，路径 `%APPDATA%\ProcessMic\config.json`。
+- `AppConfig`：本地持久化配置，路径 `%APPDATA%\\Miccat\\config.json`。
 - `AppState`：桥接层共享句柄，不是第三份音频运行时。
 - `UiCache` 保存筛选、索引、菜单/点击态和列表快照；其中仍复制部分配置数据，
   AppConfig/UiCache 单一权威尚未完全收敛。

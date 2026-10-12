@@ -1,8 +1,8 @@
-# PROJECT.md — ProcessMic
+# PROJECT.md — Miccat
 
 ## 项目定位
 
-ProcessMic 是 Windows 桌面进程音频路由器：以 WASAPI Process Loopback 捕获指定进程树，
+Miccat 是 Windows 桌面进程音频路由器：以 WASAPI Process Loopback 捕获指定进程树，
 把进程声与可选物理麦混音后写入一个或多个播放端点。另提供本地音频库和本机试听。
 
 产品目标、禁止项和每轮验收以 [`goal.md`](goal.md) 为准。不是 Web 服务，也没有 HTTP API、数据库、账户或网络业务后端。
@@ -49,6 +49,13 @@ ProcessMic 是 Windows 桌面进程音频路由器：以 WASAPI Process Loopback
 S1–S6 重构阶段均有历史记录。最近变更：
 - [`docs/step-61-live-preview.md`](docs/step-61-live-preview.md)：Slint 1.18 官方 Live Preview 与开发脚本，验证窗口进程内重载。
 - [`docs/step-52-route-source-actions.md`](docs/step-52-route-source-actions.md)：源卡片状态保留、紧凑音量布局、源操作菜单与单独转发。
+- [`docs/step-53-route-card-layout.md`](docs/step-53-route-card-layout.md)：路由源卡片统一布局、真实麦克风下拉、右侧菜单和底部音量控制组。
+- [`docs/step-54-route-device-marquee.md`](docs/step-54-route-device-marquee.md)：输出设备长名称横向滚动与源菜单展开时隐藏 `...` 触发按钮。
+- [`docs/step-55-route-icons-menu.md`](docs/step-55-route-icons-menu.md)：Miccat 路由主页删减、单源菜单、启用开关重排和 exe/文件图标显示。
+- [`docs/step-56-miccat-branding-icons.md`](docs/step-56-miccat-branding-icons.md)：项目完整重命名为 Miccat，并修正路由源图标居中。
+- [`docs/step-58-route-icon-centering.md`](docs/step-58-route-icon-centering.md)：修正路由卡片图标上下居中，并保留顶部并列按钮。
+- [`docs/step-59-mic-icon-centering.md`](docs/step-59-mic-icon-centering.md)：按用户红框修正麦克风卡片图标相对整张卡片的上下居中。
+- [`docs/step-60-source-icon-absolute-centering.md`](docs/step-60-source-icon-absolute-centering.md)：将源图标块移出横向布局并按整张卡片绝对居中。
 - [`docs/step-50-home-layout-playback-hotkeys.md`](docs/step-50-home-layout-playback-hotkeys.md)：主页排版/卡片交互、播放暂停语义、右键菜单现代化、全局多热键与冲突检测。
 - [`docs/step-49-user-feedback-fixes.md`](docs/step-49-user-feedback-fixes.md)：八项用户反馈修复（开发脚本、0x8889000A 根因、实时切换、输出下拉、列表点击）。
 - [`docs/step-48-diagnostics.md`](docs/step-48-diagnostics.md)：全局错误诊断与调试输出系统（问题中心、运行时调试开关、日志落盘）。

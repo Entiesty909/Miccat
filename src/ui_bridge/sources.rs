@@ -12,6 +12,7 @@ use slint::{Model, ModelRc, VecModel};
 pub(super) struct SourceRows {
     pub(super) kinds: Vec<i32>,
     pub(super) icons: Vec<slint::SharedString>,
+    pub(super) icon_images: Vec<slint::Image>,
     pub(super) titles: Vec<slint::SharedString>,
     pub(super) subtitles: Vec<slint::SharedString>,
     pub(super) details: Vec<slint::SharedString>,
@@ -32,6 +33,13 @@ impl SourceRows {
         set_if_changed(&ui.get_source_icons(), self.icons.clone(), |values| {
             ui.set_source_icons(ModelRc::new(VecModel::from(values)));
         });
+        set_if_changed(
+            &ui.get_source_icon_images(),
+            self.icon_images.clone(),
+            |values| {
+                ui.set_source_icon_images(ModelRc::new(VecModel::from(values)));
+            },
+        );
         set_if_changed(&ui.get_source_titles(), self.titles.clone(), |values| {
             ui.set_source_titles(ModelRc::new(VecModel::from(values)));
         });
@@ -84,8 +92,10 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
         let enabled = !cache.disabled_pids.contains(&pid);
         rows.kinds.push(0);
         rows.icons.push("\u{E7F4}".into());
+        rows.icon_images
+            .push(crate::platform::icon::process_icon(pid));
         rows.titles.push(process.name.clone().into());
-        rows.subtitles.push("".into());
+        rows.subtitles.push("进程音频".into());
         rows.details.push(format!("PID: {pid}").into());
         rows.statuses.push("".into());
         rows.active.push(enabled);
@@ -105,6 +115,7 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
         add_file_row(
             &mut rows,
             &file.name,
+            &file.path,
             if file.playing {
                 "播放中"
             } else if ui.get_player_paused() {
@@ -112,8 +123,7 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
             } else {
                 "已停止"
             },
-            file.playing,
-            ui.get_player_paused(),
+            (file.playing, ui.get_player_paused()),
             state.engine.sfx_volume(),
             output_index(
                 &state.cache.borrow().dests,
@@ -127,9 +137,9 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
         add_file_row(
             &mut rows,
             &entry.name,
+            entry.icon_path.as_deref().unwrap_or(entry.path.as_str()),
             "待播放",
-            false,
-            false,
+            (false, false),
             state.engine.sfx_volume(),
             output_index(
                 &state.cache.borrow().dests,
@@ -157,11 +167,12 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
     if mic_count > 1 && !state.cache.borrow().mic_source_hidden {
         rows.kinds.push(2);
         rows.icons.push("\u{E720}".into());
+        rows.icon_images.push(slint::Image::default());
         rows.titles.push("麦克风".into());
-        rows.subtitles.push("".into());
+        rows.subtitles.push("真实麦克风".into());
         rows.details.push(
             if mic_index == 0 {
-                "未选择"
+                "请选择真实麦克风"
             } else {
                 &mic_name
             }
@@ -204,16 +215,19 @@ where
 pub(super) fn add_file_row(
     rows: &mut SourceRows,
     name: &str,
+    path: &str,
     status: &str,
-    playing: bool,
-    is_paused: bool,
+    playback: (bool, bool),
     volume: f32,
     output_index: i32,
 ) {
+    let (playing, is_paused) = playback;
     rows.kinds.push(1);
     rows.icons.push("\u{E8B5}".into());
+    rows.icon_images
+        .push(crate::platform::icon::file_icon(path));
     rows.titles.push(name.into());
-    rows.subtitles.push("".into());
+    rows.subtitles.push("音频文件".into());
     rows.details.push(status.into());
     rows.statuses.push("".into());
     rows.active.push(playing);

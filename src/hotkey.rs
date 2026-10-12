@@ -135,7 +135,7 @@ fn hotkey_thread(
     on_hotkey: Arc<dyn Fn(i32) + Send + Sync>,
 ) {
     unsafe {
-        let class = w!("ProcessMicHotkey");
+        let class = w!("MiccatHotkey");
         let wc = WNDCLASSEXW {
             cbSize: size_of::<WNDCLASSEXW>() as u32,
             style: CS_HREDRAW | CS_VREDRAW,
@@ -151,7 +151,7 @@ fn hotkey_thread(
         let hwnd = match CreateWindowExW(
             WINDOW_EX_STYLE(0),
             class,
-            w!("ProcessMicHotkey"),
+            w!("MiccatHotkey"),
             WS_OVERLAPPED,
             0,
             0,

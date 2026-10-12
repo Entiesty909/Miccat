@@ -104,5 +104,5 @@ fn config_path() -> PathBuf {
     let base = std::env::var_os("APPDATA")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
-    base.join("ProcessMic").join("config.json")
+    base.join("Miccat").join("config.json")
 }

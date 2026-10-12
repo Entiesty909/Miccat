@@ -95,6 +95,7 @@ fn register_seek(ui: &MainWindow, state: &AppState) {
             name: current.name,
             path: current.path,
             category: String::new(),
+            icon_path: None,
             duration_hns: current.duration_hns,
             file_size_bytes: 0,
             sample_rate: 0,

@@ -282,7 +282,7 @@ fn probe_playback(
 /// CLI 用法。
 fn print_help() {
     eprintln!(
-        "mintcat-proc-mic\n\
+        "miccat\n\
          \n\
          (no args)                         launch UI\n\
          --list-processes\n\

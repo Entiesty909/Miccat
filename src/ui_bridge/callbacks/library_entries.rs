@@ -42,6 +42,7 @@ fn register_1(ui: &MainWindow, state: &AppState) {
                 name,
                 path: path.to_string_lossy().into_owned(),
                 category,
+                icon_path: None,
                 duration_hns: validate_info.duration_hns,
                 file_size_bytes: std::fs::metadata(&path)
                     .map(|metadata| metadata.len())

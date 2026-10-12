@@ -1,4 +1,4 @@
-# ProcessMic
+# Miccat
 
 轻量 Windows 进程音频路由器。把指定进程的声音经 WASAPI Process Loopback 送到所选输出设备。
 
@@ -21,7 +21,7 @@ cargo build --release
 ## 运行
 
 ```text
-target\release\mintcat-proc-mic.exe                 UI
+miccat.exe                                         UI
 --list-processes
 --list-devices
 --capture <pid> --wav capture.wav --seconds 5

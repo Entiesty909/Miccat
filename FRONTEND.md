@@ -35,7 +35,11 @@ Rust 桥接：
   - 文件行开关是暂停/继续，不清除引擎播放请求或当前位置；删除源只隐藏路由行，不删除音频库条目和磁盘文件。
   - 更多菜单的“单独转发”只打开选中的一个源，使用该源保存的输出设备，绕过底部总开关的多源选择。
   - 麦克风和进程源提供删除/单独转发；快捷键只对音频文件启用，避免伪造没有配置模型支撑的进程热键。
-  - 音量列隐藏重复的百分比标签，源卡片右侧操作组固定横向排列，剩余宽度优先给音量滑轨。
+-  源卡片统一固定高度，左侧显示源类型图标与名称/详情；启用用淡蓝边框，未启用用灰色边框；进程、音频文件和麦克风分别显示类型图标，麦克风下拉只使用物理捕获设备。
+-  音量列只保留一个百分比显示；右侧操作按钮固定横向排列，音频文件暂停与停止并列，`...` 为最右触发按钮；启用开关靠近源名称。
+-  输出设备下拉框的容器宽度固定；选中名称过长时只移动文字，使用往返横向滚动，不改变下拉框和列宽。
+-  源操作状态由路由页统一维护，同一时间只显示一个源菜单；菜单展开时隐藏对应 `...` 触发按钮，点击另一源的菜单会切换到新菜单。
+-  进程卡片优先显示对应 exe 图标；音频卡片优先显示条目配置的 `icon_path`，否则显示音频文件的 Windows 关联图标；不可读时回退默认图标。
 - `SaveQueue` 以 300 ms 防抖串行写配置，退出时 flush。
 - 诊断：`src/diagnostics/` 汇总 WARN/ERROR，`ui_bridge/diagnostics.rs` 每 50 ms 把快照灌入 `DiagState`；
   状态栏徽标显示问题数与未读数，设置页「诊断」分组与问题中心共用同一面板。
@@ -95,7 +99,7 @@ Live Preview 是开发专用功能，不写入 `Cargo.toml` 默认 features。�
 - 文件行暂停/停止共享 AudioEngine 播放状态；文件循环、seek、试听均复用已有播放控制。
 - 进程/文件/麦克风输出 ID 分别持久化，启动路由时 `SourceOutputRoutes` 将各输入送到各自 render 端点。
 - 详情页本机监听音量只作用于 `AudioEngine` monitor；文件路由增益继续由路由页文件音源行控制。
-- 音频快捷键字段由配置持久化，只在 ProcessMic 获得键盘焦点时触发；不是全局游戏热键。
+- 音频快捷键字段由配置持久化，只在 Miccat 获得键盘焦点时触发；不是全局游戏热键。
 - 设置侧栏可切换常规、音频设备、快捷键、虚拟线缆和关于分组；只显示现有后端能力。
 - 音频表按名称过滤/排序，按每页 20 条分页；实际格式、采样率、估算码率、文件大小、路径来自本地音频条目。
 - 音频列表采用 `ScrollView`；超大页表使用分页，不加载全库行到同一页。
@@ -106,10 +110,10 @@ Live Preview 是开发专用功能，不写入 `Cargo.toml` 默认 features。�
 ```bat
 scripts\check.cmd
 scripts\smoke.cmd
-target\debug\mintcat-proc-mic.exe --snapshot-ui --page route --out route.raw
-target\debug\mintcat-proc-mic.exe --snapshot-ui --page settings --out settings.raw
-target\debug\mintcat-proc-mic.exe --snapshot-ui --out player.raw
-target\debug\mintcat-proc-mic.exe --snapshot-ui --menu --out player-menu.raw
+target\debug\miccat.exe --snapshot-ui --page route --out route.raw
+target\debug\miccat.exe --snapshot-ui --page settings --out settings.raw
+target\debug\miccat.exe --snapshot-ui --out player.raw
+target\debug\miccat.exe --snapshot-ui --menu --out player-menu.raw
 ```
 
 快照为原始 RGBA，文件头 8 字节是宽、高小端 u32；临时产物不要提交。

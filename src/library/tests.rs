@@ -5,6 +5,7 @@ fn entry(name: &str, category: &str) -> AudioEntry {
     AudioEntry {
         name: name.into(),
         path: format!("{name}.wav"),
+        icon_path: None,
         category: category.into(),
         duration_hns: 0,
         file_size_bytes: 0,

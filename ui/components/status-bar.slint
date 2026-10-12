@@ -58,98 +58,107 @@ export component StatusBar inherits Rectangle {
             width: 100%;
             height: 44px;
             spacing: 8px;
-            VerticalLayout {
-                alignment: center;
-                Rectangle {
-                    width: 10px;
-                    height: 10px;
-                    border-radius: 5px;
-                    background: root.status-kind == 1
-                        ? Theme.ok
-                        : (root.status-kind == 2
-                            ? Theme.warn
-                            : (root.status-kind == 3 ? Theme.danger : Theme.text3));
+            HorizontalLayout {
+                spacing: 8px;
+                VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: 10px;
+                        height: 10px;
+                        border-radius: 5px;
+                        background: root.status-kind == 1
+                            ? Theme.ok
+                            : (root.status-kind == 2
+                                ? Theme.warn
+                                : (root.status-kind == 3
+                                    ? Theme.danger
+                                    : Theme.text3));
+                    }
                 }
-            }
-            Text {
-                text: root.status-text;
-                color: Theme.text;
-                font-size: 13px;
-                font-weight: 600;
-                vertical-alignment: TextVerticalAlignment.center;
-            }
-            Rectangle {
-                width: 1px;
-                height: 20px;
-                background: Theme.borderStrong;
-            }
-            Text {
-                text: "\{root.source-count} 个音频源";
-                color: Theme.text2;
-                font-size: 12px;
-                vertical-alignment: TextVerticalAlignment.center;
-            }
-            Rectangle {
-                width: 30px;
-                height: 30px;
                 Text {
-                    text: root.sources-expanded ? "\u{E70E}" : "\u{E70D}";
-                    font-family: "Segoe MDL2 Assets";
-                    color: Theme.text2;
-                    horizontal-alignment: center;
-                    vertical-alignment: TextVerticalAlignment.center;
+                    text: root.status-text;
+                    color: Theme.text;
+                    font-size: 13px;
+                    font-weight: 600;
+                    vertical-alignment: center;
                 }
-                TouchArea {
-                    mouse-cursor: pointer;
-                    clicked => {
-                        root.sources-expanded = !root.sources-expanded;
-                        root.sources-expanded-toggled(root.sources-expanded);
+                Rectangle {
+                    width: 1px;
+                    height: 20px;
+                    background: Theme.borderStrong;
+                }
+                Text {
+                    text: "\{root.source-count} 个音频源";
+                    color: Theme.text2;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                }
+                Rectangle {
+                    width: 30px;
+                    height: 30px;
+                    Text {
+                        text: root.sources-expanded ? "\u{E70E}" : "\u{E70D}";
+                        font-family: "Segoe MDL2 Assets";
+                        color: Theme.text2;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.sources-expanded = !root.sources-expanded;
+                            root.sources-expanded-toggled(root.sources-expanded);
+                        }
                     }
                 }
             }
             Rectangle { horizontal-stretch: 1; background: transparent; }
-            Text {
-                text: "总音量";
-                color: Theme.text2;
-                font-size: 12px;
-                vertical-alignment: TextVerticalAlignment.center;
-            }
-            Text {
-                text: "\u{E767}";
-                font-family: "Segoe MDL2 Assets";
-                color: Theme.text2;
-                font-size: 16px;
-                vertical-alignment: TextVerticalAlignment.center;
-            }
-            Slider {
-                width: 220px;
-                minimum: 0;
-                maximum: 100;
-                value <=> root.master-volume;
-                changed(v) => { root.master-volume-edited(v); }
-            }
-            Text {
-                width: 44px;
-                text: "\{Math.round(root.master-volume)}%";
-                color: Theme.text;
-                font-size: 13px;
-                font-weight: 600;
-                horizontal-alignment: right;
-                vertical-alignment: TextVerticalAlignment.center;
-            }
-            if DiagState.count > 0: PmButton {
-                label: DiagState.unseen > 0
-                    ? "⚠  \{DiagState.count} 个问题（\{DiagState.unseen} 新）"
-                    : "⚠  \{DiagState.count} 个问题";
-                danger: true;
-                clicked => { DiagState.toggle(); }
-            }
-            PmButton {
-                label: root.running ? "■  停止" : "▶  开始转发";
-                filled: true;
-                danger: root.running;
-                enabled: !root.cable-busy;
-                clicked => { root.start-stop(); }
+            HorizontalLayout {
+                spacing: 8px;
+                Text {
+                    text: "总音量";
+                    color: Theme.text2;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: "\u{E767}";
+                    font-family: "Segoe MDL2 Assets";
+                    color: Theme.text2;
+                    font-size: 16px;
+                    vertical-alignment: center;
+                }
+                Slider {
+                    width: 240px;
+                    minimum: 0;
+                    maximum: 100;
+                    value <=> root.master-volume;
+                    changed(v) => { root.master-volume-edited(v); }
+                }
+                Text {
+                    width: 44px;
+                    text: "\{Math.round(root.master-volume)}%";
+                    color: Theme.text;
+                    font-size: 13px;
+                    font-weight: 600;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                }
+                if DiagState.count > 0: PmButton {
+                    label: DiagState.unseen > 0
+                        ? "⚠  \{DiagState.count} 个问题（\{DiagState.unseen} 新）"
+                        : "⚠  \{DiagState.count} 个问题";
+                    danger: true;
+                    clicked => { DiagState.toggle(); }
+                }
+                PmButton {
+                    label: root.running ? "■  停止" : "▶  开始转发";
+                    filled: true;
+                    danger: root.running;
+                    button-width: 112px;
+                    enabled: !root.cable-busy;
+                    clicked => { root.start-stop(); }
+                }
             }
         }
     }

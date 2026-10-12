@@ -1,89 +1,19 @@
-//! 应用顶栏：产品名、页签和当前页切换。
+//! 应用页签栏：提供路由、音频库和设置页切换。
 
 import { Theme } from "../theme.slint";
 import { TabBar } from "tab-bar.slint";
 
 export component AppHeader inherits Rectangle {
     in-out property <int> current: 0;
-    in property <string> status-text: "未运行";
-    in property <int> status-kind: 0;
     callback picked(int);
 
-    height: Theme.topBarHeight;
+    height: 42px;
     background: Theme.card;
     border-width: 1px;
     border-color: Theme.border;
 
-    VerticalLayout {
-        HorizontalLayout {
-            width: 100%;
-            height: 54px;
-            padding-left: 28px;
-            padding-right: 28px;
-            spacing: 12px;
-            Text {
-                text: "\u{E767}";
-                font-family: "Segoe MDL2 Assets";
-                font-size: 26px;
-                color: Theme.accent;
-                vertical-alignment: TextVerticalAlignment.center;
-            }
-            VerticalLayout {
-                spacing: 0px;
-                Text {
-                    text: "ProcessMic";
-                    color: Theme.text;
-                    font-size: 18px;
-                    font-weight: 700;
-                }
-                Text {
-                    text: "Windows 音频路由器";
-                    color: Theme.text2;
-                    font-size: 12px;
-                }
-            }
-            Rectangle { horizontal-stretch: 1; background: transparent; }
-            VerticalLayout {
-                alignment: center;
-                Rectangle {
-                    width: 8px;
-                    height: 8px;
-                    border-radius: 4px;
-                    background: root.status-kind == 1
-                        ? Theme.ok
-                        : (root.status-kind == 2
-                            ? Theme.warn
-                            : (root.status-kind == 3 ? Theme.danger : Theme.text3));
-                }
-            }
-            Text {
-                text: root.status-text;
-                color: Theme.text;
-                font-size: 13px;
-                vertical-alignment: TextVerticalAlignment.center;
-            }
-            Rectangle {
-                width: 36px;
-                height: 36px;
-                border-radius: Theme.radiusControl;
-                background: transparent;
-                Text {
-                    text: "\u{E713}";
-                    font-family: "Segoe MDL2 Assets";
-                    font-size: 18px;
-                    color: Theme.text2;
-                    horizontal-alignment: center;
-                    vertical-alignment: TextVerticalAlignment.center;
-                }
-                TouchArea {
-                    mouse-cursor: pointer;
-                    clicked => { root.picked(2); }
-                }
-            }
-        }
-        TabBar {
-            current: root.current;
-            picked(i) => { root.picked(i); }
-        }
+    TabBar {
+        current: root.current;
+        picked(i) => { root.picked(i); }
     }
 }

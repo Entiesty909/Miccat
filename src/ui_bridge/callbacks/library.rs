@@ -209,7 +209,7 @@ fn register_drag(ui: &MainWindow, state: &AppState) {
     let state_for_drop = state.clone();
     let ui_weak = ui.as_weak();
     ui.on_audio_category_to_transfer(|index| {
-        let payload = slint::SharedString::from(format!("processmic-category:{index}"));
+        let payload = slint::SharedString::from(format!("miccat-category:{index}"));
         slint::DataTransfer::from(payload)
     });
     ui.on_audio_category_can_drop({
@@ -330,7 +330,7 @@ fn commit_category_drop(
 
 fn category_drag_index(data: &slint::DataTransfer) -> Option<usize> {
     let payload = data.plain_text().ok()?;
-    payload.strip_prefix("processmic-category:")?.parse().ok()
+    payload.strip_prefix("miccat-category:")?.parse().ok()
 }
 
 fn category_drop_position(value: i32) -> Option<crate::library::CategoryDropPosition> {
