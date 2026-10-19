@@ -13,14 +13,14 @@
 `ui/overlays/diagnostic-panel.slint`、`ui/overlays/global-overlays.slint`：右侧抽屉式问题中心（问题列表 + 日志开关）、
 `DiagState` 全局状态与顶层覆盖层宿主；状态栏与设置页直接读写该全局，不经 `app-window` 透传。
 `ui/components/diagnostic-row.slint`、`ui/components/diagnostics-card.slint`：问题行/徽标与设置页诊断卡片。
-`ui/pages/route.slint`、`ui/components/source-row.slint`：渲染实际选择的进程/多个文件/麦克风源；文件启用与播放分离；菜单提供替换进程/替换音频、删除和单独转发。
+`ui/pages/route.slint`、`ui/components/source-row.slint`：卡片按“图标—源信息—输出设备—音量—操作—启用转发”排列；间距紧凑，列宽按卡片可用宽度收缩。滚动列表右侧预留 18px 空间，避开 Fluent `ScrollView` 叠加绘制的 14px 竖滚动条。麦克风显示当前名称、不显示设备下拉；卡片不显示 dB 文本；路由卡片显示实际进程 exe 图标。
 `ui/components/add-source-panel.slint`：按真实进程、音频库和物理麦模型添加路由源；普通模式使用三张类型卡，替换模式只显示单一目标 Tab；由独立、非模态的 `AddSourceWindow` 顶层窗口承载，使用 Windows 原生标题栏移动。
 `ui/components/audio-source-list.slint`、`audio-source-details.slint`：分别显示可搜索的真实音频条目列表和所选条目的元数据/路由音量设置。
 `ui/components/source-actions-menu.slint`：源卡片右侧更多菜单；由独立 `PopupWindow` 承载，提供替换进程/音频、删除和单独转发。
 `ui/components/category-sidebar.slint`：真实 `/` 分类路径、计数、拖拽排序、右键编辑和分类图标，图标与名称使用同一横向布局。
 `ui/components/audio-entry-editor.slint`：分类/条目共用的名称与音符/首字/自定义图标编辑内容；由独立、非模态的 `AudioEditWindow` 承载，标题随编辑对象显示在 Windows 标题栏中，条目名称只改软件显示。
 `ui/pages/settings.slint`：常规/音频设备/快捷键/VB-CABLE/关于导航；设备、默认角色、热键与安装操作走现有 bridge 回调。
-`ui/components/*.slint`：只复用无领域权威控件；图标使用 Windows `Segoe MDL2 Assets`，不新增依赖或图片包。
+`ui/components/*.slint`：只复用无领域权威控件；图标使用 Windows `Segoe MDL2 Assets` 或 `resources/icon.ico`，不新增依赖或图片包。
 
 `ui/components/marquee-text.slint`：按 Slint `Text.preferred-width` 测量单行文本，裁剪视口；只在溢出文字悬停时启动计时滚动，离开复位。
 `ui/components/marquee-combo-box.slint`：复用字符串模型与 `current-index` 的下拉框；选项列表由 `PopupWindow` / 虚拟化 `ListView` 承载。
@@ -47,7 +47,7 @@ Rust 桥接：
   - 添加/替换进程前检查 PID 是否已在其它卡片；添加/替换音频前检查音频库实际条目下标，重复项拒绝提交并保留当前替换目标。
 -  输出设备下拉框的容器宽度固定；选中名称过长时只移动文字，使用往返横向滚动，不改变下拉框和列宽。
 -  源操作状态由路由页统一维护，同一时间只显示一个源菜单；菜单展开时隐藏对应 `...` 触发按钮，点击另一源的菜单会切换到新菜单。
--  进程卡片优先显示对应 exe 图标；音频卡片优先显示条目配置的 `icon_path`，否则显示音频文件的 Windows 关联图标；不可读时回退默认图标。
+- 路由卡片和添加源进程列表显示实际 exe 图标；音频卡片优先使用条目 `icon_path` 或 Windows 文件关联图标。`resources/icon.ico` 作为 `MainWindow.icon` 和 Windows exe 资源，对应标题栏左上角程序图标，不显示在页签栏或路由卡片。
 - `SaveQueue` 以 300 ms 防抖串行写配置，退出时 flush。
 - 诊断：`src/diagnostics/` 汇总 WARN/ERROR，`ui_bridge/diagnostics.rs` 每 50 ms 把快照灌入 `DiagState`；
   状态栏徽标显示问题数与未读数，设置页「诊断」分组与问题中心共用同一面板。

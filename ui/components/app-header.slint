@@ -10,8 +10,6 @@ export component AppHeader inherits Rectangle {
     height: 42px;
     background: Theme.card;
     border-width: 1px;
-    border-color: Theme.border;
-
     TabBar {
         current: root.current;
         picked(i) => { root.picked(i); }

@@ -17,23 +17,17 @@ export component SourceRow inherits Rectangle {
     in property <bool> paused: false;
     in property <bool> muted: false;
     in property <bool> route-running: false;
-    in property <[string]> mics: [];
-    in-out property <int> mic-index: 0;
     in property <[string]> outputs: [];
     in property <int> initial-output-index: 0;
     in-out property <int> output-index: 0;
     init => {
         root.output-index = root.initial-output-index;
     }
-    in property <string> peak-db: "-∞ dB";
-    in property <float> peak-value: 0;
-    in property <string> volume-db: "0.0 dB";
     in-out property <float> volume: 100;
     callback active-toggled(bool);
     callback volume-edited(float);
     callback mute-toggled();
     callback output-changed(int);
-    callback mic-selection-changed();
     callback action(int);
     callback actions-requested(length, length);
     callback actions-closed();
@@ -57,7 +51,7 @@ export component SourceRow inherits Rectangle {
         background: root.kind == 0
             ? Theme.accentSoft
             : (root.kind == 1 ? #EEE9FF : #DDF6F0);
-        Text {
+        if root.kind != 0: Text {
             text: root.icon;
             font-family: "Segoe MDL2 Assets";
             color: root.kind == 2 ? #188E7A : Theme.accent;
@@ -76,42 +70,26 @@ export component SourceRow inherits Rectangle {
     }
 
     HorizontalLayout {
-        padding-left: 16px;
-        padding-right: 16px;
-        spacing: 14px;
+        height: 100%;
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 6px;
 
         Rectangle {
-            width: 56px;
+            width: 76px;
             height: 1px;
             background: transparent;
         }
 
         VerticalLayout {
-            min-width: 210px;
-            preferred-width: 250px;
+            min-width: 108px;
+            preferred-width: 168px;
+            horizontal-stretch: 1;
             alignment: LayoutAlignment.center;
             HorizontalLayout {
                 width: 100%;
                 height: 24px;
                 spacing: 8px;
-                Rectangle {
-                    width: 42px;
-                    height: 22px;
-                    border-radius: 11px;
-                    background: root.active ? Theme.accent : Theme.borderStrong;
-                    Rectangle {
-                        x: root.active ? 22px : 2px;
-                        y: 2px;
-                        width: 18px;
-                        height: 18px;
-                        border-radius: 9px;
-                        background: Theme.card;
-                    }
-                    TouchArea {
-                        enabled: !root.route-running || root.kind == 1;
-                        clicked => { root.active-toggled(!root.active); }
-                    }
-                }
                 Text {
                     text: root.title;
                     color: Theme.text;
@@ -122,27 +100,21 @@ export component SourceRow inherits Rectangle {
                     vertical-alignment: center;
                 }
             }
-            if root.kind == 2: HorizontalLayout {
+            if root.kind == 2: VerticalLayout {
                 width: 100%;
                 height: 34px;
-                spacing: 0px;
-                Rectangle {
-                    width: 50px;
-                    height: 1px;
-                    background: transparent;
+                spacing: 2px;
+                Text {
+                    text: root.subtitle;
+                    color: Theme.text2;
+                    font-size: 11px;
+                    overflow: elide;
                 }
-                MarqueeComboBox {
-                    width: 190px;
-                    horizontal-stretch: 0;
-                    height: 34px;
-                    model: root.mics;
-                    current-index <=> root.mic-index;
-                    enabled: !root.route-running;
-                    selected(value) => { root.mic-selection-changed(); }
-                }
-                Rectangle {
-                    horizontal-stretch: 1;
-                    background: transparent;
+                Text {
+                    text: root.detail;
+                    color: Theme.text3;
+                    font-size: 11px;
+                    overflow: elide;
                 }
             }
             if root.kind != 2: Text {
@@ -160,12 +132,14 @@ export component SourceRow inherits Rectangle {
         }
 
         VerticalLayout {
-            min-width: 190px;
-            preferred-width: 230px;
+            min-width: 120px;
+            preferred-width: 176px;
+            horizontal-stretch: 1;
             alignment: LayoutAlignment.center;
             Text {
                 text: "输出设备";
                 color: Theme.text2;
+                font-size: 11px;
             }
             MarqueeComboBox {
                 width: 100%;
@@ -180,40 +154,13 @@ export component SourceRow inherits Rectangle {
         }
 
         VerticalLayout {
-            horizontal-stretch: 1;
-            min-width: 210px;
+            horizontal-stretch: 2;
+            min-width: 110px;
             alignment: LayoutAlignment.center;
-            HorizontalLayout {
-                width: 100%;
-                spacing: 8px;
-                Text {
-                    text: "峰值";
-                    color: Theme.text2;
-                    font-size: 11px;
-                    width: 30px;
-                }
-                Text {
-                    text: root.peak-db;
-                    width: 58px;
-                    color: Theme.text;
-                    font-size: 11px;
-                    horizontal-alignment: right;
-                    vertical-alignment: center;
-                }
-                Text {
-                    text: "增益";
-                    color: Theme.text2;
-                    font-size: 11px;
-                    width: 30px;
-                }
-                Text {
-                    text: root.volume-db;
-                    horizontal-stretch: 1;
-                    color: Theme.text;
-                    font-size: 11px;
-                    horizontal-alignment: right;
-                    vertical-alignment: center;
-                }
+            Text {
+                text: "音量";
+                color: Theme.text2;
+                font-size: 11px;
             }
             SliderRow {
                 show-label: false;
@@ -222,50 +169,109 @@ export component SourceRow inherits Rectangle {
             }
         }
 
-        VerticalLayout {
-            width: 174px;
+        HorizontalLayout {
+            width: 258px;
+            vertical-stretch: 1;
             alignment: LayoutAlignment.center;
-            HorizontalLayout {
-                width: 100%;
-                height: 36px;
-                spacing: 6px;
-                alignment: LayoutAlignment.end;
-                if root.kind != 1: PmButton {
-                    label: root.muted ? "\u{E74F}" : "\u{E767}";
-                    icon-only: true;
-                    button-width: 36px;
-                    clicked => { root.mute-toggled(); }
-                }
-                if root.kind == 1: PmButton {
-                    label: root.paused ? "\u{E768}" : "\u{E769}";
-                    icon-only: true;
-                    button-width: 36px;
-                    enabled: root.route-running
-                        && (root.status == "播放中" || root.paused);
-                    clicked => { root.pause(); }
-                }
-                if root.kind == 1: PmButton {
-                    label: "\u{E71A}";
-                    icon-only: true;
-                    button-width: 36px;
-                    enabled: root.route-running
-                        && (root.status == "播放中" || root.paused);
-                    clicked => { root.stop(); }
-                }
-                PmButton {
-                    label: "\u{E712}";
-                    icon-only: true;
-                    button-width: 36px;
-                    enabled: !root.route-running || root.kind == 1;
-                    clicked => {
-                        root.actions-requested(
-                            root.absolute-position.x + root.width - 246px,
-                            root.absolute-position.y + (root.height - 36px) / 2 + 36px
-                        );
+            spacing: 8px;
+            VerticalLayout {
+                width: 124px;
+                alignment: LayoutAlignment.center;
+                HorizontalLayout {
+                    width: 100%;
+                    height: 36px;
+                    spacing: 6px;
+                    alignment: LayoutAlignment.end;
+                    if root.kind != 1: PmButton {
+                        label: root.muted ? "\u{E74F}" : "\u{E767}";
+                        icon-only: true;
+                        button-width: 36px;
+                        clicked => { root.mute-toggled(); }
                     }
+                    if root.kind == 1: PmButton {
+                        label: root.paused ? "\u{E768}" : "\u{E769}";
+                        icon-only: true;
+                        button-width: 36px;
+                        enabled: root.route-running
+                            && (root.status == "播放中" || root.paused);
+                        clicked => { root.pause(); }
+                    }
+                    if root.kind == 1: PmButton {
+                        label: "\u{E71A}";
+                        icon-only: true;
+                        button-width: 36px;
+                        enabled: root.route-running
+                            && (root.status == "播放中" || root.paused);
+                        clicked => { root.stop(); }
+                    }
+                    PmButton {
+                        label: "\u{E712}";
+                        icon-only: true;
+                        button-width: 36px;
+                        enabled: !root.route-running || root.kind == 1;
+                        clicked => {
+                            root.actions-requested(
+                                root.absolute-position.x + root.width - 246px,
+                                root.absolute-position.y
+                                    + (root.height - 36px) / 2 + 36px
+                            );
+                        }
+                    }
+                }
+            }
+            VerticalLayout {
+                width: 1px;
+                height: 100%;
+                vertical-stretch: 1;
+                alignment: LayoutAlignment.center;
+                Rectangle {
+                    width: 1px;
+                    height: 36px;
+                    background: Theme.border;
+                }
+            }
+            VerticalLayout {
+                width: 126px;
+                height: 100%;
+                vertical-stretch: 1;
+                alignment: LayoutAlignment.center;
+                HorizontalLayout {
+                    width: 126px;
+                    height: 36px;
+                    spacing: 8px;
+                    alignment: LayoutAlignment.center;
+                    VerticalLayout {
+                        width: 42px;
+                        height: 36px;
+                        alignment: LayoutAlignment.center;
+                        Rectangle {
+                            width: 42px;
+                            height: 22px;
+                            border-radius: 11px;
+                            background: root.active ? Theme.accent : Theme.borderStrong;
+                            Rectangle {
+                                x: root.active ? 22px : 2px;
+                                y: 2px;
+                                width: 18px;
+                                height: 18px;
+                                border-radius: 9px;
+                                background: Theme.card;
+                            }
+                            TouchArea {
+                                enabled: !root.route-running || root.kind == 1;
+                                clicked => { root.active-toggled(!root.active); }
+                            }
+                        }
+                    }
+                Text {
+                    text: "启用转发";
+                    color: Theme.text;
+                    font-size: 13px;
+                    vertical-alignment: center;
                 }
             }
         }
     }
 
+    }
 }

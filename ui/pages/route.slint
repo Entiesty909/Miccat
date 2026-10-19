@@ -84,7 +84,6 @@ export component RoutePage inherits Rectangle {
             spacing: 8px;
             Text {
                 text: "当前音频源";
-                color: Theme.text;
                 font-size: 15px;
                 font-weight: 600;
                 vertical-alignment: TextVerticalAlignment.center;
@@ -137,6 +136,7 @@ export component RoutePage inherits Rectangle {
                 min-height: 0px;
                 VerticalLayout {
                     width: 100%;
+                    padding-right: 18px;
                     spacing: 8px;
                     for title[index] in root.source-titles: SourceRow {
                         kind: index < root.source-kinds.length
@@ -191,25 +191,11 @@ export component RoutePage inherits Rectangle {
                             root.source-menu-index = -1;
                         }
                         route-running: root.running;
-                        mics <=> root.mics;
-                        mic-selection-changed => {
-                            root.mic-mix-changed(root.mix-mic);
-                        }
-                        mic-index <=> root.mic-index;
 
                         outputs <=> root.outputs;
                         initial-output-index: index < root.source-output-indices.length
                             ? root.source-output-indices[index]
                             : root.output-index;
-                        volume-db: index < root.source-volume-dbs.length
-                            ? root.source-volume-dbs[index]
-                            : "0.0 dB";
-                        peak-value: index < root.source-peak-values.length
-                            ? root.source-peak-values[index]
-                            : 0.0;
-                        peak-db: index < root.source-peak-dbs.length
-                            ? root.source-peak-dbs[index]
-                            : "-∞ dB";
                         volume: index < root.source-volumes.length
                             ? root.source-volumes[index]
                             : 100;
