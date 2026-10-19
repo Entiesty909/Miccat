@@ -72,9 +72,12 @@ impl AudioEngine {
         if device_ids.is_empty() {
             return Err(Error::RenderInit("no output devices"));
         }
-        if routes.is_some_and(|routes| {
-            routes.process >= device_ids.len()
-                || routes.file >= device_ids.len()
+        if routes.as_ref().is_some_and(|routes| {
+            routes
+                .process
+                .iter()
+                .any(|index| *index >= device_ids.len())
+                || routes.file.iter().any(|index| *index >= device_ids.len())
                 || routes.mic >= device_ids.len()
         }) {
             return Err(Error::RenderInit("source output index is invalid"));
@@ -96,12 +99,16 @@ impl AudioEngine {
         let capacity =
             ((canonical.sample_rate as usize).saturating_mul(canonical.channels as usize) / 2)
                 .max(8192);
-        let process_rings: Vec<Arc<SpscRing>> = (0..4)
+        let process_rings: Vec<Arc<SpscRing>> = (0..super::PROCESS_SLOTS)
             .map(|_| Arc::new(SpscRing::with_capacity_samples(capacity)))
             .collect();
         let mic_ring = Arc::new(SpscRing::with_capacity_samples(capacity));
-        let sfx_ring = Arc::new(SpscRing::with_capacity_samples(capacity));
+        let sfx_rings: Vec<Arc<SpscRing>> = (0..super::SFX_SLOTS)
+            .map(|_| Arc::new(SpscRing::with_capacity_samples(capacity)))
+            .collect();
         let stop = Arc::new(AtomicBool::new(false));
+        let process_volumes = self.process_volumes.clone();
+        let sfx_volumes = self.sfx_volumes.clone();
         let mut targets = Vec::with_capacity(clients.len());
 
         for (target_index, client) in clients.into_iter().enumerate() {
@@ -109,25 +116,35 @@ impl AudioEngine {
             let target_capacity =
                 ((target.sample_rate as usize).saturating_mul(target.channels as usize) / 2)
                     .max(8192);
-            let target_process: Vec<Arc<SpscRing>> = (0..4)
+            let target_process: Vec<Arc<SpscRing>> = (0..super::PROCESS_SLOTS)
                 .map(|_| Arc::new(SpscRing::with_capacity_samples(target_capacity)))
                 .collect();
             let target_mic = Arc::new(SpscRing::with_capacity_samples(target_capacity));
-            let target_sfx = Arc::new(SpscRing::with_capacity_samples(target_capacity));
-            let (process_enabled, file_enabled, mic_enabled) =
-                routes.map_or((true, true, true), |routes| {
+            let target_sfx: Vec<Arc<SpscRing>> = (0..super::SFX_SLOTS)
+                .map(|_| Arc::new(SpscRing::with_capacity_samples(target_capacity)))
+                .collect();
+            let (process_enabled, file_enabled, mic_enabled) = routes.as_ref().map_or_else(
+                || (vec![true; 4], vec![true; 4], true),
+                |routes| {
                     (
-                        routes.process == target_index,
-                        routes.file == target_index,
+                        (0..super::PROCESS_SLOTS)
+                            .map(|slot| routes.process.get(slot) == Some(&target_index))
+                            .collect(),
+                        (0..super::SFX_SLOTS)
+                            .map(|slot| routes.file.get(slot) == Some(&target_index))
+                            .collect(),
                         routes.mic == target_index,
                     )
-                });
+                },
+            );
             let render = spawn_target_render(
                 self,
                 client,
                 target_process.clone(),
                 target_mic.clone(),
                 target_sfx.clone(),
+                process_volumes.clone(),
+                sfx_volumes.clone(),
                 stop.clone(),
                 self.status.clone(),
                 self.running.clone(),
@@ -136,7 +153,7 @@ impl AudioEngine {
                 format: target,
                 process_rings: target_process,
                 mic_ring: target_mic,
-                sfx_ring: target_sfx,
+                sfx_rings: target_sfx,
                 process_enabled,
                 mic_enabled,
                 sfx_enabled: file_enabled,
@@ -151,7 +168,7 @@ impl AudioEngine {
         let fanout_stop = stop.clone();
         let process_source = process_rings.clone();
         let mic_source = mic_ring.clone();
-        let sfx_source = sfx_ring.clone();
+        let sfx_source = sfx_rings.clone();
         let fanout = thread::Builder::new()
             .name("audio-fanout".into())
             .spawn(move || {
@@ -169,14 +186,14 @@ impl AudioEngine {
         let (sfx_tx, sfx_rx) = crate::audio::sfx::channel();
         let sfx_stop = Arc::new(AtomicBool::new(false));
         let sfx_stop_thread = sfx_stop.clone();
-        let sfx_ring_thread = sfx_ring.clone();
+        let sfx_rings_thread = sfx_rings.clone();
         let sfx_peak = Arc::new(AtomicU32::new(0.0f32.to_bits()));
         let sfx_peak_thread = sfx_peak.clone();
         let sfx_thread = thread::Builder::new()
             .name("sfx-mixer".into())
             .spawn(move || {
                 crate::audio::sfx::run_sfx_loop(
-                    sfx_ring_thread,
+                    sfx_rings_thread,
                     canonical,
                     sfx_stop_thread,
                     sfx_peak_thread,

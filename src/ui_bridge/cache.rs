@@ -28,6 +28,12 @@ pub(super) struct UiCache {
     pub(super) selected_pids: Vec<u32>,
     /// 已加入但暂时关闭的进程 PID；关闭只影响路由，不移除卡片。
     pub(super) disabled_pids: Vec<u32>,
+    /// 各进程卡片的独立增益。
+    pub(super) process_volumes: Vec<f32>,
+    /// 各进程卡片静音前的增益。
+    pub(super) process_muted_volumes: Vec<Option<f32>>,
+    /// 各进程卡片的独立输出设备 ID。
+    pub(super) process_output_ids: Vec<Option<String>>,
     /// 是否暂时从路由页隐藏音频文件源。
     pub(super) file_source_hidden: bool,
     /// 是否暂时从路由页隐藏麦克风源。
@@ -62,12 +68,16 @@ pub(super) struct UiCache {
     pub(super) route_audio_entries: Vec<usize>,
     /// 与 `route_audio_entries` 对齐的用户启用状态。
     pub(super) route_audio_enabled: Vec<bool>,
+    /// 各音频卡片的独立增益。
+    pub(super) audio_volumes: Vec<f32>,
+    /// 各音频卡片静音前的增益。
+    pub(super) audio_muted_volumes: Vec<Option<f32>>,
+    /// 各音频卡片的独立输出设备 ID。
+    pub(super) audio_output_ids: Vec<Option<String>>,
     /// 暂停时可恢复的条目、采样位置和播放目标。
     pub(super) paused_audio: Option<(config::AudioEntry, u64, PlaybackTarget)>,
     /// 当前列表播放目标。
     pub(super) playback_target: PlaybackTarget,
     /// 用户选中的 render 设备 ID，供刷新设备列表时保留选择。
     pub(super) selected_device_ids: Vec<String>,
-    /// 每个源静音前的增益，用于点击静音按钮后恢复。
-    pub(super) muted_volumes: [Option<f32>; 3],
 }

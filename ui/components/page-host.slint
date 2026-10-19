@@ -286,14 +286,6 @@ export component PageHost inherits Rectangle {
         duration-seconds <=> root.duration-seconds;
         playing <=> root.playing;
         paused <=> root.paused;
-        file-volume: root.source-volumes.length > 1
-            ? root.source-volumes[1]
-            : 100;
-        loop <=> root.loop;
-        preview-enabled <=> root.preview-enabled;
-        devices <=> root.outputs;
-        route-running <=> root.running;
-        file-output-index <=> root.file-output-index;
         category-menu-open <=> root.category-menu-open;
         entry-menu-open <=> root.entry-menu-open;
         category-menu-x <=> root.category-menu-x;
@@ -322,14 +314,10 @@ export component PageHost inherits Rectangle {
         progress-seek(value) => { root.progress-seek(value); }
         add-files => { root.add-files(); }
         stop => { root.audio-stop(); }
-        play-action(mode) => { root.play-action(mode); }
         pause-toggle => { root.pause-toggle(); }
         previous => { root.previous(); }
         next => { root.next(); }
         preview-enabled-toggled(value) => { root.preview-enabled-toggled(value); }
-        file-volume-edited(value) => { root.source-volume-edited(1, value); }
-        preview-volume-edited(value) => { root.preview-volume-edited(value); }
-        file-output-changed(value) => { root.file-output-changed(value); }
         search-edited(value) => { root.search-edited(value); }
         sort-toggled => { root.sort-toggled(); }
         page-changed(value) => { root.page-changed(value); }

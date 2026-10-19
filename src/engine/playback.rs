@@ -170,6 +170,7 @@ fn start_streams(
 
     if let (Some(sender), Some(rx)) = (sfx_sender, sfx_stream) {
         let _ = sender.send(SfxCommand::PlayStream {
+            slot: super::PLAYBACK_SLOT,
             sample_rate: info.sample_rate,
             channels: info.channels,
             volume: 1.0,
@@ -217,7 +218,7 @@ pub(crate) fn stop(
         state.started = None;
     }
     if let Some(sender) = sfx_sender {
-        let _ = sender.send(SfxCommand::StopAll);
+        let _ = sender.send(SfxCommand::StopSlot(super::PLAYBACK_SLOT));
     }
     monitor::request_stop(monitor_handle);
 }
@@ -300,7 +301,11 @@ impl AudioEngine {
 
 impl AudioEngine {
     /// 把一个音频条目追加到当前路由 SFX 混音器，不停止其它文件流。
-    pub fn play_file_source(&self, entry: &crate::config::AudioEntry) -> Result<(), Error> {
+    pub fn play_file_source(
+        &self,
+        entry: &crate::config::AudioEntry,
+        slot: usize,
+    ) -> Result<(), Error> {
         let sender = self.sfx_sender()?;
         let request = FilePlaybackRequest {
             target: PlaybackTarget::Route,
@@ -316,13 +321,20 @@ impl AudioEngine {
                     return;
                 };
                 let _ = sender.send(SfxCommand::PlayStream {
+                    slot,
                     sample_rate: info.sample_rate,
                     channels: info.channels,
                     volume: 1.0,
                     rx,
                 });
             })
-            .map_err(|_| Error::RenderInit("spawn file source"))?;
-        Ok(())
+            .map(|_| ())
+            .map_err(|_| Error::RenderInit("spawn file source"))
+    }
+    /// 停止指定音频卡片的路由流，不影响其他卡片。
+    pub fn stop_file_source(&self, slot: usize) -> Result<(), Error> {
+        self.sfx_sender()?
+            .send(SfxCommand::StopSlot(slot))
+            .map_err(|_| Error::RenderInit("sfx is closed"))
     }
 }

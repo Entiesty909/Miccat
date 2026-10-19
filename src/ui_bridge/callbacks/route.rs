@@ -1,6 +1,6 @@
 //! route 相关 Slint 回调注册。
 mod refresh;
-mod sources;
+pub(super) mod sources;
 
 use super::super::*;
 use slint::{ComponentHandle, Model};
@@ -125,50 +125,56 @@ fn register_2(ui: &MainWindow, state: &AppState) {
                 return;
             };
             let replace_index = ui.get_source_replace_index();
-            let changed = if replace_index >= 0 {
+            let mut cache_state = cache.borrow_mut();
+            if replace_index >= 0 {
                 let source_kinds = ui.get_source_kinds();
                 let source_index = replace_index as usize;
                 let slot = (0..source_index)
                     .filter(|row| source_kinds.row_data(*row) == Some(0))
                     .count();
-                let mut cache_state = cache.borrow_mut();
-                if source_kinds.row_data(source_index) == Some(0)
-                    && slot < cache_state.selected_pids.len()
+                if source_kinds.row_data(source_index) != Some(0)
+                    || slot >= cache_state.selected_pids.len()
                 {
-                    cache_state.selected_pids[slot] = pid;
-                    cache_state
-                        .disabled_pids
-                        .retain(|disabled| *disabled != pid);
-                    true
-                } else {
-                    false
+                    return;
                 }
+                if sources::duplicate_process(&cache_state.selected_pids, pid, Some(slot)) {
+                    ui.set_error_text("该进程已经添加，不能创建重复音频源".into());
+                    return;
+                }
+                cache_state.selected_pids[slot] = pid;
+                cache_state
+                    .disabled_pids
+                    .retain(|disabled| *disabled != pid);
             } else {
-                let mut cache_state = cache.borrow_mut();
-                if cache_state.selected_pids.contains(&pid) {
-                    false
-                } else {
-                    cache_state.selected_pids.push(pid);
-                    true
+                if sources::duplicate_process(&cache_state.selected_pids, pid, None) {
+                    ui.set_error_text("该进程已经添加，不能创建重复音频源".into());
+                    return;
                 }
-            };
-            ui.set_source_replace_index(-1);
-            if changed {
-                if ui.get_running() {
-                    let wanted = {
-                        let cache_state = cache.borrow();
-                        cache_state
-                            .selected_pids
-                            .iter()
-                            .copied()
-                            .filter(|pid| !cache_state.disabled_pids.contains(pid))
-                            .collect::<Vec<_>>()
-                    };
-                    let _ = engine.replace_process_sources(&wanted);
-                }
-                super::super::persist::save_process_selection(&cache, &app_config, &save_queue);
-                super::super::sources::update(&ui, &state_for_update);
+                cache_state.selected_pids.push(pid);
+                cache_state
+                    .process_volumes
+                    .push(app_config.borrow().mix.process);
+                cache_state.process_muted_volumes.push(None);
+                cache_state
+                    .process_output_ids
+                    .push(app_config.borrow().output.process_output_id.clone());
             }
+            drop(cache_state);
+            ui.set_source_replace_index(-1);
+            if ui.get_running() {
+                let wanted = {
+                    let cache_state = cache.borrow();
+                    cache_state
+                        .selected_pids
+                        .iter()
+                        .copied()
+                        .filter(|pid| !cache_state.disabled_pids.contains(pid))
+                        .collect::<Vec<_>>()
+                };
+                let _ = engine.replace_process_sources(&wanted);
+            }
+            super::super::persist::save_process_selection(&cache, &app_config, &save_queue);
+            super::super::sources::update(&ui, &state_for_update);
         });
     }
     {

@@ -62,6 +62,16 @@ pub fn run_ui() -> Result<(), Error> {
         selected_device_ids: persisted.output.device_ids.clone(),
         device_selected: Vec::new(),
         selected_pids: Vec::new(),
+        process_volumes: persisted.mix.process_volumes.clone(),
+        process_output_ids: persisted
+            .output
+            .process_output_ids
+            .iter()
+            .cloned()
+            .map(Some)
+            .collect(),
+        audio_volumes: persisted.mix.sfx_volumes.clone(),
+        audio_output_ids: Vec::new(),
         set_default_communications: persisted.output.set_default_communications,
         audio_categories: persisted.audio_categories.clone(),
         audio_entries: persisted.audio_entries.clone(),
@@ -80,14 +90,18 @@ pub fn run_ui() -> Result<(), Error> {
         audio_edit: audio_edit_window,
     });
     let saved_mics = Rc::new(RefCell::new(Vec::<(u32, String)>::new()));
-    engine.set_monitor_default(persisted.preview_enabled);
-    engine.set_monitor_volume(persisted.preview_volume);
     let hotkey = Rc::new(RefCell::new(persisted.hotkeys.toggle_route));
     engine.set_volume(persisted.mix.process);
     engine.set_mic_volume(persisted.mix.mic);
     ui.set_master_volume((persisted.mix.master * 100.0).clamp(0.0, 100.0));
     engine.set_master_volume(persisted.mix.master);
     engine.set_sfx_volume(persisted.mix.sfx);
+    for (slot, volume) in persisted.mix.process_volumes.iter().copied().enumerate() {
+        engine.set_process_volume(slot, volume);
+    }
+    for (slot, volume) in persisted.mix.sfx_volumes.iter().copied().enumerate() {
+        engine.set_sfx_volume_for_slot(slot, volume);
+    }
     ui.set_mix_mic(persisted.route.mix_mic);
     ui.set_audio_file_volume((persisted.mix.sfx * 100.0).clamp(0.0, 100.0));
     ui.set_microphone_input_volume((persisted.mix.mic * 100.0).clamp(0.0, 100.0));
@@ -310,6 +324,7 @@ fn register_window_callbacks(ui: &MainWindow, state: &AppState) {
         .add_source
         .on_audio_file_output_changed(move |index| {
             if let Some(main) = main_weak.upgrade() {
+                main.set_file_output_index(index);
                 main.invoke_file_output_changed(index);
             }
         });

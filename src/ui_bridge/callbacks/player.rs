@@ -22,7 +22,7 @@ fn register_file_volume(ui: &MainWindow, state: &AppState) {
     let ui_weak = ui.as_weak();
     ui.on_audio_file_volume_edited(move |value| {
         let volume = (value / 100.0).clamp(0.0, 1.0);
-        engine.set_sfx_volume(volume);
+        engine.set_sfx_volume_for_slot(crate::engine::PLAYBACK_SLOT, volume);
         app_config.borrow_mut().mix.sfx = volume;
         save_queue.schedule();
         if let Some(ui) = ui_weak.upgrade() {

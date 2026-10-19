@@ -108,6 +108,7 @@ Slint UI / 50 ms 状态轮询
 ```
 
 `open_outputs()` 为最多 4 个进程槽、麦克风和 SFX 建源 ring；每个输出目标有独立目标 ring 与 render 线程。
+路由运行态的进程和音频文件源按最多 4 个槽位保存独立增益与 render 目标；`SourceOutputRoutes` 以进程/文件槽位集合和麦克风下标描述目标。SFX mixer 按文件槽位保留并行流，停止或替换一个槽位不清除其它槽位。
 Process/Mic capture、render 和 monitor render 在线程内初始化 COM MTA；fanout 和 SFX mixer 不调用 UI。
 文件解码经 32 项有界同步通道分块交付，播放状态由引擎持有。
 

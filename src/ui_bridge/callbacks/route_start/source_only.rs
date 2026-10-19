@@ -19,12 +19,26 @@ pub(crate) fn start_source_only(
     let output_id = {
         let cache_state = cache.borrow();
         let config = app_config.borrow();
-        let configured = match kind {
-            0 => config.output.process_output_id.as_deref(),
-            1 => config.output.file_output_id.as_deref(),
-            _ => config.output.mic_output_id.as_deref(),
+        let configured = if kind == 1 {
+            let source_index = usize::try_from(source_index).ok();
+            let kinds = ui.get_source_kinds();
+            source_index
+                .map(|index| {
+                    (0..index)
+                        .filter(|row| kinds.row_data(*row) == Some(1))
+                        .count()
+                })
+                .and_then(|slot| cache_state.audio_output_ids.get(slot))
+                .and_then(Option::as_deref)
+                .map(str::to_owned)
+        } else {
+            match kind {
+                0 => config.output.process_output_id.as_deref(),
+                _ => config.output.mic_output_id.as_deref(),
+            }
+            .map(str::to_owned)
         };
-        configured.map(str::to_owned).or_else(|| {
+        configured.or_else(|| {
             cache_state
                 .dests
                 .get(ui.get_device_index().max(0) as usize)
@@ -44,8 +58,8 @@ pub(crate) fn start_source_only(
     let file_state = engine.file_state();
     engine.stop();
     let routes = crate::engine::SourceOutputRoutes {
-        process: 0,
-        file: 0,
+        process: vec![0; crate::engine::PROCESS_SLOTS],
+        file: vec![0; crate::engine::SFX_SLOTS],
         mic: 0,
     };
     if let Err(error) = engine.open_routed_outputs(&[output_id], routes) {

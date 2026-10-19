@@ -63,7 +63,8 @@ Live Preview 只保留属性、模型和回调；改变 Rust 代码直接使用�
   ① 试听（monitor）持有系统默认播放设备且未被释放（检查 `AudioEngine::stop()` 是否走到
   `monitor::release()`）；② 同一虚拟驱动的两个端点被同时选中（如 VB-Cable 的
   「CABLE虚拟扬声器」与「CABLE In 16ch」）。判定按 `PKEY_DeviceInterface_FriendlyName`
-  分组；路由启动会把冲突目标折叠到同一设备。
+  分组。音频库详情不再提供文件输出下拉框；路由启动没有卡片级文件目标时回退到主输出，历史
+  `file_output_id` 不会单独打开未使用的虚拟端点。
 - 播放重复小片段：检查 `audio/decode.rs` 的 MF pending samples，
   再看 `audio/sfx.rs` / `audio/preview.rs` 是否只删除已消费的完整帧。
 - 切歌/停止进度异常：检查 `AudioEngine::play_file()`、`stop_file()` 和 `file_state()`；

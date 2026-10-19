@@ -1,10 +1,8 @@
-//! 音频库详情面板：展示选中文件的本地元数据和真实播放设置。
+//! 音频库详情面板：展示选中文件的本地元数据和管理字段。
 
 import { CheckBox, ComboBox, ScrollView } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
 import { Card } from "card.slint";
-import { PmButton } from "button.slint";
-import { SliderRow } from "slider-row.slint";
 
 export component AudioDetail inherits Card {
     in property <[string]> entries: [];
@@ -14,22 +12,13 @@ export component AudioDetail inherits Card {
     in property <[string]> sizes: [];
     in property <[string]> paths: [];
     in property <[string]> category-options: [];
-    in property <[string]> devices: [];
     in property <string> hotkey: "";
     in property <bool> listening-hotkey: false;
     in property <int> entry-index: -1;
-    in property <bool> route-running: false;
     in-out property <int> category-index: 0;
-    in-out property <int> output-index: 0;
-    in-out property <float> file-volume: 100;
     in-out property <bool> preview-enabled: false;
     in-out property <bool> loop: false;
-    callback play();
-    callback preview();
-    callback context();
-    callback output-changed(int);
     callback category-changed(int);
-    callback file-volume-edited(float);
     callback preview-toggled(bool);
     callback loop-toggled(bool);
     callback hotkey-bind();
@@ -106,47 +95,6 @@ export component AudioDetail inherits Card {
                         }
                     }
                 }
-            }
-            HorizontalLayout {
-                height: 38px;
-                spacing: 6px;
-                PmButton {
-                    label: "▶  播放";
-                    filled: true;
-                    enabled: root.entry-index >= 0;
-                    clicked => { root.play(); }
-                }
-                PmButton {
-                    label: "\u{E767}  本机试听";
-                    enabled: root.entry-index >= 0;
-                    clicked => { root.preview(); }
-                }
-                PmButton {
-                    label: "\u{E712}";
-                    icon-only: true;
-                    button-width: 34px;
-                    enabled: root.entry-index >= 0;
-                    clicked => { root.context(); }
-                }
-            }
-            Rectangle { height: 1px; width: 100%; background: Theme.border; }
-            Text {
-                text: "播放设置";
-                color: Theme.text;
-                font-size: 13px;
-                font-weight: 600;
-            }
-            Text { text: "输出设备"; color: Theme.text2; font-size: 11px; }
-            ComboBox {
-                model: root.devices;
-                current-index <=> root.output-index;
-                enabled: root.entry-index >= 0 && !root.route-running;
-                selected(value) => { root.output-changed(root.output-index); }
-            }
-            SliderRow {
-                label: "音量";
-                value <=> root.file-volume;
-                edited(value) => { root.file-volume-edited(value); }
             }
             Text {
                 text: "快捷键";

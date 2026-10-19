@@ -24,30 +24,28 @@ Miccat 没有服务端进程、HTTP/REST API、WebSocket、登录、数据库或
 AudioEngine::new()
 AudioEngine::open_output(device_id)
 AudioEngine::open_outputs(device_ids)
+AudioEngine::open_routed_outputs(device_ids, SourceOutputRoutes)
 AudioEngine::set_process_source(pid)
 AudioEngine::add_process_source(pid, slot)
+AudioEngine::set_process_volume(slot, value)
+AudioEngine::set_sfx_volume_for_slot(slot, value)
 AudioEngine::set_mic_source(mic_id)
-AudioEngine::set_volume(value)
-AudioEngine::set_mic_volume(value)
-AudioEngine::set_sfx_volume(value)
+AudioEngine::set_volume(value) / set_mic_volume(value) / set_sfx_volume(value)
 AudioEngine::set_master_volume(value)
-AudioEngine::volume() / mic_volume() / sfx_volume()
-AudioEngine::set_monitor_default(enabled)
-AudioEngine::set_monitor_volume(value)
+AudioEngine::volume() / process_volume(slot) / mic_volume() / sfx_volume_for_slot(slot)
 AudioEngine::play_file(entry, start_hns, target)
+AudioEngine::play_file_source(entry, slot)
+AudioEngine::stop_file_source(slot)
 AudioEngine::stop_file()
 AudioEngine::file_state()
 AudioEngine::stop()
 ```
 
-`PlaybackTarget::{Both, Monitor, Route}` 分别选择路由与本机监听双路、本机 monitor 或活动路由 SFX mixer。
-`play_file()` 在引擎后台解码；`file_state()` 返回状态、名称、路径、时长、位置和错误。
-当前 seek 由 UI 停止旧流后以目标 `start_hns` 重新调用 `play_file()`，没有独立 `seek_file()` API。
+`SourceOutputRoutes` 为进程槽和音频文件槽分别保存 render 下标；未使用独立路由时，`open_outputs()` 将所有槽位送到全部目标。进程/文件增益按槽位使用原子值，渲染线程不会因修改一张卡片而读取另一张卡片的增益。
 
-`OutputConfig.device_ids` 保存用户多选的 render 设备 ID；刷新设备列表按 ID 恢复选择。
-源卡片进程开关只影响 `UiCache.disabled_pids`，卡片保留；删除进程源才从 `selected_pids` 移除。
-文件源开关只更新 `UiCache.route_file_enabled` 或对应 `route_audio_enabled` 槽位；路由未运行时不会启动全局路由，只有状态栏“开始转发”负责启动。运行中的启用文件通过 `play_file_source()` 追加到 SFX mixer，不停止其它文件流。
-`UiCache.route_audio_entries` 保存多个待加入路由的真实音频条目；无进程时，已启用文件源或已选麦克风也可以启动完整路由。
+`play_file_source(entry, slot)` 在 SFX mixer 中替换同槽旧流、保留其它槽流；`stop_file_source(slot)` 只停止指定文件卡片。
+路由启动的文件槽位只读取路由卡片的 `audio_output_ids`；没有卡片级目标时回退到当前主输出，不再因为历史 `file_output_id` 打开未使用的虚拟端点。
+
 设备 ID 列表为空时，启动路由回退为单个 `device_id`。
 源行中的进程/文件/麦克风音量调用相应 AudioEngine 原子增益并写入 `MixConfig`。
 路由链路：

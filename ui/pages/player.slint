@@ -54,12 +54,8 @@ export component PlayerPage inherits Rectangle {
     in-out property <float> duration-seconds: 0;
     in-out property <bool> paused: false;
     in-out property <bool> preview-enabled: false;
-    in-out property <float> file-volume: 100;
     in-out property <bool> loop: false;
     in-out property <bool> playing: false;
-    in-out property <bool> route-running: false;
-    in-out property <[string]> devices: [];
-    in-out property <int> file-output-index: 0;
     in-out property <bool> category-menu-open: false;
     in-out property <bool> entry-menu-open: false;
     in-out property <length> category-menu-x: 0px;
@@ -80,14 +76,10 @@ export component PlayerPage inherits Rectangle {
     callback progress-seek(float);
     callback add-files();
     callback stop();
-    callback play-action(int);
     callback pause-toggle();
     callback previous();
     callback next();
     callback preview-enabled-toggled(bool);
-    callback file-volume-edited(float);
-    callback preview-volume-edited(float);
-    callback file-output-changed(int);
     callback search-edited(string);
     callback sort-toggled();
     callback page-changed(int);
@@ -261,8 +253,6 @@ export component PlayerPage inherits Rectangle {
                 sizes <=> root.entry-sizes;
                 paths <=> root.entry-paths;
                 category-options <=> root.categories;
-                devices <=> root.devices;
-                route-running <=> root.route-running;
                 hotkey: root.entry-index >= 0
                     && root.entry-index < root.entry-hotkeys.length
                     ? root.entry-hotkeys[root.entry-index]
@@ -270,20 +260,11 @@ export component PlayerPage inherits Rectangle {
                 listening-hotkey: root.listening-entry-hotkey;
                 entry-index <=> root.entry-index;
                 category-index <=> root.entry-category-index;
-                output-index <=> root.file-output-index;
-                file-volume <=> root.file-volume;
                 preview-enabled <=> root.preview-enabled;
                 loop <=> root.loop;
-                play => { root.play-action(0); }
-                preview => { root.play-action(1); }
-                context => { root.entry-context(root.entry-index); }
                 hotkey-clear => { root.entry-hotkey-clear(); }
-                output-changed(value) => { root.file-output-changed(value); }
                 category-changed(value) => {
                     root.entry-category-changed(value);
-                }
-                file-volume-edited(value) => {
-                    root.file-volume-edited(value);
                 }
                 preview-toggled(value) => {
                     root.preview-enabled-toggled(value);

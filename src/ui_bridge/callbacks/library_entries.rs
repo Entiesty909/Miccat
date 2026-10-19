@@ -127,6 +127,7 @@ fn register_2(ui: &MainWindow, state: &AppState) {
 
 fn register_3(ui: &MainWindow, state: &AppState) {
     let cache = state.cache.clone();
+    let app_config = state.app_config.clone();
     {
         let ui_weak = ui.as_weak();
         let cache = cache.clone();
@@ -156,30 +157,53 @@ fn register_3(ui: &MainWindow, state: &AppState) {
                 return;
             };
             let replace_index = ui.get_source_replace_index();
-            {
-                let mut cache_state = cache.borrow_mut();
-                if replace_index >= 0 {
-                    let source_kinds = ui.get_source_kinds();
-                    let source_index = replace_index as usize;
-                    let file_slot = (0..source_index)
-                        .filter(|row| source_kinds.row_data(*row) == Some(1))
-                        .count();
-                    if source_kinds.row_data(source_index) == Some(1)
-                        && file_slot < cache_state.route_audio_entries.len()
-                    {
-                        cache_state.route_audio_entries[file_slot] = actual_index;
-                        if file_slot < cache_state.route_audio_enabled.len() {
-                            cache_state.route_audio_enabled[file_slot] = false;
-                        }
-                    }
-                } else if !cache_state.route_audio_entries.contains(&actual_index) {
-                    cache_state.route_audio_entries.push(actual_index);
-                    cache_state.route_audio_enabled.push(false);
+            let mut cache_state = cache.borrow_mut();
+            if replace_index >= 0 {
+                let source_kinds = ui.get_source_kinds();
+                let source_index = replace_index as usize;
+                let file_slot = (0..source_index)
+                    .filter(|row| source_kinds.row_data(*row) == Some(1))
+                    .count();
+                if source_kinds.row_data(source_index) != Some(1)
+                    || file_slot >= cache_state.route_audio_entries.len()
+                {
+                    return;
                 }
-                cache_state.route_audio_entry = Some(actual_index);
-                cache_state.route_file_enabled = false;
-                cache_state.file_source_hidden = false;
+                if super::route::sources::duplicate_audio(
+                    &cache_state.route_audio_entries,
+                    actual_index,
+                    Some(file_slot),
+                ) {
+                    ui.set_error_text("该音频已经添加，不能创建重复音频源".into());
+                    return;
+                }
+                cache_state.route_audio_entries[file_slot] = actual_index;
+                if file_slot < cache_state.route_audio_enabled.len() {
+                    cache_state.route_audio_enabled[file_slot] = false;
+                }
+            } else {
+                if super::route::sources::duplicate_audio(
+                    &cache_state.route_audio_entries,
+                    actual_index,
+                    None,
+                ) {
+                    ui.set_error_text("该音频已经添加，不能创建重复音频源".into());
+                    return;
+                }
+                cache_state.route_audio_entries.push(actual_index);
+                cache_state.route_audio_enabled.push(false);
+                cache_state.audio_volumes.push(app_config.borrow().mix.sfx);
+                cache_state.audio_muted_volumes.push(None);
+                let output_id = cache_state
+                    .dests
+                    .get(ui.get_file_output_index().max(0) as usize)
+                    .map(|device| device.render_id.clone());
+                cache_state.audio_output_ids.push(output_id);
             }
+            cache_state.route_audio_entry = Some(actual_index);
+            cache_state.route_file_enabled = false;
+            cache_state.file_source_hidden = false;
+            drop(cache_state);
             ui.set_source_replace_index(-1);
             ui.set_page(0);
             super::super::sources::update(&ui, &state_for_update);

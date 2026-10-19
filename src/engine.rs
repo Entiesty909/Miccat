@@ -16,6 +16,10 @@ use crate::audio::capture::{open_mic_capture, open_process_capture, run_capture_
 use crate::audio::com;
 use crate::audio::format::{AudioFormat, Converter, SampleKind};
 use crate::error::Error;
+pub(crate) const PROCESS_SLOTS: usize = 4;
+pub(crate) const FILE_SOURCE_SLOTS: usize = 4;
+pub(crate) const PLAYBACK_SLOT: usize = FILE_SOURCE_SLOTS;
+pub(crate) const SFX_SLOTS: usize = FILE_SOURCE_SLOTS + 1;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EngineStatus {
@@ -25,13 +29,13 @@ pub enum EngineStatus {
     DeviceGone,
     Error(String),
 }
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(crate) struct SourceOutputRoutes {
-    /// 在打开的 render 列表中承接进程源的下标。
-    pub(crate) process: usize,
-    /// 在打开的 render 列表中承接音频文件源的下标。
-    pub(crate) file: usize,
-    /// 在打开的 render 列表中承接麦克风源的下标。
+    /// 每个进程槽承接的 render 下标。
+    pub(crate) process: Vec<usize>,
+    /// 每个音频文件槽承接的 render 下标。
+    pub(crate) file: Vec<usize>,
+    /// 麦克风源承接的 render 下标。
     pub(crate) mic: usize,
 }
 
@@ -39,10 +43,10 @@ pub(super) struct TargetState {
     pub(super) format: AudioFormat,
     pub(super) process_rings: Vec<Arc<SpscRing>>,
     pub(super) mic_ring: Arc<SpscRing>,
-    pub(super) sfx_ring: Arc<SpscRing>,
-    pub(super) process_enabled: bool,
+    pub(super) sfx_rings: Vec<Arc<SpscRing>>,
+    pub(super) process_enabled: Vec<bool>,
     pub(super) mic_enabled: bool,
-    pub(super) sfx_enabled: bool,
+    pub(super) sfx_enabled: Vec<bool>,
     pub(super) render: JoinHandle<()>,
 }
 
@@ -75,6 +79,8 @@ struct SourceThreads {
 }
 
 pub struct AudioEngine {
+    process_volumes: Vec<Arc<AtomicU32>>,
+    sfx_volumes: Vec<Arc<AtomicU32>>,
     volume: Arc<AtomicU32>,
     mic_volume: Arc<AtomicU32>,
     sfx_volume: Arc<AtomicU32>,
@@ -96,11 +102,14 @@ impl Default for AudioEngine {
 
 impl AudioEngine {
     pub fn new() -> Self {
+        let default_gain = || Arc::new(AtomicU32::new(1.0f32.to_bits()));
         Self {
-            volume: Arc::new(AtomicU32::new(1.0f32.to_bits())),
-            mic_volume: Arc::new(AtomicU32::new(1.0f32.to_bits())),
-            sfx_volume: Arc::new(AtomicU32::new(1.0f32.to_bits())),
-            master: Arc::new(AtomicU32::new(1.0f32.to_bits())),
+            process_volumes: (0..PROCESS_SLOTS).map(|_| default_gain()).collect(),
+            sfx_volumes: (0..SFX_SLOTS).map(|_| default_gain()).collect(),
+            volume: default_gain(),
+            mic_volume: default_gain(),
+            sfx_volume: default_gain(),
+            master: default_gain(),
             route_peak: Arc::new(AtomicU32::new(0.0f32.to_bits())),
             running: Arc::new(AtomicBool::new(false)),
             status: Arc::new(Mutex::new(EngineStatus::Idle)),

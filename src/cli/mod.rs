@@ -189,13 +189,14 @@ fn probe_playback(
     let mut keep_tx = None;
     let source = if use_sfx {
         let (tx, commands) = audio::sfx::channel();
-        let ring_mixer = ring.clone();
+        let ring_mixer = vec![ring.clone()];
         let stop_mixer = stop.clone();
         let peak = Arc::new(AtomicU32::new(0.0f32.to_bits()));
         let source = thread::spawn(move || {
             audio::sfx::run_sfx_loop(ring_mixer, target, stop_mixer, peak, commands)
         });
         tx.send(audio::sfx::SfxCommand::PlayStream {
+            slot: 0,
             sample_rate: rate,
             channels,
             volume: 1.0,

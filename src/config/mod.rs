@@ -85,6 +85,12 @@ pub struct OutputConfig {
     /// 多选的 render 设备 ID；为空时退回 `device_id`。
     #[serde(default)]
     pub device_ids: Vec<String>,
+    /// 多个进程卡片各自使用的 render endpoint ID；旧配置回退到 process_output_id。
+    #[serde(default)]
+    pub process_output_ids: Vec<String>,
+    /// 多个音频卡片各自使用的 render endpoint ID；旧配置回退到 file_output_id。
+    #[serde(default)]
+    pub file_output_ids: Vec<String>,
     /// 进程来源使用的 render endpoint ID。
     #[serde(default)]
     pub process_output_id: Option<String>,
@@ -114,12 +120,18 @@ pub struct RouteConfig {
 /// 三路混音增益。
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MixConfig {
-    /// 进程源增益。
+    /// 进程源默认增益。
     pub process: f32,
+    /// 各进程卡片的独立增益；缺省时使用 process。
+    #[serde(default)]
+    pub process_volumes: Vec<f32>,
     /// 物理麦增益。
     pub mic: f32,
-    /// 音效/文件增益。
+    /// 音效/文件默认增益。
     pub sfx: f32,
+    /// 各音频卡片的独立增益；缺省时使用 sfx。
+    #[serde(default)]
+    pub sfx_volumes: Vec<f32>,
     /// 最终总增益。
     pub master: f32,
 }
@@ -128,8 +140,10 @@ impl Default for MixConfig {
     fn default() -> Self {
         Self {
             process: 1.0,
+            process_volumes: Vec::new(),
             mic: 1.0,
             sfx: 1.0,
+            sfx_volumes: Vec::new(),
             master: 1.0,
         }
     }

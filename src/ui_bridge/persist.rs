@@ -180,7 +180,19 @@ pub(super) fn restore_saved_selection(
             ui.set_mic_index(index as i32);
         }
     }
-    cache.borrow_mut().selected_pids = selected_pids;
+    let mut cache_state = cache.borrow_mut();
+    cache_state.selected_pids = selected_pids;
+    let process_count = cache_state.selected_pids.len();
+    cache_state
+        .process_volumes
+        .resize(process_count, saved.mix.process);
+    cache_state
+        .process_muted_volumes
+        .resize(process_count, None);
+    cache_state
+        .process_output_ids
+        .resize(process_count, saved.output.process_output_id.clone());
+    drop(cache_state);
     update_output_text(ui, cache);
 }
 
@@ -229,6 +241,18 @@ pub(super) fn persist_config(
             .map(|p| p.name.clone())
     });
     saved.mix.master = (ui.get_master_volume() / 100.0).clamp(0.0, 1.0);
+    saved.mix.process_volumes = c.process_volumes.clone();
+    saved.mix.sfx_volumes = c.audio_volumes.clone();
+    saved.output.process_output_ids = c
+        .process_output_ids
+        .iter()
+        .filter_map(|id| id.clone())
+        .collect();
+    saved.output.file_output_ids = c
+        .audio_output_ids
+        .iter()
+        .filter_map(|id| id.clone())
+        .collect();
 }
 /// 将当前已选进程名称防抖写回配置，恢复时再解析为新 PID。
 pub(super) fn save_process_selection(

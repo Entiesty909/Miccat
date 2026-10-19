@@ -19,13 +19,15 @@ pub struct StreamChunk {
 pub enum SfxCommand {
     /// 消费后台解码的有界音频流。
     PlayStream {
+        /// 目标音频卡片槽位。
+        slot: usize,
         sample_rate: u32,
         channels: u16,
         volume: f32,
         rx: Receiver<StreamChunk>,
     },
-    /// 清空所有声音。
-    StopAll,
+    /// 停止一个音频卡片槽位。
+    StopSlot(usize),
 }
 
 /// 创建声板命令通道。
@@ -33,9 +35,8 @@ pub fn channel() -> (Sender<SfxCommand>, Receiver<SfxCommand>) {
     mpsc::channel()
 }
 
-/// SFX mixer：从有界流构建固定块并记录峰值。
 pub fn run_sfx_loop(
-    ring: Arc<SpscRing>,
+    rings: Vec<Arc<SpscRing>>,
     render: AudioFormat,
     stop: Arc<AtomicBool>,
     peak: Arc<AtomicU32>,
@@ -43,43 +44,51 @@ pub fn run_sfx_loop(
 ) {
     let channels = render.channels as usize;
     let frames = (render.sample_rate as usize / 100).max(64);
-    // 允许领先 render 端 10 块（约 100 ms）；超过就等 render 消费，不用固定 sleep 追时间。
-    // 固定 sleep 会因 Windows 计时器粒度慢于实时，把环慢慢掏空；写满则由 push_latest
-    // 丢最旧并顶掉读指针，听起来就是同一小段被反复覆盖。
     let lead = frames * channels * 10;
-    let mut players: Vec<SfxPlayer> = Vec::with_capacity(1);
-    let mut block = vec![0.0f32; frames * channels];
+    let mut players: Vec<SfxPlayer> = Vec::with_capacity(rings.len());
+    let mut blocks = vec![vec![0.0f32; frames * channels]; rings.len()];
     while !stop.load(std::sync::atomic::Ordering::Acquire) {
         while let Ok(command) = rx.try_recv() {
             match command {
                 SfxCommand::PlayStream {
+                    slot,
                     sample_rate,
                     channels,
                     volume,
                     rx,
                 } => {
-                    players.clear();
+                    players.retain(|player| player.slot() != slot);
                     players.push(SfxPlayer::Stream(StreamPlayer::new(
+                        slot,
                         sample_rate,
                         channels,
                         volume,
                         rx,
                     )));
                 }
-                SfxCommand::StopAll => players.clear(),
+                SfxCommand::StopSlot(slot) => {
+                    players.retain(|player| player.slot() != slot);
+                }
             }
         }
-        block.fill(0.0);
+        for block in &mut blocks {
+            block.fill(0.0);
+        }
         players.retain_mut(|player| {
-            player.mix_into(&mut block, render);
+            if let Some(block) = blocks.get_mut(player.slot()) {
+                player.mix_into(block, render);
+            }
             !player.finished()
         });
-        let level = block
+        let level = blocks
             .iter()
+            .flat_map(|block| block.iter())
             .map(|sample| sample.abs())
             .fold(0.0f32, f32::max);
         peak.fetch_max(level.to_bits(), Ordering::Relaxed);
-        ring.push_paced(&block, lead, &stop);
+        for (ring, block) in rings.iter().zip(blocks.iter()) {
+            ring.push_paced(block, lead, &stop);
+        }
     }
 }
 enum SfxPlayer {
@@ -87,6 +96,12 @@ enum SfxPlayer {
 }
 
 impl SfxPlayer {
+    fn slot(&self) -> usize {
+        match self {
+            Self::Stream(player) => player.slot,
+        }
+    }
+
     fn finished(&self) -> bool {
         match self {
             Self::Stream(player) => player.finished,
@@ -100,6 +115,7 @@ impl SfxPlayer {
     }
 }
 struct StreamPlayer {
+    slot: usize,
     sample_rate: u32,
     channels: usize,
     volume: f32,
@@ -110,8 +126,15 @@ struct StreamPlayer {
     finished: bool,
 }
 impl StreamPlayer {
-    fn new(sample_rate: u32, channels: u16, volume: f32, rx: Receiver<StreamChunk>) -> Self {
+    fn new(
+        slot: usize,
+        sample_rate: u32,
+        channels: u16,
+        volume: f32,
+        rx: Receiver<StreamChunk>,
+    ) -> Self {
         Self {
+            slot,
             sample_rate,
             channels: channels.max(1) as usize,
             volume: volume.clamp(0.0, 1.0),

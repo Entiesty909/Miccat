@@ -109,6 +109,11 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
             continue;
         };
         let enabled = !cache.disabled_pids.contains(&pid);
+        let volume = cache
+            .process_volumes
+            .get(slot)
+            .copied()
+            .unwrap_or_else(|| state.engine.process_volume(slot));
         let peak = state.engine.process_peak(slot);
         rows.kinds.push(0);
         rows.icons.push("\u{E7F4}".into());
@@ -119,16 +124,25 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
         rows.details.push(format!("PID: {pid}").into());
         rows.statuses.push("".into());
         rows.active.push(enabled);
-        rows.volumes.push(state.engine.volume() * 100.0);
+        rows.volumes.push(volume * 100.0);
         rows.peak_dbs.push(peak_db(peak));
         rows.peak_values.push(peak);
-        rows.volume_dbs.push(gain_db(state.engine.volume() * 100.0));
-        rows.muted.push(state.engine.volume() <= 0.001);
+        rows.volume_dbs.push(gain_db(volume * 100.0));
+        rows.muted.push(volume <= 0.001);
         rows.paused.push(false);
         rows.output_indices.push(output_index(
             &cache.dests,
-            settings.process_output_id.as_deref(),
-            global_output,
+            cache
+                .process_output_ids
+                .get(slot)
+                .and_then(Option::as_deref),
+            cache
+                .dests
+                .iter()
+                .position(|device| {
+                    Some(device.render_id.as_str()) == settings.process_output_id.as_deref()
+                })
+                .unwrap_or(global_output),
         ));
     }
     drop(cache);
@@ -141,7 +155,7 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
                 cache
                     .route_audio_entry
                     .and_then(|index| cache.audio_entries.get(index).cloned())
-                    .map(|entry| vec![(entry, cache.route_file_enabled)])
+                    .map(|entry| vec![(0, entry, cache.route_file_enabled)])
                     .unwrap_or_default()
             } else {
                 cache
@@ -151,6 +165,7 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
                     .filter_map(|(slot, index)| {
                         cache.audio_entries.get(*index).cloned().map(|entry| {
                             (
+                                slot,
                                 entry,
                                 cache
                                     .route_audio_enabled
@@ -163,9 +178,17 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
                     .collect::<Vec<_>>()
             }
         };
-        for (entry, enabled) in audio_entries {
+        for (slot, entry, enabled) in audio_entries {
             let playing = file.path == entry.path && file.playing;
             let paused = file.path == entry.path && ui.get_player_paused();
+            let volume = state
+                .cache
+                .borrow()
+                .audio_volumes
+                .get(slot)
+                .copied()
+                .unwrap_or_else(|| state.engine.sfx_volume_for_slot(slot));
+            let output_fallback = global_output;
             add_file_row(
                 &mut rows,
                 &entry.name,
@@ -179,7 +202,7 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
                 },
                 (enabled, paused),
                 (
-                    state.engine.sfx_volume(),
+                    volume,
                     if playing {
                         state.engine.sfx_peak()
                     } else {
@@ -188,8 +211,13 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
                 ),
                 output_index(
                     &state.cache.borrow().dests,
-                    settings.file_output_id.as_deref(),
-                    global_output,
+                    state
+                        .cache
+                        .borrow()
+                        .audio_output_ids
+                        .get(slot)
+                        .and_then(Option::as_deref),
+                    output_fallback,
                 ),
             );
         }
@@ -236,11 +264,7 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
     }
 
     rows.apply(ui);
-    ui.set_file_output_index(output_index(
-        &state.cache.borrow().dests,
-        settings.file_output_id.as_deref(),
-        global_output,
-    ));
+    ui.set_file_output_index(global_output as i32);
 }
 /// 只更新现有源行的实时电平和启用状态，不重建图标或下拉模型。
 pub(super) fn update_dynamic(ui: &MainWindow, state: &AppState) {
@@ -252,30 +276,46 @@ pub(super) fn update_dynamic(ui: &MainWindow, state: &AppState) {
         let kind = kinds.row_data(row).unwrap_or(-1);
         let (peak, volume, active, paused) = match kind {
             0 => {
+                let mut slot = process_slot;
                 let mut peak = 0.0;
                 let mut active = false;
                 while process_slot < cache.selected_pids.len() {
-                    let slot = process_slot;
-                    let pid = cache.selected_pids[slot];
+                    let candidate_slot = process_slot;
+                    let pid = cache.selected_pids[candidate_slot];
                     process_slot += 1;
                     if cache.processes.iter().any(|process| process.pid == pid) {
+                        slot = candidate_slot;
                         peak = state.engine.process_peak(slot);
                         active = !cache.disabled_pids.contains(&pid);
                         break;
                     }
                 }
-                (peak, state.engine.volume(), active, false)
+                (
+                    peak,
+                    cache
+                        .process_volumes
+                        .get(slot)
+                        .copied()
+                        .unwrap_or_else(|| state.engine.process_volume(slot)),
+                    active,
+                    false,
+                )
             }
             1 => {
+                let slot = file_slot;
                 let active = cache
                     .route_audio_enabled
-                    .get(file_slot)
+                    .get(slot)
                     .copied()
                     .unwrap_or(cache.route_file_enabled);
                 file_slot += 1;
                 (
                     state.engine.sfx_peak(),
-                    state.engine.sfx_volume(),
+                    cache
+                        .audio_volumes
+                        .get(slot)
+                        .copied()
+                        .unwrap_or_else(|| state.engine.sfx_volume_for_slot(slot)),
                     active,
                     ui.get_player_paused(),
                 )

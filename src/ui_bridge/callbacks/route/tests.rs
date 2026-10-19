@@ -1,6 +1,6 @@
 //! 验证路由页进程行到当前进程选择的索引映射。
 
-use super::{process_source_slot, visible_process_pid};
+use super::{duplicate_audio, duplicate_process, process_source_slot, visible_process_pid};
 
 #[test]
 fn process_rows_map_to_their_selected_pid_slots() {
@@ -22,4 +22,18 @@ fn process_row_skips_stale_selected_process_ids() {
     assert_eq!(visible_process_pid(&selected, &available, 0), Some(20));
     assert_eq!(visible_process_pid(&selected, &available, 1), Some(30));
     assert_eq!(visible_process_pid(&selected, &available, 2), None);
+}
+
+#[test]
+fn duplicate_process_is_rejected_except_for_the_replaced_slot() {
+    assert!(duplicate_process(&[10, 20], 10, None));
+    assert!(duplicate_process(&[10, 20], 10, Some(1)));
+    assert!(!duplicate_process(&[10, 20], 10, Some(0)));
+}
+
+#[test]
+fn duplicate_audio_is_rejected_except_for_the_replaced_slot() {
+    assert!(duplicate_audio(&[3, 8], 3, None));
+    assert!(duplicate_audio(&[3, 8], 3, Some(1)));
+    assert!(!duplicate_audio(&[3, 8], 3, Some(0)));
 }

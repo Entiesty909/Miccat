@@ -17,7 +17,7 @@ struct RouteSelection {
     process_name: Option<String>,
     process_names: Vec<String>,
     mix_mic: bool,
-    file_entries: Vec<config::AudioEntry>,
+    file_entries: Vec<(usize, config::AudioEntry)>,
 }
 
 pub(super) fn register(ui: &MainWindow, state: &AppState) {
@@ -61,45 +61,6 @@ fn stop_route(ui: &MainWindow, state: &AppState) {
     ui.set_error_text("".into());
 }
 
-/// 把互斥的输出目标并到同一只设备上。
-///
-/// 同一虚拟驱动的两个端点（如 VB-Cable 的「CABLE虚拟扬声器」与
-/// 「CABLE In 16ch」）不能同时打开；与其报错，不如让后一路复用已选设备，
-/// 转发照常工作。
-fn collapse_conflicting_outputs(
-    ids: &[&str; 3],
-    devices: &[crate::audio::device::DestDevice],
-) -> [String; 3] {
-    let family_of = |id: &str| {
-        devices
-            .iter()
-            .find(|device| device.render_id == id)
-            .filter(|device| device.virtual_driver)
-            .map(|device| device.driver_family.clone())
-    };
-    let mut chosen: Vec<String> = Vec::new();
-    let mut families: Vec<String> = Vec::new();
-    let mut result = [String::new(), String::new(), String::new()];
-    for (slot, id) in ids.iter().enumerate() {
-        let family = family_of(id);
-        let reuse = family.as_ref().and_then(|family| {
-            families
-                .iter()
-                .position(|seen| seen == family)
-                .map(|index| chosen[index].clone())
-        });
-        match reuse {
-            Some(existing) => result[slot] = existing,
-            None => {
-                result[slot] = (*id).to_owned();
-                chosen.push((*id).to_owned());
-                families.push(family.unwrap_or_default());
-            }
-        }
-    }
-    result
-}
-
 fn selected_route(ui: &MainWindow, state: &AppState) -> Option<RouteSelection> {
     let cache = state.cache.borrow();
     let pid = cache
@@ -126,8 +87,8 @@ fn selected_route(ui: &MainWindow, state: &AppState) -> Option<RouteSelection> {
             .then_some(cache.route_audio_entry)
             .flatten()
             .and_then(|index| cache.audio_entries.get(index).cloned())
-            .into_iter()
-            .collect()
+            .map(|entry| vec![(0, entry)])
+            .unwrap_or_default()
     } else {
         cache
             .route_audio_entries
@@ -140,51 +101,67 @@ fn selected_route(ui: &MainWindow, state: &AppState) -> Option<RouteSelection> {
                     .copied()
                     .unwrap_or(false)
             })
-            .filter_map(|(_, index)| cache.audio_entries.get(*index).cloned())
+            .filter_map(|(slot, index)| {
+                cache
+                    .audio_entries
+                    .get(*index)
+                    .cloned()
+                    .map(|entry| (slot, entry))
+            })
             .collect::<Vec<_>>()
     };
     let dest = cache.dests.get(ui.get_device_index() as usize).cloned()?;
     let output_config = state.app_config.borrow().output.clone();
-    let custom_routes = output_config.process_output_id.is_some()
-        || output_config.file_output_id.is_some()
+    let custom_routes = !cache.process_output_ids.is_empty()
+        || !cache.audio_output_ids.is_empty()
+        || output_config.process_output_id.is_some()
         || output_config.mic_output_id.is_some();
     let (output_ids, source_routes) = if custom_routes {
-        let ids = [
-            output_config
-                .process_output_id
-                .as_deref()
-                .unwrap_or(&dest.render_id),
-            output_config
-                .file_output_id
-                .as_deref()
-                .unwrap_or(&dest.render_id),
-            output_config
-                .mic_output_id
-                .as_deref()
-                .unwrap_or(&dest.render_id),
-        ];
-        // 同一虚拟设备的两个端点不能同时打开；此时把后一路并到已用设备上，
-        // 让转发能正常启动，而不是报错让用户自己去改配置。
-        let ids = collapse_conflicting_outputs(&ids, &cache.dests);
         let mut output_ids = Vec::new();
-        let mut routes = [0usize; 3];
-        for (source, id) in ids.iter().enumerate() {
-            let output_index = output_ids
+        let mut route_index = |id: String| {
+            output_ids
                 .iter()
-                .position(|existing| existing == id)
+                .position(|existing| existing == &id)
                 .unwrap_or_else(|| {
-                    output_ids.push((*id).to_owned());
+                    output_ids.push(id);
                     output_ids.len() - 1
-                });
-            routes[source] = output_index;
-        }
+                })
+        };
+        let process_count = selected.len();
+        let process = (0..process_count)
+            .map(|slot| {
+                cache
+                    .process_output_ids
+                    .get(slot)
+                    .and_then(|id| id.clone())
+                    .or_else(|| output_config.process_output_id.clone())
+                    .unwrap_or_else(|| dest.render_id.clone())
+            })
+            .map(&mut route_index)
+            .collect::<Vec<_>>();
+        let file_count = cache
+            .route_audio_entries
+            .len()
+            .max(usize::from(cache.route_audio_entry.is_some()))
+            .max(crate::engine::SFX_SLOTS);
+        let file = (0..file_count)
+            .map(|slot| {
+                cache
+                    .audio_output_ids
+                    .get(slot)
+                    .and_then(|id| id.clone())
+                    .unwrap_or_else(|| dest.render_id.clone())
+            })
+            .map(&mut route_index)
+            .collect::<Vec<_>>();
+        let mic_id = output_config
+            .mic_output_id
+            .clone()
+            .unwrap_or_else(|| dest.render_id.clone());
+        let mic = route_index(mic_id);
         (
             output_ids,
-            Some(crate::engine::SourceOutputRoutes {
-                process: routes[0],
-                file: routes[1],
-                mic: routes[2],
-            }),
+            Some(crate::engine::SourceOutputRoutes { process, file, mic }),
         )
     } else {
         let selected_outputs = cache
@@ -241,7 +218,7 @@ fn selected_route(ui: &MainWindow, state: &AppState) -> Option<RouteSelection> {
 }
 
 fn start_route(engine: &AudioEngine, selection: &RouteSelection) -> Result<(), Error> {
-    if let Some(routes) = selection.source_routes {
+    if let Some(routes) = selection.source_routes.clone() {
         engine.open_routed_outputs(&selection.output_ids, routes)?;
     } else {
         engine.open_outputs(&selection.output_ids)?;
@@ -253,8 +230,8 @@ fn start_route(engine: &AudioEngine, selection: &RouteSelection) -> Result<(), E
         }
     }
     engine.set_mic_source(selection.mic_id.as_deref())?;
-    for entry in &selection.file_entries {
-        engine.play_file_source(entry)?;
+    for (slot, entry) in &selection.file_entries {
+        engine.play_file_source(entry, *slot)?;
     }
     Ok(())
 }
@@ -275,9 +252,19 @@ fn finish_route_start(ui: &MainWindow, state: &AppState, selection: RouteSelecti
         config.route.mix_mic = selection.mix_mic;
         config.output.device_id = Some(selection.dest.render_id.clone());
         config.output.device_ids = selection.output_ids.clone();
-        if let Some(routes) = selection.source_routes {
-            config.output.process_output_id = selection.output_ids.get(routes.process).cloned();
-            config.output.file_output_id = selection.output_ids.get(routes.file).cloned();
+        if let Some(routes) = selection.source_routes.as_ref() {
+            config.output.process_output_ids = routes
+                .process
+                .iter()
+                .filter_map(|index| selection.output_ids.get(*index).cloned())
+                .collect();
+            config.output.file_output_ids = routes
+                .file
+                .iter()
+                .filter_map(|index| selection.output_ids.get(*index).cloned())
+                .collect();
+            config.output.process_output_id = config.output.process_output_ids.first().cloned();
+            config.output.file_output_id = config.output.file_output_ids.first().cloned();
             config.output.mic_output_id = selection.output_ids.get(routes.mic).cloned();
         }
         config.output.mic_id = selection.dest.capture_id.clone();

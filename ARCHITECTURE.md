@@ -26,9 +26,9 @@ Miccat 是 Windows 本地桌面程序：以 WASAPI Process Loopback 捕获指定
 | `src/diagnostics/` | 运行时调试开关、tracing 捕获、日志落盘与全局问题中心 |
 | `src/platform/clipboard.rs` | Win32 剪贴板文本写入（问题中心复制详情） |
 | `ui/app-window.slint` | 主窗口、顶栏、状态栏、实时源声纹 Popover 和全局右键菜单覆盖层 |
-| `ui/overlays/global-overlays.slint` | `DiagState` 全局状态与问题中心覆盖层宿主 |
-| `ui/components/page-host.slint` | 装配路由、音频库、设置三页、音频库三栏拖动宽度和独立编辑窗口事件转发 |
-| `ui/pages/`、`ui/components/` | 页面内容与无业务权威的可复用控件；添加源/音频编辑使用独立、非模态、可拖动的原生 Window，路由源菜单由 PopupWindow 承载 |
+| `ui/overlays/diagnostic-panel.slint`、`ui/overlays/global-overlays.slint` | 右侧抽屉式问题中心（问题列表 + 日志开关）、`DiagState` 全局状态与顶层覆盖层宿主；状态栏与设置页直接读写该全局，不经 `app-window` 透传。 |
+| `ui/components/diagnostic-row.slint`、`ui/components/diagnostics-card.slint` | 问题行/徽标与设置页诊断卡片。 |
+| `ui/components/page-host.slint` | 装配路由、音频库、设置页、音频库三栏拖动宽度和独立编辑窗口事件转发；音频库详情只展示管理信息，路由页拥有输出/增益等播放设置。 |
 
 完整文件树和文件规模规则见 [`FILE-CONVENTIONS.md`](FILE-CONVENTIONS.md)。
 
@@ -59,11 +59,13 @@ audio/com ─────────────→ platform::com
 - `AppConfig`：本地持久化配置，路径 `%APPDATA%\\Miccat\\config.json`。
   - `AppConfig.audio_category_icons`：分类路径到 glyph/图标文件路径的持久化映射。
   - `AudioEntry.name`、`icon_glyph`、`icon_path`：软件显示名称与图标配置；不改磁盘文件名。
-- `src/ui_bridge/sources.rs`：将进程、当前音频文件和物理麦克风投影为路由源行；`update_dynamic` 只写实时峰值/音量/状态，不重建静态模型。
-- `UiCache.route_audio_entry`：待加入路由或当前路由使用的音频条目实际下标；仍是桥接派生状态，不替代引擎播放状态。
-- `UiCache.route_file_enabled`：用户为文件源选择的启用状态；与全局路由启停和文件播放器播放状态分离。
-- `UiCache.route_audio_entries` 与 `route_audio_enabled`：多个已加入路由的音频条目及其启用状态；不保存 PCM。
-- `OutputConfig.device_ids`：持久化多选 render 设备 ID；UI 使用 friendly name 显示，按 ID 恢复。
+ - `src/ui_bridge/sources.rs`：将进程、当前音频文件和物理麦克风投影为路由源行；`update_dynamic` 只写实时峰值/音量/状态，不重建静态模型。
+ - `UiCache` 的 `process_volumes` / `audio_volumes` 与对应输出 ID 按卡片槽位保存；卡片操作不再读写同一 kind 的共享增益或输出目标。
+ - `AudioEngine` 为最多 4 个进程槽和 4 个文件槽保留独立原子增益；每个 render 目标按槽位路由，SFX mixer 按槽位并行流。
+ - `UiCache.route_audio_entry`：待加入路由或当前路由使用的音频条目实际下标；仍是桥接派生状态，不替代引擎播放状态。
+ - `UiCache.route_file_enabled`：用户为文件源选择的启用状态；与全局路由启停和文件播放器播放状态分离。
+ - `UiCache.route_audio_entries` 与 `route_audio_enabled`：多个已加入路由的音频条目及其启用状态；不保存 PCM。
+ - `OutputConfig.device_ids` 持久化多选 render 设备 ID；`process_output_ids` / `file_output_ids` 保存卡片级目标，UI 使用 friendly name 显示，按 ID 恢复。
 Slint 属性只作为显示投影和事件契约，不保存 PCM。
 
 ## 运行线程
