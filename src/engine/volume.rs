@@ -43,6 +43,10 @@ impl AudioEngine {
     pub fn sfx_volume(&self) -> f32 {
         self.read_gain(&self.sfx_volume)
     }
+    /// 返回最终输出总线线性增益。
+    pub fn master_volume(&self) -> f32 {
+        self.read_gain(&self.master)
+    }
 
     fn read_gain(&self, gain: &std::sync::Arc<std::sync::atomic::AtomicU32>) -> f32 {
         f32::from_bits(gain.load(Ordering::Relaxed)).clamp(0.0, 1.0)

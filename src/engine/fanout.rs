@@ -65,6 +65,7 @@ pub(super) fn spawn_target_render(
     let mic_volume = engine.mic_volume.clone();
     let sfx_volume = engine.sfx_volume.clone();
     let master = engine.master.clone();
+    let route_peak = engine.route_peak.clone();
     thread::Builder::new()
         .name("wasapi-render-target".into())
         .spawn(move || {
@@ -78,6 +79,7 @@ pub(super) fn spawn_target_render(
                 mic_volume,
                 sfx_volume,
                 master,
+                Some(route_peak),
                 stop,
                 move |e| {
                     let mapped = match e {

@@ -1,0 +1,494 @@
+//! 添加音频源：进程、音频文件和麦克风三种真实数据入口。
+
+import { CheckBox, LineEdit, ScrollView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { SliderRow } from "slider-row.slint";
+import { PmButton } from "button.slint";
+import { AudioSourceDetails } from "audio-source-details.slint";
+import { AudioSourceList } from "audio-source-list.slint";
+
+export component AddSourcePanel inherits Rectangle {
+    in-out property <[string]> processes: [];
+    in-out property <int> process-index: 0;
+    in-out property <[image]> process-icon-images: [];
+    in-out property <[string]> mics: [];
+    in-out property <int> mic-index: 0;
+    in-out property <[string]> audio-entries: [];
+    in-out property <[string]> process-pids: [];
+    in-out property <[string]> audio-entry-metadata: [];
+    in-out property <[string]> audio-entry-durations: [];
+    in-out property <[string]> audio-entry-sizes: [];
+    in-out property <[string]> audio-entry-categories: [];
+    in-out property <[string]> audio-entry-hotkeys: [];
+    in-out property <[bool]> audio-entry-loops: [];
+    in-out property <[string]> output-options: [];
+    in-out property <int> file-output-index: 0;
+    in-out property <float> file-volume: 100;
+    in-out property <int> audio-selected-index: 0;
+    in-out property <string> audio-search: "";
+    in-out property <float> mic-volume: 100;
+    in-out property <bool> mix-mic: false;
+    in property <bool> running: false;
+    in-out property <int> selected-tab: 0;
+    in property <bool> single-tab: false;
+    in-out property <string> process-search: "";
+    callback process-add();
+    callback refresh();
+    callback add-files();
+    callback audio-entry-add-route(int);
+    callback audio-file-volume-edited(float);
+    callback audio-file-output-changed(int);
+    callback mic-volume-edited(float);
+    callback mic-mix-changed(bool);
+    callback open-library();
+    callback dismiss();
+    callback audio-search-changed();
+
+    function process-matches(name: string) -> bool {
+        return root.process-search.is-empty
+            || name.to-lowercase().replace-all(
+                root.process-search.to-lowercase(),
+                ""
+            ) != name.to-lowercase();
+    }
+
+
+    width: 100%;
+    height: 100%;
+    background: Theme.bg;
+
+        VerticalLayout {
+            padding: 22px;
+            spacing: 12px;
+            Text {
+                text: "选择要添加的音频源类型，然后进行配置。";
+                color: Theme.text2;
+                font-size: 12px;
+            }
+            if !root.single-tab: HorizontalLayout {
+                height: 82px;
+                spacing: 12px;
+                Rectangle {
+                    width: 210px;
+                    height: 82px;
+                    border-radius: Theme.radiusControl;
+                    border-width: root.selected-tab == 0 ? 2px : 1px;
+                    border-color: root.selected-tab == 0
+                        ? Theme.accent
+                        : Theme.border;
+                    background: root.selected-tab == 0
+                        ? Theme.accentSoft
+                        : Theme.card;
+                    VerticalLayout {
+                        padding: 12px;
+                        spacing: 2px;
+                        Text {
+                            text: "\u{E7F4}";
+                            font-family: "Segoe MDL2 Assets";
+                            color: Theme.accent;
+                            font-size: 22px;
+                        }
+                        Text {
+                            text: "进程";
+                            color: Theme.text;
+                            font-size: 14px;
+                            font-weight: 700;
+                        }
+                        Text {
+                            text: "转发某个程序的实时音频";
+                            color: Theme.text2;
+                            font-size: 10px;
+                            overflow: elide;
+                        }
+                    }
+                    TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        mouse-cursor: pointer;
+                        clicked => { root.selected-tab = 0; }
+                    }
+                }
+                Rectangle {
+                    width: 210px;
+                    height: 82px;
+                    border-radius: Theme.radiusControl;
+                    border-width: root.selected-tab == 1 ? 2px : 1px;
+                    border-color: root.selected-tab == 1
+                        ? Theme.accent
+                        : Theme.border;
+                    background: root.selected-tab == 1
+                        ? Theme.accentSoft
+                        : Theme.card;
+                    VerticalLayout {
+                        padding: 12px;
+                        spacing: 2px;
+                        Text {
+                            text: "\u{EC4F}";
+                            font-family: "Segoe MDL2 Assets";
+                            color: Theme.accent;
+                            font-size: 22px;
+                        }
+                        Text {
+                            text: "音频文件";
+                            color: Theme.text;
+                            font-size: 14px;
+                            font-weight: 700;
+                        }
+                        Text {
+                            text: "播放本地音频文件";
+                            color: Theme.text2;
+                            font-size: 10px;
+                            overflow: elide;
+                        }
+                    }
+                    TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        mouse-cursor: pointer;
+                        clicked => { root.selected-tab = 1; }
+                    }
+                }
+                Rectangle {
+                    width: 210px;
+                    height: 82px;
+                    border-radius: Theme.radiusControl;
+                    border-width: root.selected-tab == 2 ? 2px : 1px;
+                    border-color: root.selected-tab == 2
+                        ? Theme.accent
+                        : Theme.border;
+                    background: root.selected-tab == 2
+                        ? Theme.accentSoft
+                        : Theme.card;
+                    VerticalLayout {
+                        padding: 12px;
+                        spacing: 2px;
+                        Text {
+                            text: "\u{E720}";
+                            font-family: "Segoe MDL2 Assets";
+                            color: Theme.accent;
+                            font-size: 22px;
+                        }
+                        Text {
+                            text: "麦克风";
+                            color: Theme.text;
+                            font-size: 14px;
+                            font-weight: 700;
+                        }
+                        Text {
+                            text: "将麦克风加入混音";
+                            color: Theme.text2;
+                            font-size: 10px;
+                            overflow: elide;
+                        }
+                    }
+                    TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        mouse-cursor: pointer;
+                        clicked => { root.selected-tab = 2; }
+                    }
+                }
+            }
+            if root.selected-tab == 0: Rectangle {
+                vertical-stretch: 1;
+                border-radius: Theme.radiusCard;
+                border-width: 1px;
+                border-color: Theme.border;
+                background: Theme.field;
+                VerticalLayout {
+                    padding: 14px;
+                    spacing: 10px;
+                    Text { text: "进程"; color: Theme.text; font-size: 14px; font-weight: 600; }
+                    HorizontalLayout {
+                        height: 36px;
+                        LineEdit {
+                            horizontal-stretch: 1;
+                            text <=> root.process-search;
+                            placeholder-text: "搜索进程名称…";
+                            edited(value) => { root.process-index = -1; }
+                        }
+                        PmButton {
+                            label: "刷新";
+                            enabled: !root.running;
+                            clicked => { root.refresh(); }
+                        }
+                    }
+                    ScrollView {
+                        vertical-stretch: 1;
+                        VerticalLayout {
+                            for process[index] in root.processes:
+                                Rectangle {
+                                    visible: root.process-matches(process);
+                                    height: root.process-matches(process)
+                                        ? 48px
+                                        : 0px;
+                                    border-radius: Theme.radiusControl;
+                                    background: index == root.process-index
+                                        ? Theme.accentSoft
+                                        : transparent;
+                                    HorizontalLayout {
+                                        padding-left: 12px;
+                                        padding-right: 12px;
+                                        spacing: 12px;
+                                        Rectangle {
+                                            width: 18px;
+                                            height: 48px;
+                                            background: transparent;
+                                            Rectangle {
+                                                x: 1px;
+                                                y: 15px;
+                                                width: 16px;
+                                                height: 16px;
+                                                border-radius: 8px;
+                                                border-width: 1px;
+                                                border-color: index == root.process-index
+                                                    ? Theme.accent
+                                                    : Theme.borderStrong;
+                                                if index == root.process-index: Rectangle {
+                                                    x: 4px;
+                                                    y: 4px;
+                                                    width: 8px;
+                                                    height: 8px;
+                                                    border-radius: 4px;
+                                                    background: Theme.accent;
+                                                }
+                                            }
+                                        }
+                                        Rectangle {
+                                            width: 28px;
+                                            height: 48px;
+                                            background: transparent;
+                                            if index < root.process-icon-images.length: Image {
+                                                x: 1px;
+                                                y: 10px;
+                                                width: 26px;
+                                                height: 28px;
+                                                source: root.process-icon-images[index];
+                                                image-fit: contain;
+                                            }
+                                        }
+                                        Text {
+                                            text: process;
+                                            horizontal-stretch: 1;
+                                            min-width: 0px;
+                                            color: Theme.text;
+                                            vertical-alignment: center;
+                                            overflow: elide;
+                                        }
+                                        Text {
+                                            text: index < root.process-pids.length
+                                                ? root.process-pids[index]
+                                                : "";
+                                            width: 62px;
+                                            color: Theme.text2;
+                                            font-size: 10px;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+                                    TouchArea {
+                                        clicked => { root.process-index = index; }
+                                    }
+                                }
+                        }
+                    }
+                }
+            }
+            if root.selected-tab == 1: Rectangle {
+                vertical-stretch: 1;
+                border-radius: Theme.radiusCard;
+                border-width: 1px;
+                border-color: Theme.border;
+                background: Theme.field;
+                HorizontalLayout {
+                    spacing: 12px;
+                    AudioSourceList {
+                        entries <=> root.audio-entries;
+                        metadata <=> root.audio-entry-metadata;
+                        selected-index <=> root.audio-selected-index;
+                        search <=> root.audio-search;
+                        search-changed => {
+                            root.audio-search-changed();
+                        }
+                    }
+                    AudioSourceDetails {
+                        entry-name: root.audio-selected-index >= 0
+                            && root.audio-selected-index < root.audio-entries.length
+                            ? root.audio-entries[root.audio-selected-index]
+                            : "选择音频文件";
+                        entry-metadata: root.audio-selected-index >= 0
+                            && root.audio-selected-index
+                                < root.audio-entry-metadata.length
+                            ? root.audio-entry-metadata[root.audio-selected-index]
+                            : "选择音频文件查看信息";
+                        entry-duration: root.audio-selected-index >= 0
+                            && root.audio-selected-index
+                                < root.audio-entry-durations.length
+                            ? root.audio-entry-durations[root.audio-selected-index]
+                            : "—";
+                        entry-size: root.audio-selected-index >= 0
+                            && root.audio-selected-index < root.audio-entry-sizes.length
+                            ? root.audio-entry-sizes[root.audio-selected-index]
+                            : "—";
+                        entry-category: root.audio-selected-index >= 0
+                            && root.audio-selected-index
+                                < root.audio-entry-categories.length
+                            ? root.audio-entry-categories[root.audio-selected-index]
+                            : "—";
+                        entry-hotkey: root.audio-selected-index >= 0
+                            && root.audio-selected-index < root.audio-entry-hotkeys.length
+                            ? root.audio-entry-hotkeys[root.audio-selected-index]
+                            : "—";
+                        entry-loop-state: root.audio-selected-index >= 0
+                            && root.audio-selected-index < root.audio-entry-loops.length
+                            ? (root.audio-entry-loops[root.audio-selected-index]
+                                ? "循环播放已启用"
+                                : "循环播放已关闭")
+                            : "";
+                        outputs <=> root.output-options;
+                        output-index <=> root.file-output-index;
+                        volume <=> root.file-volume;
+                        output-changed(index) => {
+                            root.audio-file-output-changed(index);
+                        }
+                        volume-edited(value) => {
+                            root.audio-file-volume-edited(value);
+                        }
+                    }
+                }
+            }
+            if root.selected-tab == 2: Rectangle {
+                vertical-stretch: 1;
+                border-radius: Theme.radiusCard;
+                border-width: 1px;
+                border-color: Theme.border;
+                background: Theme.field;
+                HorizontalLayout {
+                    spacing: 12px;
+                    Rectangle {
+                        width: 330px;
+                        border-radius: Theme.radiusControl;
+                        border-width: 1px;
+                        border-color: Theme.border;
+                        VerticalLayout {
+                            padding: 12px;
+                            spacing: 8px;
+                            Text {
+                                text: "选择麦克风设备";
+                                color: Theme.text;
+                                font-size: 13px;
+                                font-weight: 600;
+                            }
+                            ScrollView {
+                                vertical-stretch: 1;
+                                vertical-scrollbar-policy: always-off;
+                                VerticalLayout {
+                                    for microphone[index] in root.mics: Rectangle {
+                                        if index > 0: Rectangle {
+                                            height: 44px;
+                                            border-radius: Theme.radiusControl;
+                                            background: root.mic-index == index
+                                                ? Theme.accentSoft
+                                                : transparent;
+                                            HorizontalLayout {
+                                                padding-left: 10px;
+                                                spacing: 10px;
+                                                Text {
+                                                    text: root.mic-index == index ? "●" : "○";
+                                                    color: Theme.accent;
+                                                    vertical-alignment: center;
+                                                }
+                                                Text {
+                                                    text: "\u{E720}";
+                                                    font-family: "Segoe MDL2 Assets";
+                                                    color: Theme.accent;
+                                                    vertical-alignment: center;
+                                                }
+                                                Text {
+                                                    text: microphone;
+                                                    horizontal-stretch: 1;
+                                                    min-width: 0px;
+                                                    color: Theme.text;
+                                                    overflow: elide;
+                                                    vertical-alignment: center;
+                                                }
+                                            }
+                                            TouchArea {
+                                                clicked => {
+                                                    root.mic-index = index;
+                                                    root.mic-mix-changed(root.mix-mic);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Rectangle {
+                        horizontal-stretch: 1;
+                        border-radius: Theme.radiusControl;
+                        border-width: 1px;
+                        border-color: Theme.border;
+                        VerticalLayout {
+                            padding: 14px;
+                            spacing: 12px;
+                            Text {
+                                text: "设备设置";
+                                color: Theme.text;
+                                font-size: 13px;
+                                font-weight: 600;
+                            }
+                            SliderRow {
+                                label: "输入音量";
+                                value <=> root.mic-volume;
+                                edited(value) => { root.mic-volume-edited(value); }
+                            }
+                            CheckBox {
+                                text: "混入当前路由";
+                                checked <=> root.mix-mic;
+                                enabled: root.mics.length > 1 && !root.running;
+                                toggled => { root.mic-mix-changed(self.checked); }
+                            }
+                            Rectangle { vertical-stretch: 1; background: transparent; }
+                            Text {
+                                text: "音频增强选项仅显示已有真实处理能力。";
+                                color: Theme.text3;
+                                font-size: 10px;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
+                }
+            }
+            HorizontalLayout {
+                height: 40px;
+                Rectangle { horizontal-stretch: 1; background: transparent; }
+                PmButton { label: "取消"; clicked => { root.dismiss(); } }
+                PmButton {
+                    label: root.selected-tab == 0
+                        ? "添加进程"
+                        : (root.selected-tab == 1 ? "添加到路由" : "添加麦克风");
+                    filled: true;
+                    enabled: root.selected-tab == 0
+                        ? root.process-index >= 0
+                            && root.process-index < root.processes.length
+                            && !root.running
+                        : (root.selected-tab == 1
+                            ? root.audio-selected-index >= 0
+                                && root.audio-selected-index < root.audio-entries.length
+                            : root.mics.length > 1
+                                && root.mic-index > 0
+                                && !root.running);
+                    clicked => {
+                        if root.selected-tab == 0 {
+                            root.process-add();
+                        } else if root.selected-tab == 1 {
+                            root.audio-entry-add-route(root.audio-selected-index);
+                        } else {
+                            root.mic-mix-changed(true);
+                        }
+                    }
+                }
+            }
+        }
+}

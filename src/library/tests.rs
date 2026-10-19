@@ -6,6 +6,7 @@ fn entry(name: &str, category: &str) -> AudioEntry {
         name: name.into(),
         path: format!("{name}.wav"),
         icon_path: None,
+        icon_glyph: "\u{EC4F}".into(),
         category: category.into(),
         duration_hns: 0,
         file_size_bytes: 0,

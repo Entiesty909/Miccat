@@ -1,7 +1,7 @@
 //! 打开一个或多个 WASAPI render 目标并装配 fanout/SFX 生命周期。
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::thread;
 
 use crate::audio::buffer::SpscRing;
@@ -170,10 +170,18 @@ impl AudioEngine {
         let sfx_stop = Arc::new(AtomicBool::new(false));
         let sfx_stop_thread = sfx_stop.clone();
         let sfx_ring_thread = sfx_ring.clone();
+        let sfx_peak = Arc::new(AtomicU32::new(0.0f32.to_bits()));
+        let sfx_peak_thread = sfx_peak.clone();
         let sfx_thread = thread::Builder::new()
             .name("sfx-mixer".into())
             .spawn(move || {
-                crate::audio::sfx::run_sfx_loop(sfx_ring_thread, canonical, sfx_stop_thread, sfx_rx)
+                crate::audio::sfx::run_sfx_loop(
+                    sfx_ring_thread,
+                    canonical,
+                    sfx_stop_thread,
+                    sfx_peak_thread,
+                    sfx_rx,
+                )
             })
             .map_err(|_| Error::RenderInit("spawn sfx thread"))?;
 
@@ -191,6 +199,7 @@ impl AudioEngine {
         if let Ok(mut sources) = self.sources.lock() {
             sources.sfx_tx = Some(sfx_tx);
             sources.sfx_stop = Some(sfx_stop);
+            sources.sfx_peak = Some(sfx_peak);
             sources.sfx = Some(sfx_thread);
         }
         self.set_status(EngineStatus::Running);

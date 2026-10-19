@@ -6,9 +6,9 @@ import { AppHeader } from "components/app-header.slint";
 import { StatusBar } from "components/status-bar.slint";
 import { ContextMenuHost } from "overlays/context-menu-host.slint";
 import { DiagState, GlobalOverlays, HotkeyState } from "overlays/global-overlays.slint";
+import { AddSourceWindow, AudioEditWindow } from "windows.slint";
 import { PageHost } from "components/page-host.slint";
-
-export { DiagState, HotkeyState }
+export { AddSourceWindow, AudioEditWindow, DiagState, HotkeyState }
 
 export component MainWindow inherits Window {
     title: "Miccat";
@@ -26,6 +26,8 @@ export component MainWindow inherits Window {
     in-out property <string> error-text: "";
     in-out property <bool> running: false;
     in-out property <[string]> processes: [];
+    in-out property <[string]> process-pids: [];
+    in-out property <[image]> process-icon-images: [];
     in-out property <int> process-index: 0;
     in-out property <bool> mix-mic: false;
     in-out property <[int]> source-kinds: [];
@@ -37,18 +39,44 @@ export component MainWindow inherits Window {
     in-out property <[string]> source-statuses: [];
     in-out property <[bool]> source-active: [];
     in-out property <[float]> source-volumes: [];
+    in-out property <[string]> source-volume-dbs: [];
+    in-out property <[float]> source-peak-values: [];
+    in-out property <[string]> source-peak-dbs: [];
+    in-out property <[float]> source-meter-history: [];
+    in-out property <[string]> source-meter-dbs: [];
+    in-out property <bool> source-meter-open: false;
     in-out property <[bool]> source-muted: [];
     in-out property <[bool]> source-paused: [];
     in-out property <[int]> source-output-indices: [];
     in-out property <int> file-output-index: 0;
-    in-out property <bool> sources-expanded: true;
-    in-out property <bool> source-add-open: false;
+    in-out property <float> audio-file-volume: 100;
+    in-out property <float> microphone-input-volume: 100;
+    in-out property <int> source-add-tab: 0;
+    in-out property <int> source-replace-index: -1;
     in-out property <[string]> audio-categories: ["全部", "未分类"];
     in-out property <int> audio-category-index: 0;
     in-out property <[int]> audio-category-counts: [];
+    in-out property <[int]> audio-category-depths: [];
+    in-out property <[image]> audio-category-icon-images: [];
+    in-out property <[string]> audio-category-icon-glyphs: [];
+    in-out property <image> audio-edit-custom-icon-image;
+    in-out property <bool> audio-edit-dialog-open: false;
+    in-out property <bool> audio-edit-category-mode: false;
+    in-out property <string> audio-edit-name: "";
+    in-out property <int> audio-edit-icon-index: 0;
+    in-out property <string> audio-edit-custom-icon-path: "";
+    in-out property <[string]> audio-library-catalog: [];
+    in-out property <[string]> audio-library-metadata: [];
+    in-out property <[string]> audio-library-durations: [];
+    in-out property <[string]> audio-library-categories: [];
+    in-out property <[string]> audio-library-hotkeys: [];
+    in-out property <[bool]> audio-library-loops: [];
+    in-out property <[string]> audio-library-sizes: [];
     in-out property <string> audio-category-edit-name: "";
     in-out property <[string]> audio-entries: [];
     in-out property <[string]> audio-entry-durations: [];
+    in-out property <[image]> audio-entry-icon-images: [];
+    in-out property <[string]> audio-entry-icon-glyphs: [];
     in-out property <[string]> audio-entry-metadata: [];
     in-out property <[string]> audio-entry-categories: [];
     in-out property <[string]> audio-entry-paths: [];
@@ -99,10 +127,15 @@ export component MainWindow inherits Window {
     in-out property <string> hotkey-label: "";
     in-out property <bool> listening-hotkey: false;
     in-out property <float> master-volume: 100;
+    in-out property <string> master-volume-db: "0.0 dB";
+    in-out property <float> master-peak-value: 0;
+    in-out property <string> master-peak-db: "-∞ dB";
+    in-out property <[float]> master-meter-history: [];
     in-out property <string> about-text: "";
 
     callback start-stop();
     callback refresh();
+    callback source-add-requested();
     callback audio-entry-hotkey-bind();
     callback master-volume-edited(float);
     callback audio-page-changed(int);
@@ -140,8 +173,17 @@ export component MainWindow inherits Window {
     callback reset-hotkey-row(int);
     callback audio-hotkey-pressed(string);
     callback audio-hotkey-index(int);
+    callback audio-entry-add-route-index(int);
+    callback audio-file-volume-edited(float);
+    callback audio-file-output-changed(int);
+    callback microphone-input-volume-edited(float);
     callback add-audio-files();
+    callback audio-category-edit-requested();
+    callback audio-entry-edit-requested();
     callback audio-category-changed(int);
+    callback audio-edit-accepted(string, int, string);
+    callback audio-edit-cancelled();
+    callback audio-edit-custom-icon-requested();
     callback audio-category-context(int);
     callback audio-category-new();
     callback category-rename();
@@ -194,6 +236,8 @@ export component MainWindow inherits Window {
                 min-height: 0px;
                 page: root.page;
                 processes <=> root.processes;
+                process-pids <=> root.process-pids;
+                process-icon-images <=> root.process-icon-images;
                 process-index <=> root.process-index;
                 source-kinds <=> root.source-kinds;
                 source-icons <=> root.source-icons;
@@ -204,7 +248,19 @@ export component MainWindow inherits Window {
                 source-statuses <=> root.source-statuses;
                 source-active <=> root.source-active;
                 source-volumes <=> root.source-volumes;
+                source-peak-values <=> root.source-peak-values;
+                source-peak-dbs <=> root.source-peak-dbs;
+                source-volume-dbs <=> root.source-volume-dbs;
                 source-muted <=> root.source-muted;
+                category-depths <=> root.audio-category-depths;
+                category-icon-images <=> root.audio-category-icon-images;
+                category-icon-glyphs <=> root.audio-category-icon-glyphs;
+                edit-dialog-open <=> root.audio-edit-dialog-open;
+                edit-category-mode <=> root.audio-edit-category-mode;
+                edit-name <=> root.audio-edit-name;
+                edit-icon-index <=> root.audio-edit-icon-index;
+                edit-custom-icon-image <=> root.audio-edit-custom-icon-image;
+                edit-custom-icon-path <=> root.audio-edit-custom-icon-path;
                 source-paused <=> root.source-paused;
                 source-output-indices <=> root.source-output-indices;
                 outputs <=> root.devices;
@@ -212,8 +268,19 @@ export component MainWindow inherits Window {
                 mics <=> root.mics;
                 mic-index <=> root.mic-index;
                 mix-mic <=> root.mix-mic;
-                sources-expanded <=> root.sources-expanded;
-                source-add-open <=> root.source-add-open;
+                source-replace-index <=> root.source-replace-index;
+                source-add-tab <=> root.source-add-tab;
+                audio-catalog-entries <=> root.audio-library-catalog;
+                audio-catalog-metadata <=> root.audio-library-metadata;
+                audio-catalog-durations <=> root.audio-library-durations;
+                audio-catalog-categories <=> root.audio-library-categories;
+                audio-catalog-hotkeys <=> root.audio-library-hotkeys;
+                audio-catalog-loops <=> root.audio-library-loops;
+                audio-catalog-sizes <=> root.audio-library-sizes;
+                audio-file-volume <=> root.audio-file-volume;
+                microphone-input-volume <=> root.microphone-input-volume;
+                output-options <=> root.devices;
+                file-output-index <=> root.file-output-index;
                 running <=> root.running;
                 categories <=> root.audio-categories;
                 category-counts <=> root.audio-category-counts;
@@ -221,6 +288,8 @@ export component MainWindow inherits Window {
                 category-index <=> root.audio-category-index;
                 entries <=> root.audio-entries;
                 entry-durations <=> root.audio-entry-durations;
+                entry-icon-images <=> root.audio-entry-icon-images;
+                entry-icon-glyphs <=> root.audio-entry-icon-glyphs;
                 entry-metadata <=> root.audio-entry-metadata;
                 entry-categories <=> root.audio-entry-categories;
                 entry-paths <=> root.audio-entry-paths;
@@ -244,9 +313,7 @@ export component MainWindow inherits Window {
                 playing <=> root.player-playing;
                 paused <=> root.player-paused;
                 preview-enabled <=> root.preview-enabled;
-                monitor-volume <=> root.preview-volume;
                 loop <=> root.player-loop;
-                file-output-index <=> root.file-output-index;
                 category-menu-open <=> root.audio-category-menu-open;
                 entry-menu-open <=> root.audio-entry-menu-open;
                 category-menu-x <=> root.audio-category-menu-x;
@@ -267,6 +334,19 @@ export component MainWindow inherits Window {
                 cable-text <=> root.cable-text;
                 listening-hotkey <=> root.listening-hotkey;
                 about-text <=> root.about-text;
+                audio-entry-add-route-index(index) => {
+                    root.audio-entry-add-route-index(index);
+                }
+                audio-file-volume-edited(value) => {
+                    root.audio-file-volume-edited(value);
+                }
+                audio-file-output-changed(index) => {
+                    root.file-output-changed(index);
+                }
+                microphone-input-volume-edited(value) => {
+                    root.microphone-input-volume-edited(value);
+                }
+                source-add-requested => { root.source-add-requested(); }
                 refresh => { root.refresh(); }
                 process-add => { root.process-add(); }
                 add-files => { root.add-audio-files(); }
@@ -287,6 +367,13 @@ export component MainWindow inherits Window {
                     root.page = 2;
                     root.settings-section-index = section;
                 }
+                edit-accepted(name, icon, path) => {
+                    root.audio-edit-accepted(name, icon, path);
+                }
+                edit-cancelled => { root.audio-edit-cancelled(); }
+                edit-custom-icon-requested => {
+                    root.audio-edit-custom-icon-requested();
+                }
                 category-changed(index) => { root.audio-category-changed(index); }
                 category-context(index) => { root.audio-category-context(index); }
                 category-to-transfer(index) => { root.audio-category-to-transfer(index); }
@@ -300,6 +387,7 @@ export component MainWindow inherits Window {
                 entry-selected(index) => { root.audio-entry-selected(index); }
                 entry-double-clicked(index) => { root.audio-entry-double-clicked(index); }
                 entry-play(index) => { root.audio-entry-play(index); }
+                entry-hotkey-clear => { root.audio-entry-hotkey-clear(); }
                 progress-seek(value) => { root.audio-progress-seek(value); }
                 audio-stop => { root.audio-stop(); }
                 play-action(mode) => { root.audio-entry-play(mode); }
@@ -338,10 +426,16 @@ export component MainWindow inherits Window {
                 error-text <=> root.error-text;
                 running <=> root.running;
                 source-count: root.source-titles.length;
-                sources-expanded <=> root.sources-expanded;
+                source-titles <=> root.source-titles;
+                source-meter-history: root.source-meter-history;
+                source-meter-dbs: root.source-meter-dbs;
+                source-meter-open <=> root.source-meter-open;
+                master-meter-history: root.master-meter-history;
+                master-peak-value <=> root.master-peak-value;
+                master-peak-db <=> root.master-peak-db;
+                master-volume-db <=> root.master-volume-db;
                 master-volume <=> root.master-volume;
                 cable-busy <=> root.cable-busy;
-                sources-expanded-toggled(value) => { root.sources-expanded = value; }
                 master-volume-edited(value) => { root.master-volume-edited(value); }
                 start-stop => { root.start-stop(); }
             }
@@ -360,6 +454,8 @@ export component MainWindow inherits Window {
             && root.audio-entry-index < root.audio-entry-hotkeys.length
             ? root.audio-entry-hotkeys[root.audio-entry-index]
             : "";
+        category-edit-requested => { root.audio-category-edit-requested(); }
+        entry-edit-requested => { root.audio-entry-edit-requested(); }
         category-new => { root.audio-category-new(); }
         category-rename => { root.category-rename(); }
         category-delete => { root.category-delete(); }

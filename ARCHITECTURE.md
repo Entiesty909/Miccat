@@ -15,20 +15,20 @@ Miccat 是 Windows 本地桌面程序：以 WASAPI Process Loopback 捕获指定
 |---|---|
 | `src/main.rs` | DPI、日志初始化、CLI/UI 组合根 |
 | `src/cli/mod.rs` | argv 派发、设备/进程命令、capture/route 与播放探针 |
-| `src/ui_bridge/` | Slint 组装、AppState、回调、缓存、持久化、状态轮询和异步设备/进程列表刷新 |
+| `src/ui_bridge/` | Slint 组装、AppState、回调、缓存、持久化、状态轮询、异步设备/进程刷新和独立窗口生命周期 |
 | `src/engine.rs` | AudioEngine 权威状态、进程/麦生命周期、多输出打开与停止 |
 | `src/engine/{fanout,monitor,playback,volume,status,peaks}.rs` | 多输出转换、本机试听、文件播放、增益、状态与峰值 API |
 | `src/audio/` | WASAPI capture/render、ring、格式转换、MF/WAV 解码、SFX、试听、CLI dump |
-| `src/library.rs`、`src/library/tests.rs` | 音频库领域规则与私有逻辑单元测试 |
-| `src/config/` | AppConfig 模型、JSON 存储/迁移、Windows 单实例互斥 |
-| `src/platform/` | 跨层共享的 COM 初始化 |
+| `src/library.rs`、`src/library/tests.rs` | 音频库分类/索引/递归变更规则、分类图标路径迁移及私有逻辑单测 |
+| `src/config/` | AppConfig 模型、JSON 存储/迁移、窗口物理坐标和Windows单实例互斥 |
+| `src/platform/` | 跨层共享的 COM 初始化与独立Window前置/居中辅助 |
 | `src/process.rs`、`src/hotkey.rs`、`src/vbcable.rs`、`src/platform/icon.rs` | 进程枚举、RegisterHotKey、VB-CABLE 安装、Win32 exe/文件图标提取 |
 | `src/diagnostics/` | 运行时调试开关、tracing 捕获、日志落盘与全局问题中心 |
 | `src/platform/clipboard.rs` | Win32 剪贴板文本写入（问题中心复制详情） |
-| `ui/app-window.slint` | 主窗口、顶栏、状态栏和全局右键菜单覆盖层 |
+| `ui/app-window.slint` | 主窗口、顶栏、状态栏、实时源声纹 Popover 和全局右键菜单覆盖层 |
 | `ui/overlays/global-overlays.slint` | `DiagState` 全局状态与问题中心覆盖层宿主 |
-| `ui/components/page-host.slint` | 装配路由、音频库、设置三页并转发页面回调 |
-| `ui/pages/`、`ui/components/` | 页面内容与无业务权威的可复用控件；`add-source-dialog.slint` 和 `source-actions-menu.slint` 提供路由源操作 UI |
+| `ui/components/page-host.slint` | 装配路由、音频库、设置三页、音频库三栏拖动宽度和独立编辑窗口事件转发 |
+| `ui/pages/`、`ui/components/` | 页面内容与无业务权威的可复用控件；添加源/音频编辑使用独立、非模态、可拖动的原生 Window，路由源菜单由 PopupWindow 承载 |
 
 完整文件树和文件规模规则见 [`FILE-CONVENTIONS.md`](FILE-CONVENTIONS.md)。
 
@@ -57,10 +57,12 @@ audio/com ─────────────→ platform::com
 
 - `AudioEngine`：进程/麦/输出运行态、音量、电平、试听和文件播放控制。
 - `AppConfig`：本地持久化配置，路径 `%APPDATA%\\Miccat\\config.json`。
-- `AppState`：桥接层共享句柄，不是第三份音频运行时。
-- `UiCache` 保存筛选、索引、菜单/点击态和列表快照；其中仍复制部分配置数据，
-  AppConfig/UiCache 单一权威尚未完全收敛。
-- `src/ui_bridge/sources.rs`：将进程、当前音频文件、物理麦克风的实时状态投影为路由源行；不持有第二份引擎状态。
+  - `AppConfig.audio_category_icons`：分类路径到 glyph/图标文件路径的持久化映射。
+  - `AudioEntry.name`、`icon_glyph`、`icon_path`：软件显示名称与图标配置；不改磁盘文件名。
+- `src/ui_bridge/sources.rs`：将进程、当前音频文件和物理麦克风投影为路由源行；`update_dynamic` 只写实时峰值/音量/状态，不重建静态模型。
+- `UiCache.route_audio_entry`：待加入路由或当前路由使用的音频条目实际下标；仍是桥接派生状态，不替代引擎播放状态。
+- `UiCache.route_file_enabled`：用户为文件源选择的启用状态；与全局路由启停和文件播放器播放状态分离。
+- `UiCache.route_audio_entries` 与 `route_audio_enabled`：多个已加入路由的音频条目及其启用状态；不保存 PCM。
 - `OutputConfig.device_ids`：持久化多选 render 设备 ID；UI 使用 friendly name 显示，按 ID 恢复。
 Slint 属性只作为显示投影和事件契约，不保存 PCM。
 

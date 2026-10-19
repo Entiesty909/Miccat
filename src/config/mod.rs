@@ -142,9 +142,12 @@ pub struct AudioEntry {
     pub name: String,
     /// 文件路径。
     pub path: String,
-    /// 可选的自定义 Windows 图标路径；为空时使用音频文件关联图标。
+    /// 可选的自定义 Windows 图标文件路径；为空时使用音符图标。
     #[serde(default)]
     pub icon_path: Option<String>,
+    /// 字体图标 glyph；旧配置缺失时使用简约音乐音符。
+    #[serde(default = "default_audio_icon_glyph")]
+    pub icon_glyph: String,
     /// 所属分类路径；使用 `/` 分隔父分类和子分类。
     #[serde(default = "default_category")]
     pub category: String,
@@ -169,6 +172,10 @@ pub struct AudioEntry {
     /// 全局播放热键（组合键，应用不在前台也生效）；旧字段 `hotkey` 为前台单键。
     #[serde(default)]
     pub hotkey_binding: Option<Hotkey>,
+}
+
+fn default_audio_icon_glyph() -> String {
+    "\u{EC4F}".into()
 }
 
 fn default_category() -> String {
@@ -202,6 +209,29 @@ impl Default for DebugConfig {
     }
 }
 
+/// 保存三个独立顶层窗口关闭时的物理屏幕坐标。
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct WindowConfig {
+    /// 主窗口上次关闭位置；缺省时首次居中。
+    #[serde(default)]
+    pub main: Option<WindowPosition>,
+    /// 添加源窗口上次关闭位置；首次打开时居中。
+    #[serde(default)]
+    pub add_source: Option<WindowPosition>,
+    /// 音频编辑窗口上次关闭位置；首次打开时居中。
+    #[serde(default)]
+    pub audio_edit: Option<WindowPosition>,
+}
+
+/// 窗口左上角的物理屏幕坐标。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WindowPosition {
+    /// 屏幕横坐标。
+    pub x: i32,
+    /// 屏幕纵坐标。
+    pub y: i32,
+}
+
 /// 配置文件根对象。
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -224,9 +254,15 @@ pub struct AppConfig {
     /// 音频分类树节点，含仍存在的“全部”和“未分类”根项。
     #[serde(default)]
     pub audio_categories: Vec<String>,
+    /// 分类路径到 Windows MDL2 glyph 的持久化映射。
+    #[serde(default)]
+    pub audio_category_icons: BTreeMap<String, String>,
     /// 音频库条目。
     #[serde(default)]
     pub audio_entries: Vec<AudioEntry>,
+    /// 主窗口与独立子窗口位置。
+    #[serde(default)]
+    pub windows: WindowConfig,
     /// 调试开关。
     #[serde(default)]
     pub debug: DebugConfig,
@@ -243,7 +279,9 @@ impl Default for AppConfig {
             preview_enabled: false,
             preview_volume: 0.5,
             audio_categories: vec!["全部".into(), "未分类".into()],
+            audio_category_icons: BTreeMap::new(),
             audio_entries: Vec::new(),
+            windows: WindowConfig::default(),
             debug: DebugConfig::default(),
         }
     }

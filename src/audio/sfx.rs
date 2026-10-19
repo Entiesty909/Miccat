@@ -1,10 +1,11 @@
 //! 声板混音线程：读取已经解码的 WAV，在固定 ring 中混合并输出。
 
 use std::sync::Arc;
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use super::buffer::SpscRing;
 use super::format::AudioFormat;
+use std::sync::mpsc::{self, Receiver, Sender};
 
 /// 声板控制命令。
 pub struct StreamChunk {
@@ -32,11 +33,12 @@ pub fn channel() -> (Sender<SfxCommand>, Receiver<SfxCommand>) {
     mpsc::channel()
 }
 
-/// 声板线程：每 10 ms 出一块，积压超过 `lead` 时退让，节拍由 render 端决定。
+/// SFX mixer：从有界流构建固定块并记录峰值。
 pub fn run_sfx_loop(
     ring: Arc<SpscRing>,
     render: AudioFormat,
-    stop: Arc<std::sync::atomic::AtomicBool>,
+    stop: Arc<AtomicBool>,
+    peak: Arc<AtomicU32>,
     rx: Receiver<SfxCommand>,
 ) {
     let channels = render.channels as usize;
@@ -72,6 +74,11 @@ pub fn run_sfx_loop(
             player.mix_into(&mut block, render);
             !player.finished()
         });
+        let level = block
+            .iter()
+            .map(|sample| sample.abs())
+            .fold(0.0f32, f32::max);
+        peak.fetch_max(level.to_bits(), Ordering::Relaxed);
         ring.push_paced(&block, lead, &stop);
     }
 }

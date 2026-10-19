@@ -7,6 +7,8 @@ import { PmButton } from "button.slint";
 export component AudioList inherits Rectangle {
     in-out property <[string]> entries: [];
     in-out property <[string]> entry-durations: [];
+    in property <[image]> entry-icon-images: [];
+    in property <[string]> entry-icon-glyphs: [];
     in-out property <[string]> entry-metadata: [];
     in-out property <[string]> entry-categories: [];
     in-out property <[string]> entry-statuses: [];
@@ -126,13 +128,6 @@ export component AudioList inherits Rectangle {
                         }
                     }
                     Rectangle {
-                        width: 3px;
-                        height: parent.height;
-                        background: index == root.entry-index
-                            ? Theme.accent
-                            : transparent;
-                    }
-                    Rectangle {
                         y: parent.height - 1px;
                         width: parent.width;
                         height: 1px;
@@ -147,13 +142,24 @@ export component AudioList inherits Rectangle {
                             height: 30px;
                             border-radius: 5px;
                             background: Theme.accentSoft;
-                            Text {
-                                text: "\u{E8D6}";
+                            if index < root.entry-icon-images.length
+                                && index < root.entry-icon-glyphs.length
+                                && root.entry-icon-glyphs[index] == "": Image {
+                                width: 26px;
+                                height: 26px;
+                                source: root.entry-icon-images[index];
+                                image-fit: contain;
+                            }
+                            if index >= root.entry-icon-glyphs.length
+                                || root.entry-icon-glyphs[index] != "": Text {
+                                text: index < root.entry-icon-glyphs.length
+                                    ? root.entry-icon-glyphs[index]
+                                    : "\u{EC4F}";
                                 font-family: "Segoe MDL2 Assets";
                                 color: Theme.accent;
                                 font-size: 16px;
                                 horizontal-alignment: center;
-                                vertical-alignment: TextVerticalAlignment.center;
+                                vertical-alignment: center;
                             }
                         }
                         VerticalLayout {

@@ -3,3 +3,4 @@
 pub(crate) mod clipboard;
 pub(crate) mod com;
 pub(crate) mod icon;
+pub(crate) mod window;

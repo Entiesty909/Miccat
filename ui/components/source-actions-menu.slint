@@ -8,8 +8,7 @@ export component SourceActionsMenu inherits Rectangle {
     callback action(int);
     callback closed();
 
-    width: 230px;
-    height: root.kind == 1 ? 158px : 96px;
+    height: root.kind == 1 ? 188px : 126px;
     background: Theme.card;
     border-width: 1px;
     border-color: Theme.borderStrong;
@@ -27,6 +26,14 @@ export component SourceActionsMenu inherits Rectangle {
             color: Theme.text2;
             font-size: 11px;
             vertical-alignment: TextVerticalAlignment.center;
+        }
+        if root.kind == 0: MenuItem {
+            label: "替换进程";
+            clicked => { root.action(5); }
+        }
+        if root.kind == 1: MenuItem {
+            label: "替换音频";
+            clicked => { root.action(6); }
         }
         MenuItem {
             label: "单独转发此源";

@@ -5,6 +5,61 @@ use super::*;
 use std::path::Path;
 
 pub(super) const PAGE_SIZE: usize = 20;
+/// 音频库编辑对话框保留默认音符和首字图标两种字体图标。
+pub(super) const AUDIO_ICON_GLYPHS: [&str; 1] = ["\u{EC4F}"];
+
+/// 构造分类行使用的 glyph 与自定义图标模型。
+pub(super) fn category_icon_models(
+    cache: &Rc<RefCell<UiCache>>,
+    app_config: &config::AppConfig,
+) -> (Vec<slint::SharedString>, Vec<slint::Image>) {
+    let paths = category_paths(cache);
+    let mut glyphs = Vec::with_capacity(paths.len());
+    let mut images = Vec::with_capacity(paths.len());
+    for path in paths {
+        match app_config.audio_category_icons.get(&path) {
+            Some(icon) if icon.starts_with("file:") => {
+                let icon_path = &icon[5..];
+                glyphs.push("".into());
+                images.push(crate::platform::icon::file_icon(icon_path));
+            }
+            Some(icon) => {
+                glyphs.push(icon.clone().into());
+                images.push(slint::Image::default());
+            }
+            None => {
+                glyphs.push(if path == "未分类" {
+                    "\u{E8F4}".into()
+                } else {
+                    "\u{E8B7}".into()
+                });
+                images.push(slint::Image::default());
+            }
+        }
+    }
+    (glyphs, images)
+}
+
+/// 解析持久化图标到编辑对话框中的预设索引。
+pub(super) fn audio_icon_index(glyph: &str) -> i32 {
+    if glyph == AUDIO_ICON_GLYPHS[0] { 0 } else { 5 }
+}
+
+/// 根据编辑对话框选项生成持久化 glyph。
+pub(super) fn audio_icon_value(index: i32, name: &str) -> String {
+    if index == 5 {
+        return name.chars().next().unwrap_or('音').to_string();
+    }
+    AUDIO_ICON_GLYPHS[0].to_owned()
+}
+
+/// 判断分类目标路径是否与同级路径冲突；原路径不视为冲突，以允许只编辑图标。
+pub(super) fn category_path_conflicts(old_path: &str, new_path: &str, paths: &[String]) -> bool {
+    new_path != old_path
+        && paths
+            .iter()
+            .any(|path| path != old_path && path == new_path)
+}
 
 /// 分类树模型；内部保存路径，显示层只增加层级缩进。
 pub(super) fn audio_categories(cache: &Rc<RefCell<UiCache>>) -> Vec<slint::SharedString> {
@@ -15,6 +70,27 @@ pub(super) fn audio_categories(cache: &Rc<RefCell<UiCache>>) -> Vec<slint::Share
         .collect()
 }
 
+/// 同步分类名称、计数、图标模型到 Slint。
+pub(super) fn update_audio_categories(
+    ui: &MainWindow,
+    cache: &Rc<RefCell<UiCache>>,
+    app_config: &config::AppConfig,
+) {
+    ui.set_audio_categories(ModelRc::new(VecModel::from(audio_categories(cache))));
+    ui.set_audio_category_counts(ModelRc::new(VecModel::from(audio_category_counts(cache))));
+    let (glyphs, images) = category_icon_models(cache, app_config);
+    ui.set_audio_category_icon_images(ModelRc::new(VecModel::from(images)));
+    ui.set_audio_category_depths(ModelRc::new(VecModel::from(category_depths(cache))));
+    ui.set_audio_category_icon_glyphs(ModelRc::new(VecModel::from(glyphs)));
+}
+
+/// 返回分类树每行的父子层级。
+pub(super) fn category_depths(cache: &Rc<RefCell<UiCache>>) -> Vec<i32> {
+    category_paths(cache)
+        .into_iter()
+        .map(|path| path.matches('/').count() as i32)
+        .collect()
+}
 /// 返回每个显示分类中实际条目的数量。
 pub(super) fn audio_category_counts(cache: &Rc<RefCell<UiCache>>) -> Vec<i32> {
     let cache = cache.borrow();
@@ -28,6 +104,51 @@ pub(super) fn audio_category_counts(cache: &Rc<RefCell<UiCache>>) -> Vec<i32> {
                 .count() as i32
         })
         .collect()
+}
+
+/// 为路由添加源对话框提供全库真实条目和编辑元数据。
+pub(super) fn update_audio_catalog(ui: &MainWindow, cache: &Rc<RefCell<UiCache>>) {
+    let state = cache.borrow();
+    let mut names = Vec::with_capacity(state.audio_entries.len());
+    let mut metadata = Vec::with_capacity(state.audio_entries.len());
+    let mut durations = Vec::with_capacity(state.audio_entries.len());
+    let mut sizes = Vec::with_capacity(state.audio_entries.len());
+    let mut categories = Vec::with_capacity(state.audio_entries.len());
+    let mut hotkeys = Vec::with_capacity(state.audio_entries.len());
+    let mut loops = Vec::with_capacity(state.audio_entries.len());
+    for entry in &state.audio_entries {
+        let format = Path::new(&entry.path)
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or("")
+            .to_ascii_uppercase();
+        names.push(entry.name.clone().into());
+        metadata.push(
+            format!(
+                "{format} · {} · {}",
+                estimated_bitrate(entry.file_size_bytes, entry.duration_hns),
+                format_file_size(entry.file_size_bytes)
+            )
+            .into(),
+        );
+        durations.push(format_duration_hns(entry.duration_hns).into());
+        sizes.push(format_file_size(entry.file_size_bytes).into());
+        categories.push(
+            crate::library::category_leaf(&entry.category)
+                .to_string()
+                .into(),
+        );
+        hotkeys.push(entry_shortcut(entry).unwrap_or_default().into());
+        loops.push(entry.loop_playback);
+    }
+    drop(state);
+    ui.set_audio_library_catalog(ModelRc::new(VecModel::from(names)));
+    ui.set_audio_library_metadata(ModelRc::new(VecModel::from(metadata)));
+    ui.set_audio_library_durations(ModelRc::new(VecModel::from(durations)));
+    ui.set_audio_library_sizes(ModelRc::new(VecModel::from(sizes)));
+    ui.set_audio_library_categories(ModelRc::new(VecModel::from(categories)));
+    ui.set_audio_library_hotkeys(ModelRc::new(VecModel::from(hotkeys)));
+    ui.set_audio_library_loops(ModelRc::new(VecModel::from(loops)));
 }
 
 /// 条目快捷键文本：优先全局组合键，其次旧的前台单键。
@@ -118,6 +239,8 @@ pub(super) fn update_audio_list(ui: &MainWindow, cache: &Rc<RefCell<UiCache>>) {
     let mut names = Vec::with_capacity(entries.len());
     let mut durations = Vec::with_capacity(entries.len());
     let mut metadata = Vec::with_capacity(entries.len());
+    let mut icon_images = Vec::with_capacity(entries.len());
+    let mut icon_glyphs = Vec::with_capacity(entries.len());
     let mut categories = Vec::with_capacity(entries.len());
     let mut statuses = Vec::with_capacity(entries.len());
     let mut paths = Vec::with_capacity(entries.len());
@@ -126,6 +249,14 @@ pub(super) fn update_audio_list(ui: &MainWindow, cache: &Rc<RefCell<UiCache>>) {
 
     for entry in entries {
         // 必须先于 name/path 的部分移动取值，否则无法整借用 entry。
+        let icon_path = entry.icon_path.as_deref().filter(|path| !path.is_empty());
+        icon_images
+            .push(icon_path.map_or_else(slint::Image::default, crate::platform::icon::file_icon));
+        icon_glyphs.push(if icon_path.is_some() {
+            String::new().into()
+        } else {
+            entry.icon_glyph.clone().into()
+        });
         hotkeys.push(entry_shortcut(&entry).unwrap_or_default().into());
         names.push(entry.name.into());
         durations.push(format_duration_hns(entry.duration_hns).into());
@@ -151,6 +282,9 @@ pub(super) fn update_audio_list(ui: &MainWindow, cache: &Rc<RefCell<UiCache>>) {
         sizes.push(format_file_size(entry.file_size_bytes).into());
     }
 
+    update_audio_catalog(ui, cache);
+    ui.set_audio_entry_icon_images(ModelRc::new(VecModel::from(icon_images)));
+    ui.set_audio_entry_icon_glyphs(ModelRc::new(VecModel::from(icon_glyphs)));
     ui.set_audio_entries(ModelRc::new(VecModel::from(names)));
     ui.set_audio_entry_durations(ModelRc::new(VecModel::from(durations)));
     ui.set_audio_entry_metadata(ModelRc::new(VecModel::from(metadata)));
@@ -202,5 +336,34 @@ fn format_file_size(bytes: u64) -> String {
         format!("{} KB", bytes.div_ceil(1024))
     } else {
         format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AUDIO_ICON_GLYPHS, audio_icon_index, category_path_conflicts};
+
+    #[test]
+    fn default_music_note_maps_to_default_icon_option() {
+        assert_eq!(audio_icon_index(AUDIO_ICON_GLYPHS[0]), 0);
+    }
+
+    #[test]
+    fn non_default_glyph_maps_to_first_letter_option() {
+        assert_eq!(audio_icon_index("A"), 5);
+    }
+
+    #[test]
+    fn unchanged_category_name_allows_icon_edit() {
+        let paths = vec!["效果音".to_string(), "系统/提示".to_string()];
+
+        assert!(!category_path_conflicts("效果音", "效果音", &paths));
+    }
+
+    #[test]
+    fn category_rename_still_rejects_existing_sibling_path() {
+        let paths = vec!["效果音".to_string(), "提示音".to_string()];
+
+        assert!(category_path_conflicts("效果音", "提示音", &paths));
     }
 }

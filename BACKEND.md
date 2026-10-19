@@ -11,12 +11,11 @@ Miccat 没有服务端进程、HTTP/REST API、WebSocket、登录、数据库或
 - `src/engine.rs`：`AudioEngine` 权威持有运行态，管理输出、进程源、物理麦、音量、电平与生命周期。
 - `src/engine/fanout.rs`：将进程/麦/SFX 源 ring 按每个 render 目标格式转换并推送。
 - `src/engine/monitor.rs`：引擎拥有的本机试听输出；试听不是虚拟麦克风输入。
-- `src/engine/playback.rs`：文件解码任务、取消标志、SFX/试听分发、播放快照及 SFX channel 接口。
-- `src/engine/volume.rs`、`status.rs`、`peaks.rs`：AudioEngine 增益读写、运行状态及峰值采样 API。
+- `src/engine.rs`：`AudioEngine` 权威持有运行态，管理输出、进程源、物理麦、音量、电平与生命周期；capture 源提供窗口峰值读取。
 - `src/audio/`：WASAPI capture/render、COM façade、SPSC ring、格式转换、MF/WAV 解码、SFX、试听和 CLI WAV 导出。
-- `src/library.rs`：分类/索引/递归变更规则及 WAV/MF 媒体验证。
-- `src/config/`：配置数据、JSON 读写/旧格式迁移、单实例互斥；`AudioEntry` 保存格式元数据、循环和可选单键快捷键。
-- `src/platform/`：供多层共享的 Win32/COM 基础设施；当前提供 COM 初始化。
+- `src/library.rs`：分类/索引/递归变更规则、分类图标路径迁移及音频验证。
+- `src/config/`：配置数据、JSON 读写/旧格式迁移、单实例互斥；`AudioEntry` 保存媒体与软件显示元数据，`AppConfig.windows` 保存主窗口及两个独立窗口的物理坐标。
+- `src/platform/`：跨层共享的 COM 初始化与独立Window前置、工作区居中辅助。
 - `src/process.rs` / `src/hotkey.rs` / `src/vbcable.rs`：进程枚举、RegisterHotKey、VB-CABLE 安装。
 
 ## AudioEngine 内部调用接口
@@ -46,7 +45,9 @@ AudioEngine::stop()
 当前 seek 由 UI 停止旧流后以目标 `start_hns` 重新调用 `play_file()`，没有独立 `seek_file()` API。
 
 `OutputConfig.device_ids` 保存用户多选的 render 设备 ID；刷新设备列表按 ID 恢复选择。
-源卡片进程开关只影响 `UiCache.disabled_pids`，卡片保留；删除进程源才从 `selected_pids` 移除。文件开关通过暂停/恢复播放流保持位置，单独转发通过 `open_routed_outputs()` 只打开一个源的链路。
+源卡片进程开关只影响 `UiCache.disabled_pids`，卡片保留；删除进程源才从 `selected_pids` 移除。
+文件源开关只更新 `UiCache.route_file_enabled` 或对应 `route_audio_enabled` 槽位；路由未运行时不会启动全局路由，只有状态栏“开始转发”负责启动。运行中的启用文件通过 `play_file_source()` 追加到 SFX mixer，不停止其它文件流。
+`UiCache.route_audio_entries` 保存多个待加入路由的真实音频条目；无进程时，已启用文件源或已选麦克风也可以启动完整路由。
 设备 ID 列表为空时，启动路由回退为单个 `device_id`。
 源行中的进程/文件/麦克风音量调用相应 AudioEngine 原子增益并写入 `MixConfig`。
 路由链路：
@@ -58,9 +59,8 @@ PID → Process Loopback capture → 源 SPSC ring
 音频库解码 → SFX mixer ────────────────────┘
 ```
 
-每个输出目标有独立 render 线程。Capture、fan-out、SFX 和 render 循环不得扩容、写文件、
-访问 UI、打日志或等待普通阻塞锁。Engine 错误映射为 `EngineStatus`；
-界面短句走 `Error::user_message()`，详情走 tracing。
+- 每个输出目标有独立 render 线程。Capture、fan-out、SFX 和 render 循环不得扩容、写文件、访问 UI、打日志或等待普通阻塞锁。进程、麦克风与 SFX 峰值采样只写 `AtomicU32`；UI 线程按 50 ms 轮询读取并清零。
+- 源行 50 ms 更新只写变化的电平/状态模型单元；静态图标和下拉模型不在轮询中重建。
 
 ## 本机试听与文件播放
 
@@ -68,7 +68,8 @@ PID → Process Loopback capture → 源 SPSC ring
 - `play_file()` 按 `PlaybackTarget::{Both, Monitor, Route}` 分别监听+路由、仅监听、仅路由；
   `set_monitor_volume()` 只调整本机 monitor，不改变路由 SFX 增益。
 - 路由文件源增益仍走 `set_sfx_volume()`，与本机监听音量是独立控制。
-- 音频库分类、索引与递归变更由 `src/library.rs` 处理；条目由 `AppConfig` 持久化。
+- 音频库分类、索引、递归变更和分类图标路径迁移由 `src/library.rs` 处理；条目名称与图标由 `AppConfig` 持久化。
+- 音频条目编辑只修改 `AudioEntry.name`、`icon_glyph`、`icon_path`；不重命名磁盘文件。
 
 ## 配置与持久化
 

@@ -1,0 +1,137 @@
+//! 独立的添加源与音频库编辑窗口，避免主窗口内容遮挡交互。
+
+import { Theme } from "theme.slint";
+import { AddSourcePanel } from "components/add-source-panel.slint";
+import { AudioEntryEditor } from "components/audio-entry-editor.slint";
+
+export component AddSourceWindow inherits Window {
+    title: "添加音频源";
+    height: 620px;
+    preferred-width: 720px;
+    preferred-height: 620px;
+    background: Theme.bg;
+    default-font-family: "Segoe UI";
+    default-font-size: 14px;
+
+    in-out property <[string]> processes: [];
+    in-out property <int> process-index: 0;
+    in-out property <[image]> process-icon-images: [];
+    in-out property <[string]> process-pids: [];
+    in-out property <[string]> mics: [];
+    in-out property <int> mic-index: 0;
+    in-out property <[string]> audio-entries: [];
+    in-out property <[string]> audio-entry-metadata: [];
+    in-out property <[string]> audio-entry-durations: [];
+    in-out property <[string]> audio-entry-sizes: [];
+    in-out property <[string]> audio-entry-categories: [];
+    in-out property <[string]> audio-entry-hotkeys: [];
+    in-out property <[bool]> audio-entry-loops: [];
+    in-out property <[string]> output-options: [];
+    in-out property <int> file-output-index: 0;
+    in-out property <float> file-volume: 100;
+    in-out property <int> audio-selected-index: 0;
+    in-out property <string> audio-search: "";
+    in-out property <float> mic-volume: 100;
+    in-out property <bool> mix-mic: false;
+    in property <bool> running: false;
+    in-out property <int> selected-tab: 0;
+    in-out property <string> process-search: "";
+    in property <bool> single-tab: false;
+    in-out property <bool> refresh-surface: false;
+
+    callback process-add();
+    callback refresh();
+    callback add-files();
+    callback audio-entry-add-route(int);
+    callback audio-file-volume-edited(float);
+    callback audio-file-output-changed(int);
+    callback mic-volume-edited(float);
+    callback mic-mix-changed(bool);
+    callback open-library();
+    callback audio-search-changed();
+
+    if root.refresh-surface: Rectangle {
+        width: 100%;
+        height: 100%;
+        background: Theme.bg;
+    }
+    AddSourcePanel {
+        width: 100%;
+        height: 100%;
+        processes <=> root.processes;
+        process-index <=> root.process-index;
+        process-icon-images <=> root.process-icon-images;
+        process-pids <=> root.process-pids;
+        mics <=> root.mics;
+        mic-index <=> root.mic-index;
+        audio-entries <=> root.audio-entries;
+        audio-entry-metadata <=> root.audio-entry-metadata;
+        audio-entry-durations <=> root.audio-entry-durations;
+        audio-entry-sizes <=> root.audio-entry-sizes;
+        audio-entry-categories <=> root.audio-entry-categories;
+        audio-entry-hotkeys <=> root.audio-entry-hotkeys;
+        audio-entry-loops <=> root.audio-entry-loops;
+        output-options <=> root.output-options;
+        file-output-index <=> root.file-output-index;
+        file-volume <=> root.file-volume;
+        audio-selected-index <=> root.audio-selected-index;
+        audio-search <=> root.audio-search;
+        mic-volume <=> root.mic-volume;
+        mix-mic <=> root.mix-mic;
+        running: root.running;
+        selected-tab <=> root.selected-tab;
+        process-search <=> root.process-search;
+        single-tab: root.single-tab;
+        process-add => { root.process-add(); }
+        refresh => { root.refresh(); }
+        add-files => { root.add-files(); }
+        audio-entry-add-route(index) => { root.audio-entry-add-route(index); }
+        audio-file-volume-edited(value) => { root.audio-file-volume-edited(value); }
+        audio-file-output-changed(index) => { root.audio-file-output-changed(index); }
+        mic-volume-edited(value) => { root.mic-volume-edited(value); }
+        mic-mix-changed(value) => { root.mic-mix-changed(value); }
+        open-library => { root.open-library(); }
+        audio-search-changed => { root.audio-search-changed(); }
+        dismiss => { root.close(); }
+    }
+}
+
+export component AudioEditWindow inherits Window {
+    title: root.edit-title;
+    width: 560px;
+    height: 460px;
+    preferred-width: 560px;
+    preferred-height: 460px;
+    background: Theme.bg;
+    default-font-family: "Segoe UI";
+    default-font-size: 14px;
+    in-out property <string> edit-title: "编辑音频";
+
+    in-out property <bool> category-mode: false;
+    in-out property <string> name: "";
+    in-out property <bool> refresh-surface: false;
+    in-out property <int> icon-index: 0;
+    in-out property <image> custom-icon-image;
+    in-out property <string> custom-icon-path: "";
+    callback accepted(string, int, string);
+    callback cancelled();
+    callback custom-icon-requested();
+
+    if root.refresh-surface: Rectangle {
+        width: 100%;
+        height: 100%;
+        background: Theme.bg;
+    }
+    AudioEntryEditor {
+        width: 100%;
+        height: 100%;
+        category-mode: root.category-mode;
+        name <=> root.name;
+        icon-index <=> root.icon-index;
+        custom-icon-image: root.custom-icon-image;
+        custom-icon-path <=> root.custom-icon-path;
+        accepted(name, icon, path) => { root.accepted(name, icon, path); }
+        cancelled => { root.cancelled(); }
+        custom-icon-requested => { root.custom-icon-requested(); }
+    }
+}

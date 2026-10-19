@@ -54,6 +54,14 @@ pub(super) struct UiCache {
     pub(super) last_audio_click: Option<(usize, Instant)>,
     /// 菜单播放不经过第二次伪造点击。
     pub(super) force_audio_play: bool,
+    /// 待加入路由或当前路由使用的音频库条目实际下标。
+    pub(super) route_audio_entry: Option<usize>,
+    /// 用户是否启用音频文件路由源；与全局路由启停状态分离。
+    pub(super) route_file_enabled: bool,
+    /// 已加入路由的音频库条目实际下标。
+    pub(super) route_audio_entries: Vec<usize>,
+    /// 与 `route_audio_entries` 对齐的用户启用状态。
+    pub(super) route_audio_enabled: Vec<bool>,
     /// 暂停时可恢复的条目、采样位置和播放目标。
     pub(super) paused_audio: Option<(config::AudioEntry, u64, PlaybackTarget)>,
     /// 当前列表播放目标。

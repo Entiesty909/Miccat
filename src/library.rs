@@ -1,5 +1,6 @@
-//! 音频库领域规则：分类路径、可见索引与递归分类变更。
+//! 音频库领域规则：分类路径、递归索引、图标映射与分类变更。
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use crate::audio::decode::MediaInfo;
@@ -16,7 +17,34 @@ pub(crate) fn category_matches(entry: &AudioEntry, category: &str) -> bool {
         || entry.category.starts_with(&format!("{category}/"))
 }
 
+/// 重命名分类路径时同步迁移其图标和全部后代图标。
+pub(crate) fn rename_category_icon_paths(
+    icons: &mut BTreeMap<String, String>,
+    old_path: &str,
+    new_path: &str,
+) {
+    let old_prefix = format!("{old_path}/");
+    let old_icons = std::mem::take(icons);
+    for (path, glyph) in old_icons {
+        let next_path = if path == old_path {
+            new_path.to_owned()
+        } else if let Some(suffix) = path.strip_prefix(&old_prefix) {
+            format!("{new_path}/{suffix}")
+        } else {
+            path
+        };
+        icons.insert(next_path, glyph);
+    }
+}
+
+/// 删除分类时移除它及全部后代对应的图标设置。
+pub(crate) fn delete_category_icon_paths(icons: &mut BTreeMap<String, String>, path: &str) {
+    let prefix = format!("{path}/");
+    icons.retain(|candidate, _| candidate != path && !candidate.starts_with(&prefix));
+}
+
 /// 按分类返回配置条目下标。
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn visible_entry_index(
     entries: &[AudioEntry],
     category: &str,

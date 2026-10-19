@@ -7,7 +7,7 @@ mod source_only;
 pub(super) use source_only::start_source_only;
 
 struct RouteSelection {
-    pid: u32,
+    pid: Option<u32>,
     extra_pids: Vec<u32>,
     dest: DestDevice,
     output_ids: Vec<String>,
@@ -17,6 +17,7 @@ struct RouteSelection {
     process_name: Option<String>,
     process_names: Vec<String>,
     mix_mic: bool,
+    file_entries: Vec<config::AudioEntry>,
 }
 
 pub(super) fn register(ui: &MainWindow, state: &AppState) {
@@ -37,7 +38,7 @@ fn handle_start_stop(ui: &MainWindow, state: &AppState) {
     }
 
     let Some(selection) = selected_route(ui, state) else {
-        ui.set_error_text("请选择进程和输出设备".into());
+        ui.set_error_text("请选择音频源和输出设备".into());
         return;
     };
     let mix = state.app_config.borrow().mix.clone();
@@ -117,8 +118,31 @@ fn selected_route(ui: &MainWindow, state: &AppState) -> Option<RouteSelection> {
     {
         selected.push(pid);
     }
-    let primary_pid = selected.first().copied().or(pid)?;
+    let primary_pid = selected.first().copied().or(pid);
     let extra_pids = selected.iter().skip(1).copied().collect();
+    let file_entries = if cache.route_audio_entries.is_empty() {
+        cache
+            .route_file_enabled
+            .then_some(cache.route_audio_entry)
+            .flatten()
+            .and_then(|index| cache.audio_entries.get(index).cloned())
+            .into_iter()
+            .collect()
+    } else {
+        cache
+            .route_audio_entries
+            .iter()
+            .enumerate()
+            .filter(|(slot, _)| {
+                cache
+                    .route_audio_enabled
+                    .get(*slot)
+                    .copied()
+                    .unwrap_or(false)
+            })
+            .filter_map(|(_, index)| cache.audio_entries.get(*index).cloned())
+            .collect::<Vec<_>>()
+    };
     let dest = cache.dests.get(ui.get_device_index() as usize).cloned()?;
     let output_config = state.app_config.borrow().output.clone();
     let custom_routes = output_config.process_output_id.is_some()
@@ -188,6 +212,9 @@ fn selected_route(ui: &MainWindow, state: &AppState) -> Option<RouteSelection> {
         None
     };
     let mix_mic = ui.get_mix_mic() && mic_id.is_some();
+    if primary_pid.is_none() && file_entries.is_empty() && !mix_mic {
+        return None;
+    }
     let process_names = selected
         .iter()
         .filter_map(|pid| {
@@ -209,6 +236,7 @@ fn selected_route(ui: &MainWindow, state: &AppState) -> Option<RouteSelection> {
         process_name: process_names.first().cloned(),
         process_names,
         mix_mic,
+        file_entries,
     })
 }
 
@@ -218,13 +246,18 @@ fn start_route(engine: &AudioEngine, selection: &RouteSelection) -> Result<(), E
     } else {
         engine.open_outputs(&selection.output_ids)?;
     }
-    engine.set_process_source(selection.pid)?;
-    for (slot, pid) in selection.extra_pids.iter().enumerate() {
-        engine.add_process_source(*pid, slot + 1)?;
+    if let Some(pid) = selection.pid {
+        engine.set_process_source(pid)?;
+        for (slot, pid) in selection.extra_pids.iter().enumerate() {
+            engine.add_process_source(*pid, slot + 1)?;
+        }
     }
-    engine.set_mic_source(selection.mic_id.as_deref())
+    engine.set_mic_source(selection.mic_id.as_deref())?;
+    for entry in &selection.file_entries {
+        engine.play_file_source(entry)?;
+    }
+    Ok(())
 }
-
 fn finish_route_start(ui: &MainWindow, state: &AppState, selection: RouteSelection) {
     {
         let cache = state.cache.borrow();

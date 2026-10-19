@@ -15,6 +15,7 @@ export component ContextMenu inherits Rectangle {
     in-out property <bool> category-rename-open: false;
     in property <string> entry-hotkey: "";
     callback category-new();
+    callback category-edit-requested();
     callback category-rename();
     callback category-delete();
     callback entry-play(int);
@@ -23,6 +24,7 @@ export component ContextMenu inherits Rectangle {
     callback entry-hotkey-clear();
     callback entry-remove();
     callback entry-explorer();
+    callback entry-edit-requested();
     callback entry-edit-file();
 
     width: 100%;
@@ -75,16 +77,11 @@ export component ContextMenu inherits Rectangle {
                 height: 30px;
             }
             MenuItem {
-                label: root.category-rename-open ? "确定重命名" : "重命名";
+                label: "编辑";
                 enabled: root.category-index >= 0;
                 clicked => {
-                    if root.category-rename-open {
-                        root.category-rename();
-                        root.category-rename-open = false;
-                        root.category-open = false;
-                    } else {
-                        root.category-rename-open = true;
-                    }
+                    root.category-edit-requested();
+                    root.category-open = false;
                 }
             }
             MenuItem {
@@ -151,8 +148,8 @@ export component ContextMenu inherits Rectangle {
                 clicked => { root.entry-explorer(); root.entry-open = false; }
             }
             MenuItem {
-                label: "编辑文件";
-                clicked => { root.entry-edit-file(); root.entry-open = false; }
+                label: "编辑";
+                clicked => { root.entry-edit-requested(); root.entry-open = false; }
             }
             MenuItem {
                 label: "从音频库移除";

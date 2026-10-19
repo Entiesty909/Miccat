@@ -3,7 +3,8 @@
 import { Theme } from "../theme.slint";
 import { DiagState } from "../overlays/global-overlays.slint";
 import { PmButton } from "button.slint";
-import { Slider } from "std-widgets.slint";
+import { ScrollView, Slider } from "std-widgets.slint";
+import { LevelMeter } from "level-meter.slint";
 
 export component StatusBar inherits Rectangle {
     in property <string> status-text: "未运行";
@@ -11,10 +12,16 @@ export component StatusBar inherits Rectangle {
     in property <string> error-text: "";
     in property <bool> running: false;
     in property <int> source-count: 0;
-    in-out property <bool> sources-expanded: true;
+    in property <[string]> source-titles: [];
+    in property <[float]> source-meter-history: [];
+    in property <[string]> source-meter-dbs: [];
+    in property <[float]> master-meter-history: [];
+    in-out property <bool> source-meter-open: false;
+    in property <float> master-peak-value: 0;
+    in property <string> master-peak-db: "-∞ dB";
+    in property <string> master-volume-db: "0.0 dB";
     in-out property <float> master-volume: 100;
     in property <bool> cable-busy: false;
-    callback sources-expanded-toggled(bool);
     callback master-volume-edited(float);
     callback start-stop();
 
@@ -82,32 +89,34 @@ export component StatusBar inherits Rectangle {
                     font-weight: 600;
                     vertical-alignment: center;
                 }
-                Rectangle {
-                    width: 1px;
-                    height: 20px;
-                    background: Theme.borderStrong;
-                }
-                Text {
-                    text: "\{root.source-count} 个音频源";
-                    color: Theme.text2;
-                    font-size: 12px;
-                    vertical-alignment: center;
-                }
-                Rectangle {
-                    width: 30px;
-                    height: 30px;
-                    Text {
-                        text: root.sources-expanded ? "\u{E70E}" : "\u{E70D}";
-                        font-family: "Segoe MDL2 Assets";
-                        color: Theme.text2;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
+                source-count-anchor := Rectangle {
+                    width: 122px;
+                    height: 44px;
+                    background: transparent;
+                    HorizontalLayout {
+                        spacing: 2px;
+                        Text {
+                            text: "\{root.source-count} 个音频源";
+                            width: self.preferred-width;
+                            horizontal-stretch: 0;
+                            color: Theme.text2;
+                            font-size: 12px;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: root.source-meter-open ? "\u{E70E}" : "\u{E70D}";
+                            width: 12px;
+                            font-family: "Segoe MDL2 Assets";
+                            color: root.source-meter-open ? Theme.accent : Theme.text2;
+                            font-size: 11px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
                     }
                     TouchArea {
                         mouse-cursor: pointer;
                         clicked => {
-                            root.sources-expanded = !root.sources-expanded;
-                            root.sources-expanded-toggled(root.sources-expanded);
+                            root.source-meter-open = !root.source-meter-open;
                         }
                     }
                 }
@@ -136,6 +145,14 @@ export component StatusBar inherits Rectangle {
                     changed(v) => { root.master-volume-edited(v); }
                 }
                 Text {
+                    width: 58px;
+                    text: root.master-volume-db;
+                    color: Theme.text;
+                    font-size: 12px;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                }
+                Text {
                     width: 44px;
                     text: "\{Math.round(root.master-volume)}%";
                     color: Theme.text;
@@ -161,5 +178,96 @@ export component StatusBar inherits Rectangle {
                 }
             }
         }
+    }
+    if root.source-meter-open: Rectangle {
+        x: source-count-anchor.absolute-position.x - root.absolute-position.x;
+        y: source-count-anchor.absolute-position.y
+            - root.absolute-position.y
+            - self.height
+            - 8px;
+        width: 360px;
+        height: min(300px, 104px + 34px * root.source-count);
+        border-radius: Theme.radiusCard;
+        border-width: 1px;
+        border-color: Theme.borderStrong;
+        background: Theme.card;
+        VerticalLayout {
+            padding: 12px;
+            spacing: 8px;
+            Text {
+                text: "实时声纹 · 峰值 dBFS";
+                color: Theme.text;
+                font-size: 13px;
+                font-weight: 600;
+            }
+            ScrollView {
+                vertical-stretch: 1;
+                vertical-scrollbar-policy: always-off;
+                VerticalLayout {
+                    spacing: 4px;
+                    for title[index] in root.source-titles: HorizontalLayout {
+                        height: 28px;
+                        Text {
+                            text: title;
+                            width: 110px;
+                            color: Theme.text2;
+                            font-size: 10px;
+                            overflow: elide;
+                            vertical-alignment: center;
+                        }
+                        LevelMeter {
+                            horizontal-stretch: 1;
+                            height: 24px;
+                            samples: root.source-meter-history;
+                            sample-offset: index * 32;
+                            sample-count: 32;
+                            tint: Theme.accent;
+                        }
+                        Text {
+                            text: index < root.source-meter-dbs.length
+                                ? root.source-meter-dbs[index]
+                                : "-∞ dB";
+                            width: 54px;
+                            color: Theme.text;
+                            font-size: 10px;
+                            horizontal-alignment: right;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+            HorizontalLayout {
+                height: 28px;
+                Text {
+                    text: "总线";
+                    width: 110px;
+                    color: Theme.text2;
+                    font-size: 10px;
+                    vertical-alignment: center;
+                }
+                LevelMeter {
+                    horizontal-stretch: 1;
+                    height: 24px;
+                    samples: root.master-meter-history;
+                    sample-offset: 0;
+                    sample-count: 32;
+                    tint: Theme.ok;
+                }
+                Text {
+                    text: root.master-peak-db;
+                    width: 54px;
+                    color: Theme.text;
+                    font-size: 10px;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                }
+            }
+            Text {
+                text: "总线增益（相对 100%）：\{root.master-volume-db}";
+                color: Theme.text3;
+                font-size: 9px;
+            }
+        }
+        TouchArea { }
     }
 }

@@ -11,7 +11,6 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
     register_search(ui, state);
     register_audio_shortcuts(ui, state);
 }
-
 fn register_selection(ui: &MainWindow, state: &AppState) {
     let cache = state.cache.clone();
     let ui_weak = ui.as_weak();
@@ -37,7 +36,6 @@ fn register_selection(ui: &MainWindow, state: &AppState) {
         ui.set_audio_entry_index(visible_index);
     });
 }
-
 fn register_category(ui: &MainWindow, state: &AppState) {
     let cache = state.cache.clone();
     let app_config = state.app_config.clone();

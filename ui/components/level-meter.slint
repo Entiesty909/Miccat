@@ -4,6 +4,8 @@ import { Theme } from "../theme.slint";
 
 export component LevelMeter inherits Rectangle {
     in property <[float]> samples;
+    in property <int> sample-offset: 0;
+    in property <int> sample-count: 32;
     in property <color> tint: Theme.ok;
 
     height: Theme.meterHeight;
@@ -17,13 +19,16 @@ export component LevelMeter inherits Rectangle {
         padding-top: 6px;
         padding-bottom: 6px;
         spacing: 2px;
-        for s in root.samples: Rectangle {
+        for i in root.sample-count: Rectangle {
+            property <float> sample: root.sample-offset + i < root.samples.length
+                ? root.samples[root.sample-offset + i]
+                : 0;
             horizontal-stretch: 1;
             border-radius: 1px;
-            height: max(2px, (parent.height - 12px) * min(1, max(0, s)));
+            height: max(2px, (parent.height - 12px) * min(1, max(0, self.sample)));
             y: (parent.height - self.height) / 2;
             background: root.tint;
-            opacity: 0.25 + min(1, max(0, s)) * 0.75;
+            opacity: 0.25 + min(1, max(0, self.sample)) * 0.75;
         }
     }
 }

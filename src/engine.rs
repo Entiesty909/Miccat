@@ -58,6 +58,7 @@ struct OutputState {
 
 struct ProcessThread {
     stop: Arc<AtomicBool>,
+    peak: Arc<AtomicU32>,
     thread: JoinHandle<()>,
 }
 
@@ -65,9 +66,11 @@ struct ProcessThread {
 struct SourceThreads {
     process: Vec<ProcessThread>,
     mic_stop: Option<Arc<AtomicBool>>,
+    mic_peak: Option<Arc<AtomicU32>>,
     mic: Option<JoinHandle<()>>,
     sfx_tx: Option<std::sync::mpsc::Sender<crate::audio::sfx::SfxCommand>>,
     sfx_stop: Option<Arc<AtomicBool>>,
+    sfx_peak: Option<Arc<AtomicU32>>,
     sfx: Option<JoinHandle<()>>,
 }
 
@@ -76,6 +79,7 @@ pub struct AudioEngine {
     mic_volume: Arc<AtomicU32>,
     sfx_volume: Arc<AtomicU32>,
     master: Arc<AtomicU32>,
+    route_peak: Arc<AtomicU32>,
     running: Arc<AtomicBool>,
     status: Arc<Mutex<EngineStatus>>,
     monitor: monitor::SharedMonitor,
@@ -97,6 +101,7 @@ impl AudioEngine {
             mic_volume: Arc::new(AtomicU32::new(1.0f32.to_bits())),
             sfx_volume: Arc::new(AtomicU32::new(1.0f32.to_bits())),
             master: Arc::new(AtomicU32::new(1.0f32.to_bits())),
+            route_peak: Arc::new(AtomicU32::new(0.0f32.to_bits())),
             running: Arc::new(AtomicBool::new(false)),
             status: Arc::new(Mutex::new(EngineStatus::Idle)),
             output: Mutex::new(None),
@@ -132,26 +137,35 @@ impl AudioEngine {
             },
         );
         let stop = Arc::new(AtomicBool::new(false));
+        let peak = Arc::new(AtomicU32::new(0.0f32.to_bits()));
         let thread_stop = stop.clone();
+        let thread_peak = peak.clone();
         let status = self.status.clone();
         let thread = thread::Builder::new()
             .name(format!("wasapi-capture-{slot}"))
             .spawn(move || {
                 let _com = com::init_mta();
-                run_capture_loop(capture, ring, converter, thread_stop, |err| {
-                    let mapped = match err {
-                        Error::ProcessNotFound(_) => EngineStatus::ProcessExited,
-                        Error::DeviceNotFound => EngineStatus::DeviceGone,
-                        other => EngineStatus::Error(other.user_message()),
-                    };
-                    if let Ok(mut g) = status.lock() {
-                        *g = mapped;
-                    }
-                });
+                run_capture_loop(
+                    capture,
+                    ring,
+                    converter,
+                    thread_stop,
+                    Some(thread_peak),
+                    |err| {
+                        let mapped = match err {
+                            Error::ProcessNotFound(_) => EngineStatus::ProcessExited,
+                            Error::DeviceNotFound => EngineStatus::DeviceGone,
+                            other => EngineStatus::Error(other.user_message()),
+                        };
+                        if let Ok(mut g) = status.lock() {
+                            *g = mapped;
+                        }
+                    },
+                );
             })
             .map_err(|_| Error::CaptureInit("spawn capture thread"))?;
         if let Ok(mut sources) = self.sources.lock() {
-            sources.process.push(ProcessThread { stop, thread });
+            sources.process.push(ProcessThread { stop, peak, thread });
         }
         Ok(())
     }
@@ -180,16 +194,19 @@ impl AudioEngine {
             },
         );
         let stop = Arc::new(AtomicBool::new(false));
+        let peak = Arc::new(AtomicU32::new(0.0f32.to_bits()));
         let thread_stop = stop.clone();
+        let thread_peak = peak.clone();
         let thread = thread::Builder::new()
             .name("wasapi-mic".into())
             .spawn(move || {
                 let _com = com::init_mta();
-                run_capture_loop(mic, ring, conv, thread_stop, |_| {});
+                run_capture_loop(mic, ring, conv, thread_stop, Some(thread_peak), |_| {});
             })
             .map_err(|_| Error::CaptureInit("spawn mic thread"))?;
         if let Ok(mut s) = self.sources.lock() {
             s.mic_stop = Some(stop);
+            s.mic_peak = Some(peak);
             s.mic = Some(thread);
         }
         Ok(())
@@ -281,10 +298,50 @@ impl AudioEngine {
             s.sfx_tx = None;
         }
     }
+    /// 读取指定进程源的实时峰值并做一次衰减。
+    pub fn process_peak(&self, slot: usize) -> f32 {
+        let Ok(sources) = self.sources.lock() else {
+            return 0.0;
+        };
+        let Some(thread) = sources.process.get(slot) else {
+            return 0.0;
+        };
+        let value = f32::from_bits(thread.peak.swap(0.0f32.to_bits(), Ordering::Relaxed));
+        value.clamp(0.0, 1.0)
+    }
+
+    /// 读取物理麦克风的实时峰值并清零采样窗口。
+    pub fn mic_peak(&self) -> f32 {
+        let Ok(sources) = self.sources.lock() else {
+            return 0.0;
+        };
+        sources
+            .mic_peak
+            .as_ref()
+            .map(|peak| f32::from_bits(peak.swap(0.0f32.to_bits(), Ordering::Relaxed)))
+            .unwrap_or(0.0)
+            .clamp(0.0, 1.0)
+    }
+    /// 读取 SFX mixer 最近音频块的峰值并清零窗口。
+    pub fn sfx_peak(&self) -> f32 {
+        let Ok(sources) = self.sources.lock() else {
+            return 0.0;
+        };
+        sources
+            .sfx_peak
+            .as_ref()
+            .map(|peak| f32::from_bits(peak.swap(0.0f32.to_bits(), Ordering::Relaxed)))
+            .unwrap_or(0.0)
+            .clamp(0.0, 1.0)
+    }
     fn set_status(&self, s: EngineStatus) {
         if let Ok(mut g) = self.status.lock() {
             *g = s;
         }
+    }
+    /// 读取最近渲染块的总线峰值并清零采样窗口。
+    pub fn route_peak(&self) -> f32 {
+        f32::from_bits(self.route_peak.swap(0.0f32.to_bits(), Ordering::Relaxed)).clamp(0.0, 1.0)
     }
 }
 

@@ -40,13 +40,25 @@ Miccat 是 Windows 桌面进程音频路由器：以 WASAPI Process Loopback 捕
 .\scripts\build-release.cmd
 ```
 
-`check.cmd` 包含格式、严格 Clippy、构建与行数门禁；`smoke.cmd` 枚举设备/进程，生成默认 UI 和条目菜单快照，并模拟空树右键且断言菜单打开。
+`check.cmd` 包含格式、严格 Clippy、构建与行数门禁；`smoke.cmd` 枚举设备/进程，并生成播放器、路由、状态栏声纹Popover、窗口重开绘制、菜单、分类和三个真实音源窗口快照。
 `dev.ps1` 默认启用 Slint Live Preview：`.slint` 文件由运行中的进程重载，Rust 改动仍会重编并重启；`scripts\dev.cmd -Release` 禁用开发热更新。
 `build-debug.cmd` / `build-release.cmd` 分别产出 debug 与 release 的 exe 并打印路径。真实设备声音与物理鼠标仍需人工验收。
 
 ## 当前重构状态
 
 S1–S6 重构阶段均有历史记录。最近变更：
+- [`docs/step-76-window-reopen-fixes.md`](docs/step-76-window-reopen-fixes.md)：窗口首次定位改为显示前恢复/立即居中；独立窗口下一轮重绘；添加进程/音频到路由后隐藏子窗口且不启动全局转发。
+- [`docs/step-75-native-movable-windows.md`](docs/step-75-native-movable-windows.md)：记录原生标题栏、位置持久化、独立窗口重绘与添加源交互基线。
+- [`docs/step-69-route-source-details-and-sfx-peak.md`](docs/step-69-route-source-details-and-sfx-peak.md)：添加源窗口显示真实条目详情与SFX实时峰值，并补齐空分类区右键命中。
+- [`docs/step-70-ui-routing-source-polish.md`](docs/step-70-ui-routing-source-polish.md)：修复音频库拖动/图标编辑、添加源三类入口、真实进程图标、实时声纹、路由源启动和顶层源菜单。
+- [`docs/step-71-ui-regression-fixes.md`](docs/step-71-ui-regression-fixes.md)：统一添加源类型卡、缩短并对齐麦克风下拉，修复文件源启用误启动全局路由和分类图标原名保存，源菜单改为 PopupWindow。
+- [`docs/step-72-multi-source-routing-performance.md`](docs/step-72-multi-source-routing-performance.md)：支持多进程/多音频加入、替换入口、删除源、文件不自动播放，并优化声纹轮询空闲CPU。
+- [`docs/step-74-popup-dialog-windows.md`](docs/step-74-popup-dialog-windows.md)：将添加源/音频编辑拆成独立Slint Window；Step 75 改为可拖动原生窗口并收口位置/重绘。
+- [`docs/step-73-microphone-forwarding-deadlock.md`](docs/step-73-microphone-forwarding-deadlock.md)：修复麦克风捕获线程停止标志未保存导致的永久 join 卡死。
+- [`docs/step-67-audio-library-interactions.md`](docs/step-67-audio-library-interactions.md)：音频库可调三栏、分类过滤、分类编辑、条目编辑和默认音乐图标。
+- [`docs/step-66-debug-build-script.md`](docs/step-66-debug-build-script.md)：修复双击 Debug 构建脚本时窗口闪退和工作目录依赖。
+- [`docs/step-65-line-gate-policy.md`](docs/step-65-line-gate-policy.md)：将行数门禁改为常规目标、审查警告和硬上限三级策略。
+- [`docs/step-64-audio-library-tab.md`](docs/step-64-audio-library-tab.md)：音频库 tab 红框区域、真实波形、详情操作和真实数据接线。
 - [`docs/step-63-marquee-toggle-selection.md`](docs/step-63-marquee-toggle-selection.md)：增加跑马灯总开关，并让蓝色指示条只标记实际选中项。
 - [`docs/step-62-marquee-dropdown.md`](docs/step-62-marquee-dropdown.md)：封装跑马灯文字/下拉列表并接入路由首页与进程选择。
 - [`docs/step-61-live-preview.md`](docs/step-61-live-preview.md)：Slint 1.18 官方 Live Preview 与开发脚本，验证窗口进程内重载。
@@ -65,4 +77,4 @@ S1–S6 重构阶段均有历史记录。最近变更：
 - [`docs/step-46-library-tests.md`](docs/step-46-library-tests.md)：分离音频库单元测试，恢复 `library.rs` 行数门禁。
 - [`docs/step-45-reference-ui-and-source-logic.md`](docs/step-45-reference-ui-and-source-logic.md)：参考图驱动的页面与音频行为。
 
-本轮源逻辑构建、Clippy、测试和路由快照结果以 Step 52 实测为准。
+本轮32个单元测试、`scripts\\smoke.cmd`、主/子窗口快照与添加源窗口重开像素一致性检查通过；`scripts\\build-dev.cmd fmt` 和 `scripts\\build-dev.cmd build` 通过。真实桌面鼠标位置恢复、分类/音频编辑窗口第二次物理显示和真实设备出声仍需人工验收。

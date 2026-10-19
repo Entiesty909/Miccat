@@ -1,0 +1,73 @@
+//! 添加路由时搜索并选择真实音频库条目。
+
+import { LineEdit, ScrollView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+
+export component AudioSourceList inherits Rectangle {
+    in-out property <[string]> entries: [];
+    in-out property <[string]> metadata: [];
+    in-out property <int> selected-index: 0;
+    in-out property <string> search: "";
+    callback search-changed();
+    function matches(name: string) -> bool {
+        return root.search.is-empty
+            || name.to-lowercase().replace-all(
+                root.search.to-lowercase(),
+                ""
+            ) != name.to-lowercase();
+    }
+
+    width: 330px;
+    border-radius: Theme.radiusControl;
+    border-width: 1px;
+    border-color: Theme.border;
+
+    VerticalLayout {
+        padding: 12px;
+        spacing: 8px;
+        LineEdit {
+            height: 34px;
+            text <=> root.search;
+            placeholder-text: "搜索音频文件…";
+            edited(value) => { root.search-changed(); }
+        }
+        ScrollView {
+            vertical-stretch: 1;
+            vertical-scrollbar-policy: always-off;
+            VerticalLayout {
+                for entry[index] in root.entries: Rectangle {
+                    visible: root.matches(entry);
+                    height: root.matches(entry) ? 52px : 0px;
+                    border-radius: Theme.radiusControl;
+                    background: index == root.selected-index
+                        ? Theme.accentSoft
+                        : transparent;
+                    VerticalLayout {
+                        padding-left: 9px;
+                        padding-right: 8px;
+                        spacing: 3px;
+                        Text {
+                            text: entry;
+                            color: Theme.text;
+                            font-size: 11px;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: index < root.metadata.length
+                                ? root.metadata[index]
+                                : "";
+                            color: Theme.text3;
+                            font-size: 9px;
+                            overflow: elide;
+                    }
+                    }
+                    TouchArea {
+                        clicked => {
+                            root.selected-index = index;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

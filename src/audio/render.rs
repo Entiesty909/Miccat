@@ -109,6 +109,7 @@ pub fn run_render_loop(
     mic_volume: Arc<AtomicU32>,
     sfx_volume: Arc<AtomicU32>,
     master: Arc<AtomicU32>,
+    route_peak: Option<Arc<AtomicU32>>,
     stop: Arc<AtomicBool>,
     on_fail: impl FnOnce(Error),
 ) {
@@ -186,14 +187,14 @@ pub fn run_render_loop(
                 tmp[i] += sfx_tmp[i] * sfx_vol;
             }
         }
-        for sample in &mut tmp[..samples] {
-            *sample = sample.clamp(-1.0, 1.0);
-        }
         let master_vol = f32::from_bits(master.load(Ordering::Relaxed)).clamp(0.0, 1.0);
-        if (master_vol - 1.0).abs() > f32::EPSILON {
-            for s in &mut tmp[..samples] {
-                *s = (*s * master_vol).clamp(-1.0, 1.0);
-            }
+        let mut output_peak = 0.0f32;
+        for sample in &mut tmp[..samples] {
+            *sample = (*sample * master_vol).clamp(-1.0, 1.0);
+            output_peak = output_peak.max(sample.abs());
+        }
+        if let Some(peak) = &route_peak {
+            peak.fetch_max(output_peak.to_bits(), Ordering::Relaxed);
         }
         if !ptr_data.is_null() {
             let nbytes = samples * session.format.kind.bytes();

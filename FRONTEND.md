@@ -8,14 +8,17 @@
 `ui/app-window.slint`：窗口顶栏、全局菜单遮罩和常驻状态栏。
 `ui/components/page-host.slint`：装配三页、持有页面间绑定并转发 bridge 回调。
 `ui/components/app-header.slint`、`tab-bar.slint`：产品标识、实时引擎状态和三页导航。
-`ui/components/status-bar.slint`：状态、输出友好名、混麦开关/麦选择、总音量滑块与启停。
+`ui/components/status-bar.slint`：状态、输出友好名、混麦开关/麦选择、总音量滑块与启停；音源数触发区的倒三角紧邻文字，Popover 以触发区为锚显示在正上方，dBFS 表示信号峰值，增益 dB 表示相对 100% 音量倍率。
 `ui/overlays/context-menu.slint`：遮罩、分类/条目菜单、坐标钳制和动作转发。
 `ui/overlays/diagnostic-panel.slint`、`ui/overlays/global-overlays.slint`：右侧抽屉式问题中心（问题列表 + 日志开关）、
 `DiagState` 全局状态与顶层覆盖层宿主；状态栏与设置页直接读写该全局，不经 `app-window` 透传。
 `ui/components/diagnostic-row.slint`、`ui/components/diagnostics-card.slint`：问题行/徽标与设置页诊断卡片。
-`ui/pages/route.slint`、`ui/components/source-row.slint`：渲染实际选择的进程/文件/麦克风源；启停、静音、增益、每源输出和麦克风选择均接 bridge。
-`ui/components/source-actions-menu.slint`：源卡片右侧更多菜单；提供删除源、单独转发、音频文件设置快捷键和定位音频库。
-`ui/components/category-sidebar.slint`：真实 `/` 分类路径、拖拽排序、右键操作。
+`ui/pages/route.slint`、`ui/components/source-row.slint`：渲染实际选择的进程/多个文件/麦克风源；文件启用与播放分离；菜单提供替换进程/替换音频、删除和单独转发。
+`ui/components/add-source-panel.slint`：按真实进程、音频库和物理麦模型添加路由源；普通模式使用三张类型卡，替换模式只显示单一目标 Tab；由独立、非模态的 `AddSourceWindow` 顶层窗口承载，使用 Windows 原生标题栏移动。
+`ui/components/audio-source-list.slint`、`audio-source-details.slint`：分别显示可搜索的真实音频条目列表和所选条目的元数据/路由音量设置。
+`ui/components/source-actions-menu.slint`：源卡片右侧更多菜单；由独立 `PopupWindow` 承载，提供替换进程/音频、删除和单独转发。
+`ui/components/category-sidebar.slint`：真实 `/` 分类路径、计数、拖拽排序、右键编辑和分类图标，图标与名称使用同一横向布局。
+`ui/components/audio-entry-editor.slint`：分类/条目共用的名称与音符/首字/自定义图标编辑内容；由独立、非模态的 `AudioEditWindow` 承载，标题随编辑对象显示在 Windows 标题栏中，条目名称只改软件显示。
 `ui/pages/settings.slint`：常规/音频设备/快捷键/VB-CABLE/关于导航；设备、默认角色、热键与安装操作走现有 bridge 回调。
 `ui/components/*.slint`：只复用无领域权威控件；图标使用 Windows `Segoe MDL2 Assets`，不新增依赖或图片包。
 
@@ -26,20 +29,22 @@
 Rust 桥接：
 
 - `src/ui_bridge/mod.rs` 负责单实例、窗口装配、事件循环和退出 flush。
-- `state.rs` 持有 `AudioEngine`、`AppConfig`、保存队列、热键、电平历史与异步进程刷新结果。
+- `state.rs` 持有 `AudioEngine`、`AppConfig`、保存队列、热键、电平历史、异步进程刷新结果和独立窗口集合 `AppWindows`。
+  `AppConfig.windows` 是主窗、添加源窗和编辑窗位置的持久化权威；窗口关闭或从音频加入路由后隐藏时保存坐标。
 - `cache.rs` 持有索引、菜单/点击态、列表快照、暂停恢复点和播放目标。
 - `callbacks/` 按路由、分类、播放和设置拆分回调。
 - `src/library.rs` 提供分类路径、可见索引、递归变更和文件验证规则。
 - 文件播放与试听通过 `AudioEngine` API；桥接不直接调用 decode、SFX 或 PreviewEngine。
-- bridge 仍访问 `audio::device` / `audio::policy`、原生文件对话框和 VB-CABLE 安装。
+- `ui_bridge` 仍访问 `audio::device` / `audio::policy`、原生文件选择器和 VB-CABLE 安装；`src/platform/window.rs` 在独立窗口显示后将其带到前台，不设置 owner，不禁用主窗口。
 - 刷新进程/设备按钮在 worker 枚举所有列表，50 ms 状态定时器把结果写回 Slint；设备分类开关走同一刷新路径。
   - Process、file、mic 各自的 render ID 保存到 `OutputConfig`；启动时 `SourceOutputRoutes` 将来源路由到各自 render 端点。
   - 进程行开关只切换当前进程的启用状态，关闭后保留卡片；删除动作才从路由源集合移除进程。
   - 文件行开关是暂停/继续，不清除引擎播放请求或当前位置；删除源只隐藏路由行，不删除音频库条目和磁盘文件。
   - 更多菜单的“单独转发”只打开选中的一个源，使用该源保存的输出设备，绕过底部总开关的多源选择。
   - 麦克风和进程源提供删除/单独转发；快捷键只对音频文件启用，避免伪造没有配置模型支撑的进程热键。
+- 独立 `AddSourceWindow` 通过桥接同步真实列表；进程添加前将子窗口选中下标写回主状态，成功添加进程或音频文件后保存窗口坐标并隐藏子窗口，麦克风混音使用子窗口当前设备，刷新后同步列表。音频文件添加到路由后不启动全局转发；全局转发仍只由状态栏启停控制。窗口每次显示后在下一轮事件循环请求重绘，避免软件渲染器隐藏/显示后只绘制鼠标经过的控件。
 -  源卡片统一固定高度，左侧显示源类型图标与名称/详情；启用用淡蓝边框，未启用用灰色边框；进程、音频文件和麦克风分别显示类型图标，麦克风下拉只使用物理捕获设备。
--  音量列只保留一个百分比显示；右侧操作按钮固定横向排列，音频文件暂停与停止并列，`...` 为最右触发按钮；启用开关靠近源名称。
+- 每条源音量区显示峰值 dBFS、增益 dB 和百分比滑条；右侧操作按钮固定横向排列，音频文件暂停与停止并列，`...` 为最右触发按钮；启用开关靠近源名称。
 -  输出设备下拉框的容器宽度固定；选中名称过长时只移动文字，使用往返横向滚动，不改变下拉框和列宽。
 -  源操作状态由路由页统一维护，同一时间只显示一个源菜单；菜单展开时隐藏对应 `...` 触发按钮，点击另一源的菜单会切换到新菜单。
 -  进程卡片优先显示对应 exe 图标；音频卡片优先显示条目配置的 `icon_path`，否则显示音频文件的 Windows 关联图标；不可读时回退默认图标。
@@ -50,10 +55,11 @@ Rust 桥接：
 
 ## 2. 展示状态
 
-- Slint 不持有 PCM；只显示捕获、麦克风、render 三组各 32 点的峰值历史。
-- 50 ms 状态轮询从 `AudioEngine` 读取引擎状态、电平和文件播放快照。
+- Slint 不持有 PCM；只显示进程、文件、麦克风和总线各 32 点的峰值历史。
+- 50 ms 状态轮询从 `AudioEngine` 读取引擎状态、电平和文件播放快照；峰值由音频线程写入无锁 `AtomicU32` 窗口采样，桥接只更新变化的源行单元。
 - 音量运行态在 `AudioEngine`；持久化值在 `AppConfig`。
-- `UiCache` 是桥接视图缓存；其配置镜像字段尚未完全收口。
+- `UiCache` 是桥接视图缓存；`route_audio_entry` 只记录真实音频条目下标，不保存音频数据。
+- 状态栏 Popover 显示每个源和总线的 32 点声纹/峰值 dB；总音量滑块旁显示总线增益 dB，Popover 的位置相对音源数触发区计算，不依赖固定窗口坐标。
 - 界面错误短句使用 `Error::user_message()`；HRESULT 和内部原因只进 tracing。
 
 ## 3. Slint 契约
@@ -98,12 +104,13 @@ Live Preview 是开发专用功能，不写入 `Cargo.toml` 默认 features。�
 - 分类以 `/` 表示父子路径；“全部”和“未分类”默认存在并记录在 `AppConfig.audio_categories`，用户可删除。
 - 删除“全部”清空软件内全部音频条目；删除“未分类”移除该分类及其后代条目；磁盘文件不删除。删除普通分类则把相关条目移到“未分类”。
 - 空白区域或删除全部分类后的树区右键新建顶层分类；右键已有普通分类新建其子分类。默认名称为“未命名分类”，同级重名自动使用“未命名分类 2”等后缀。
-- `src/library.rs` 负责分类路径、递归匹配、重命名/移动/删除；桥接按分类、搜索词、名称排序和每页 20 条生成文件表。
+- `src/library.rs` 负责分类路径、递归匹配、重命名/移动/删除；桥接按分类、名称搜索、名称排序和每页 20 条生成文件表。格式、采样率和码率作为真实元数据展示，不作为独立设计标签筛选。
+- 中间列表只显示当前选中分类及其后代分类的条目；“全部”才显示全库。
 - 可见行下标按相同过滤/排序/分页序列映射回配置条目；删除、播放、循环、快捷键都使用该映射。
 - `AudioEntry` 保留时长、字节数、采样率、声道、循环和可选单键快捷键；导入/迁移读取文件元数据，码率显示为按文件大小/时长推算值。
 - 单击选择、450 ms 内双击播放；播放状态/进度来自 `AudioEngine::file_state()`。
 - 详情“播放”进入路由目标；“本机试听”进入 monitor 目标，二者分别保持现有路由/监听语义。
-- 详情主音量滑块只写 `preview_volume` 并调用 `AudioEngine::set_monitor_volume()`；不改路由 SFX 增益。
+- 详情音量滑块复用文件源的 SFX 增益：更新 `AudioEngine::set_sfx_volume()` 和 `AppConfig.mix.sfx`，不把它误当成本机试听音量。
 - 路由播放的本机监听开关仍写 `preview_enabled`；暂停时底部进度/切换控制显示，空闲时隐藏。
 - 拖动进度通过目标位置重建播放流；快捷键在本程序获焦时触发，重复分配和与路由主键冲突会拒绝。
 
@@ -111,16 +118,16 @@ Live Preview 是开发专用功能，不写入 `Cargo.toml` 默认 features。�
 
 - 路由页源卡片的标题、输出设备、音量和操作控件采用紧凑横向布局；卡片数量过多时仍由内容区 `ScrollView` 纵向滚动。
 - 路由页进程切换关闭时保留源行；音频文件切换关闭/打开保留暂停位置。
-- 源右侧更多菜单不跳设置页；“单独转发”只创建选中源的输出链路。
-- 进程行名称列展示进程名/PID，启停由全局 route lifecycle 控制；开始后不能在同一会话动态变更进程槽。
+- 源右侧更多菜单由独立 PopupWindow 承载，自动避开卡片/滚动容器裁剪；点外部关闭，菜单内点击执行操作后关闭。
+- 文件源启用是路由配置状态，不等同于播放，也不启动全局路由；全局转发只由状态栏启停控制。
 - 文件行暂停/停止共享 AudioEngine 播放状态；文件循环、seek、试听均复用已有播放控制。
 - 进程/文件/麦克风输出 ID 分别持久化，启动路由时 `SourceOutputRoutes` 将各输入送到各自 render 端点。
 - 详情页本机监听音量只作用于 `AudioEngine` monitor；文件路由增益继续由路由页文件音源行控制。
 - 音频快捷键字段由配置持久化，只在 Miccat 获得键盘焦点时触发；不是全局游戏热键。
 - 设置侧栏可切换常规、音频设备、快捷键、虚拟线缆和关于分组；只显示现有后端能力。
-- 音频表按名称过滤/排序，按每页 20 条分页；实际格式、采样率、估算码率、文件大小、路径来自本地音频条目。
-- 音频列表采用 `ScrollView`；超大页表使用分页，不加载全库行到同一页。
-- `--snapshot-ui --category-menu` 与 `--snapshot-ui --category-row-menu` 模拟分类右键。
+- 音频库三栏通过 `LibrarySplitter` 拖动条调整分类栏、列表栏和详情栏宽度；使用按下点差值避免抖动，右侧分隔条向右扩大中间列表。
+- 分类右键“编辑”打开现代化编辑对话框；分类图标保存在 `AppConfig.audio_category_icons`，重命名会迁移图标路径。
+- 音频条目右键“编辑”只修改 `AudioEntry.name`、`icon_glyph` 和 `icon_path` 的软件配置，不重命名磁盘文件；对话框只提供默认音符、首字图标和用户选择的自定义图标文件。
 
 ## 6. 验证
 
@@ -128,6 +135,7 @@ Live Preview 是开发专用功能，不写入 `Cargo.toml` 默认 features。�
 scripts\check.cmd
 scripts\smoke.cmd
 target\debug\miccat.exe --snapshot-ui --page route --out route.raw
+target\debug\miccat.exe --snapshot-ui --page route --source-audio-dialog --out route-audio-source.raw
 target\debug\miccat.exe --snapshot-ui --page settings --out settings.raw
 target\debug\miccat.exe --snapshot-ui --out player.raw
 target\debug\miccat.exe --snapshot-ui --menu --out player-menu.raw

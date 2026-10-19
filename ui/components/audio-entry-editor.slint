@@ -1,0 +1,139 @@
+//! 分类和音频条目共用的现代化编辑对话框。
+
+import { LineEdit } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { PmButton } from "button.slint";
+
+export component AudioEntryEditor inherits Rectangle {
+    in property <bool> category-mode: false;
+    in-out property <string> name: "";
+    in-out property <int> icon-index: 0;
+    in property <image> custom-icon-image;
+    in-out property <string> custom-icon-path: "";
+    in property <[string]> icon-labels: ["默认音符", "首字图标"];
+    in property <[string]> icon-glyphs: ["\u{EC4F}"];
+    callback custom-icon-requested();
+    callback accepted(string, int, string);
+    callback cancelled();
+
+    width: 100%;
+    height: 100%;
+    background: Theme.bg;
+
+
+
+        VerticalLayout {
+            padding: 20px;
+            spacing: 12px;
+
+            Text {
+                text: "名称";
+                color: Theme.text;
+                font-size: 13px;
+                font-weight: 600;
+            }
+            LineEdit {
+                height: 38px;
+                text <=> root.name;
+                placeholder-text: root.category-mode ? "输入分类名称" : "输入显示名称";
+            }
+
+            Text {
+                text: "图标";
+                color: Theme.text;
+                font-size: 13px;
+                font-weight: 600;
+            }
+            HorizontalLayout {
+                height: 112px;
+                spacing: 14px;
+                Rectangle {
+                    width: 88px;
+                    height: 88px;
+                    border-radius: 10px;
+                    background: Theme.accentSoft;
+                    if root.custom-icon-path != "": Image {
+                        width: 100%;
+                        height: 100%;
+                        source: root.custom-icon-image;
+                        image-fit: contain;
+                    }
+                    if root.custom-icon-path == "": Text {
+                        text: root.icon-index == 5
+                            ? root.name
+                            : (root.icon-glyphs.length > 0
+                                ? root.icon-glyphs[0]
+                                : "\u{EC4F}");
+                        width: 100%;
+                        height: 100%;
+                        font-family: "Segoe MDL2 Assets";
+                        font-size: root.icon-index == 5 ? 32px : 42px;
+                        color: Theme.accent;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                }
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    min-width: 0px;
+                    spacing: 8px;
+                    HorizontalLayout {
+                        height: 34px;
+                        spacing: 6px;
+                        PmButton {
+                            label: "默认音符";
+                            selected: root.icon-index == 0;
+                            clicked => {
+                                root.icon-index = 0;
+                                root.custom-icon-path = "";
+                            }
+                        }
+                        PmButton {
+                            label: "首字图标";
+                            selected: root.icon-index == 5;
+                            clicked => {
+                                root.icon-index = 5;
+                                root.custom-icon-path = "";
+                            }
+                        }
+                    }
+                    PmButton {
+                        label: root.custom-icon-path == ""
+                            ? "选择自定义图标文件"
+                            : "已选自定义图标（点击更换）";
+                        clicked => { root.custom-icon-requested(); }
+                    }
+                    Text {
+                        text: root.custom-icon-path;
+                        color: Theme.text3;
+                        font-size: 10px;
+                        overflow: elide;
+                    }
+                }
+            }
+
+            Rectangle { vertical-stretch: 1; background: transparent; }
+
+            HorizontalLayout {
+                height: 40px;
+                Rectangle { horizontal-stretch: 1; background: transparent; }
+                PmButton {
+                    label: "取消";
+                    clicked => { root.cancelled(); }
+                }
+                PmButton {
+                    label: "确定";
+                    filled: true;
+                    enabled: root.name != "";
+                    clicked => {
+                        root.accepted(
+                            root.name,
+                            root.icon-index,
+                            root.custom-icon-path
+                        );
+                    }
+                }
+            }
+        }
+}

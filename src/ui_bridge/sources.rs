@@ -4,7 +4,6 @@ use super::cache::UiCache;
 use super::library::{PAGE_SIZE, visible_rank};
 use super::{AppState, MainWindow};
 use crate::engine::AudioEngine;
-use crate::library::visible_entry_index;
 use slint::{Model, ModelRc, VecModel};
 
 /// 路由源行数据；真实现与 UI 快照共用同一份结构与写入逻辑。
@@ -19,6 +18,9 @@ pub(super) struct SourceRows {
     pub(super) statuses: Vec<slint::SharedString>,
     pub(super) active: Vec<bool>,
     pub(super) volumes: Vec<f32>,
+    pub(super) volume_dbs: Vec<slint::SharedString>,
+    pub(super) peak_dbs: Vec<slint::SharedString>,
+    pub(super) peak_values: Vec<f32>,
     pub(super) muted: Vec<bool>,
     pub(super) paused: Vec<bool>,
     pub(super) output_indices: Vec<i32>,
@@ -62,6 +64,23 @@ impl SourceRows {
         set_if_changed(&ui.get_source_volumes(), self.volumes.clone(), |values| {
             ui.set_source_volumes(ModelRc::new(VecModel::from(values)));
         });
+        set_if_changed(
+            &ui.get_source_volume_dbs(),
+            self.volume_dbs.clone(),
+            |values| {
+                ui.set_source_volume_dbs(ModelRc::new(VecModel::from(values)));
+            },
+        );
+        set_if_changed(&ui.get_source_peak_dbs(), self.peak_dbs.clone(), |values| {
+            ui.set_source_peak_dbs(ModelRc::new(VecModel::from(values)));
+        });
+        set_if_changed(
+            &ui.get_source_peak_values(),
+            self.peak_values.clone(),
+            |values| {
+                ui.set_source_peak_values(ModelRc::new(VecModel::from(values)));
+            },
+        );
         set_if_changed(&ui.get_source_muted(), self.muted.clone(), |values| {
             ui.set_source_muted(ModelRc::new(VecModel::from(values)));
         });
@@ -85,11 +104,12 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
     let settings = state.app_config.borrow().output.clone();
     let cache = state.cache.borrow();
 
-    for pid in cache.selected_pids.iter().copied() {
+    for (slot, pid) in cache.selected_pids.iter().copied().enumerate() {
         let Some(process) = cache.processes.iter().find(|process| process.pid == pid) else {
             continue;
         };
         let enabled = !cache.disabled_pids.contains(&pid);
+        let peak = state.engine.process_peak(slot);
         rows.kinds.push(0);
         rows.icons.push("\u{E7F4}".into());
         rows.icon_images
@@ -100,6 +120,9 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
         rows.statuses.push("".into());
         rows.active.push(enabled);
         rows.volumes.push(state.engine.volume() * 100.0);
+        rows.peak_dbs.push(peak_db(peak));
+        rows.peak_values.push(peak);
+        rows.volume_dbs.push(gain_db(state.engine.volume() * 100.0));
         rows.muted.push(state.engine.volume() <= 0.001);
         rows.paused.push(false);
         rows.output_indices.push(output_index(
@@ -111,44 +134,66 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
     drop(cache);
 
     let file = state.engine.file_state();
-    if !state.cache.borrow().file_source_hidden && !file.name.is_empty() {
-        add_file_row(
-            &mut rows,
-            &file.name,
-            &file.path,
-            if file.playing {
-                "播放中"
-            } else if ui.get_player_paused() {
-                "已暂停"
+    if !state.cache.borrow().file_source_hidden {
+        let audio_entries = {
+            let cache = state.cache.borrow();
+            if cache.route_audio_entries.is_empty() {
+                cache
+                    .route_audio_entry
+                    .and_then(|index| cache.audio_entries.get(index).cloned())
+                    .map(|entry| vec![(entry, cache.route_file_enabled)])
+                    .unwrap_or_default()
             } else {
-                "已停止"
-            },
-            (file.playing, ui.get_player_paused()),
-            state.engine.sfx_volume(),
-            output_index(
-                &state.cache.borrow().dests,
-                settings.file_output_id.as_deref(),
-                global_output,
-            ),
-        );
-    } else if !state.cache.borrow().file_source_hidden
-        && let Some(entry) = selected_entry(ui, state)
-    {
-        add_file_row(
-            &mut rows,
-            &entry.name,
-            entry.icon_path.as_deref().unwrap_or(entry.path.as_str()),
-            "待播放",
-            (false, false),
-            state.engine.sfx_volume(),
-            output_index(
-                &state.cache.borrow().dests,
-                settings.file_output_id.as_deref(),
-                global_output,
-            ),
-        );
+                cache
+                    .route_audio_entries
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(slot, index)| {
+                        cache.audio_entries.get(*index).cloned().map(|entry| {
+                            (
+                                entry,
+                                cache
+                                    .route_audio_enabled
+                                    .get(slot)
+                                    .copied()
+                                    .unwrap_or(false),
+                            )
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            }
+        };
+        for (entry, enabled) in audio_entries {
+            let playing = file.path == entry.path && file.playing;
+            let paused = file.path == entry.path && ui.get_player_paused();
+            add_file_row(
+                &mut rows,
+                &entry.name,
+                entry.icon_path.as_deref().unwrap_or(entry.path.as_str()),
+                if playing {
+                    "播放中"
+                } else if paused {
+                    "已暂停"
+                } else {
+                    "待播放"
+                },
+                (enabled, paused),
+                (
+                    state.engine.sfx_volume(),
+                    if playing {
+                        state.engine.sfx_peak()
+                    } else {
+                        0.0
+                    },
+                ),
+                output_index(
+                    &state.cache.borrow().dests,
+                    settings.file_output_id.as_deref(),
+                    global_output,
+                ),
+            );
+        }
     }
-
     let (mic_count, mic_name, mic_index, mix_mic, mic_output_index) = {
         let cache = state.cache.borrow();
         let mic_index = ui.get_mic_index().max(0) as usize;
@@ -181,7 +226,11 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
         rows.statuses.push("".into());
         rows.active.push(mix_mic);
         rows.volumes.push(state.engine.mic_volume() * 100.0);
-        rows.muted.push(state.engine.mic_volume() <= 0.001);
+        rows.volume_dbs
+            .push(gain_db(state.engine.mic_volume() * 100.0));
+        let peak = state.engine.mic_peak();
+        rows.peak_dbs.push(peak_db(peak));
+        rows.peak_values.push(peak);
         rows.paused.push(false);
         rows.output_indices.push(mic_output_index);
     }
@@ -192,6 +241,81 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
         settings.file_output_id.as_deref(),
         global_output,
     ));
+}
+/// 只更新现有源行的实时电平和启用状态，不重建图标或下拉模型。
+pub(super) fn update_dynamic(ui: &MainWindow, state: &AppState) {
+    let kinds = ui.get_source_kinds();
+    let cache = state.cache.borrow();
+    let mut process_slot = 0usize;
+    let mut file_slot = 0usize;
+    for row in 0..kinds.row_count() {
+        let kind = kinds.row_data(row).unwrap_or(-1);
+        let (peak, volume, active, paused) = match kind {
+            0 => {
+                let mut peak = 0.0;
+                let mut active = false;
+                while process_slot < cache.selected_pids.len() {
+                    let slot = process_slot;
+                    let pid = cache.selected_pids[slot];
+                    process_slot += 1;
+                    if cache.processes.iter().any(|process| process.pid == pid) {
+                        peak = state.engine.process_peak(slot);
+                        active = !cache.disabled_pids.contains(&pid);
+                        break;
+                    }
+                }
+                (peak, state.engine.volume(), active, false)
+            }
+            1 => {
+                let active = cache
+                    .route_audio_enabled
+                    .get(file_slot)
+                    .copied()
+                    .unwrap_or(cache.route_file_enabled);
+                file_slot += 1;
+                (
+                    state.engine.sfx_peak(),
+                    state.engine.sfx_volume(),
+                    active,
+                    ui.get_player_paused(),
+                )
+            }
+            2 => (
+                state.engine.mic_peak(),
+                state.engine.mic_volume(),
+                ui.get_mix_mic(),
+                false,
+            ),
+            _ => continue,
+        };
+        let peaks = ui.get_source_peak_values();
+        if peaks.row_data(row) != Some(peak) {
+            peaks.set_row_data(row, peak);
+        }
+        let peak_dbs = ui.get_source_peak_dbs();
+        let peak_db_text = peak_db(peak);
+        if peak_dbs.row_data(row).as_ref() != Some(&peak_db_text) {
+            peak_dbs.set_row_data(row, peak_db_text);
+        }
+        let volumes = ui.get_source_volumes();
+        let volume_percent = volume * 100.0;
+        if volumes.row_data(row) != Some(volume_percent) {
+            volumes.set_row_data(row, volume_percent);
+        }
+        let volume_dbs = ui.get_source_volume_dbs();
+        let volume_db_text = gain_db(volume_percent);
+        if volume_dbs.row_data(row).as_ref() != Some(&volume_db_text) {
+            volume_dbs.set_row_data(row, volume_db_text);
+        }
+        let active_rows = ui.get_source_active();
+        if active_rows.row_data(row) != Some(active) {
+            active_rows.set_row_data(row, active);
+        }
+        let paused_rows = ui.get_source_paused();
+        if paused_rows.row_data(row) != Some(paused) {
+            paused_rows.set_row_data(row, paused);
+        }
+    }
 }
 
 /// 只有内容真的变了才重建模型。
@@ -218,10 +342,11 @@ pub(super) fn add_file_row(
     path: &str,
     status: &str,
     playback: (bool, bool),
-    volume: f32,
+    levels: (f32, f32),
     output_index: i32,
 ) {
-    let (playing, is_paused) = playback;
+    let (enabled, is_paused) = playback;
+    let (volume, peak) = levels;
     rows.kinds.push(1);
     rows.icons.push("\u{E8B5}".into());
     rows.icon_images
@@ -230,11 +355,28 @@ pub(super) fn add_file_row(
     rows.subtitles.push("音频文件".into());
     rows.details.push(status.into());
     rows.statuses.push("".into());
-    rows.active.push(playing);
+    rows.active.push(enabled);
     rows.volumes.push(volume * 100.0);
+    rows.volume_dbs.push(gain_db(volume * 100.0));
+    rows.peak_values.push(peak);
+    rows.peak_dbs.push(peak_db(peak));
     rows.muted.push(volume <= 0.001);
     rows.paused.push(is_paused);
     rows.output_indices.push(output_index);
+}
+
+fn gain_db(value: f32) -> slint::SharedString {
+    if value <= 0.001 {
+        return "-∞ dB".into();
+    }
+    format!("{:.1} dB", 20.0 * (value / 100.0).log10()).into()
+}
+
+fn peak_db(value: f32) -> slint::SharedString {
+    if value <= 0.0001 {
+        return "-∞ dB".into();
+    }
+    format!("{:.1} dB", 20.0 * value.log10()).into()
 }
 
 /// 输出设备下标：优先用保存的 ID，找不到时退回给定下标。
@@ -248,18 +390,6 @@ pub(super) fn output_index(
         .unwrap_or(fallback.min(devices.len().saturating_sub(1))) as i32
 }
 
-fn selected_entry(ui: &MainWindow, state: &AppState) -> Option<crate::config::AudioEntry> {
-    if ui.get_audio_entry_index() < 0 {
-        ui.set_audio_entry_index(0);
-    }
-    let cache = state.cache.borrow();
-    let visible = visible_entry_index(
-        &cache.audio_entries,
-        &cache.audio_category,
-        ui.get_audio_entry_index().max(0) as usize,
-    )?;
-    cache.audio_entries.get(visible).cloned()
-}
 /// 将当前播放文件映射到音频库当前页的可见行；过滤后不可见时不冒充其他条目。
 pub(super) fn file_context_index(
     ui: &MainWindow,

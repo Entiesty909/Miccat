@@ -98,6 +98,69 @@ mod tests {
 
         assert!(migrated.audio_categories.is_empty());
     }
+
+    #[test]
+    fn custom_audio_and_category_icons_round_trip() {
+        let mut config = AppConfig::default();
+        let audio_icon = "C:\\icons\\audio.png";
+        let category_icon = "file:C:\\icons\\category.ico";
+        config
+            .audio_category_icons
+            .insert("效果".into(), category_icon.into());
+        config.audio_entries.push(crate::config::AudioEntry {
+            name: "提示音".into(),
+            path: "C:\\audio\\beep.wav".into(),
+            icon_path: Some(audio_icon.into()),
+            icon_glyph: "".into(),
+            category: "效果".into(),
+            duration_hns: 0,
+            file_size_bytes: 0,
+            sample_rate: 0,
+            channels: 0,
+            loop_playback: false,
+            hotkey: None,
+            hotkey_binding: None,
+        });
+
+        let text = serde_json::to_string(&config).expect("serialize icon paths");
+        let decoded: AppConfig = serde_json::from_str(&text).expect("deserialize icon paths");
+
+        assert_eq!(
+            decoded.audio_entries[0].icon_path.as_deref(),
+            Some(audio_icon)
+        );
+        assert_eq!(decoded.audio_category_icons["效果"], category_icon);
+    }
+    #[test]
+    fn window_positions_round_trip_and_old_configs_default_empty() {
+        use crate::config::WindowPosition;
+
+        let mut config = AppConfig::default();
+        config.windows.main = Some(WindowPosition { x: 12, y: 34 });
+        config.windows.add_source = Some(WindowPosition { x: 56, y: 78 });
+        config.windows.audio_edit = Some(WindowPosition { x: -90, y: 120 });
+
+        let text = serde_json::to_string(&config).expect("serialize window positions");
+        let decoded: AppConfig = serde_json::from_str(&text).expect("deserialize positions");
+        assert_eq!(decoded.windows.main, Some(WindowPosition { x: 12, y: 34 }));
+        assert_eq!(
+            decoded.windows.add_source,
+            Some(WindowPosition { x: 56, y: 78 })
+        );
+        assert_eq!(
+            decoded.windows.audio_edit,
+            Some(WindowPosition { x: -90, y: 120 })
+        );
+
+        let mut old_config =
+            serde_json::to_value(AppConfig::default()).expect("serialize default config");
+        old_config.as_object_mut().unwrap().remove("windows");
+        let decoded: AppConfig =
+            serde_json::from_value(old_config).expect("older config has no window positions");
+        assert!(decoded.windows.main.is_none());
+        assert!(decoded.windows.add_source.is_none());
+        assert!(decoded.windows.audio_edit.is_none());
+    }
 }
 
 fn config_path() -> PathBuf {

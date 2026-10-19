@@ -13,7 +13,7 @@
 | `--list-devices` | 无 | 输出 WASAPI ID、Tab、设备友好名；包含当前过滤策略允许的输出端 |
 | `--capture <pid>` | `--wav capture.wav`，`--seconds 5` | Process Loopback 捕获并写 PCM16 WAV |
 | `--route <pid>` | 必须 `--device <wasapi-id>`；`--seconds 8` | 临时路由进程声；运行至少 0.5 秒后停止 |
-| `--snapshot-ui` | `--out snap.raw`；`--page route\|player\|settings` 选择页面，默认 `player`；菜单参数限播放器页 | 软件渲染 UI RGBA 快照；分类菜单未打开时命令失败 |
+| `--snapshot-ui` | `--out snap.raw`；`--page route\|player\|settings`，默认 `player`；`--source-dialog-click-tab process\|audio\|microphone` 模拟并断言类型卡切换；`--source-menu-click` 点击路由第一条源的更多按钮并渲染弹层 | 软件渲染 UI RGBA 快照；菜单参数只能用于对应页面 |
 | `--probe-playback <file>` | seconds=8, start=0, out=probe.wav | 逐采样探针 |
 
 `--probe-playback` 可加 `--sfx` 或 `--raw`；非 raw 模式另写 `<out>.ref.wav`。
@@ -39,7 +39,8 @@
 `EngineStatus` 值包括 `Idle`、`Running`、`ProcessExited`、`DeviceGone` 和 `Error(String)`。
 文件 seek 当前由调用方停止后再次调用 `play_file()`；没有独立 `seek_file()` API。
 音频源行的输出下拉绑定全局设备选择；多选输出 ID 保存于 `OutputConfig.device_ids`。
-源行静音为运行期操作，不改写持久化音量；源音量滑块更新 AudioEngine 增益和配置。
+进程行启用只改变 `UiCache.disabled_pids`；文件行启用只改变 `UiCache.route_file_enabled`，不启动全局转发。全局路由由 `start-stop` 回调控制；文件播放按钮只暂停/继续已运行路由中的播放。
+源行静音为运行期操作，不改写持久化音量；源音量滑块更新 AudioEngine 增益和配置。Popover 峰值标记为 dBFS；增益 dB 为相对 100% 音量倍率。
 内部命令通道、ring 和 WASAPI session 不属于 UI API。
 
 ## 音频库领域 API
@@ -47,8 +48,8 @@
 `category_matches(entry, category)`：分类自身或任意后代匹配；`全部` 匹配所有条目。
 - `visible_entry_index(entries, category, index)`：把当前分类及后代中的可见下标映射回配置下标。
 `AudioEntry.duration_hns`、`file_size_bytes`、`sample_rate`、`channels` 为导入/迁移得到的文件元数据；`hotkey` 是可选的单键字符串。
-bridge 以分类、大小写不敏感名称筛选、名称排序和每页 20 条计算可见顺序；所有行操作按同一顺序映射回配置下标。
-音频条目单键快捷键在应用获得键盘焦点时触发，不是全局 RegisterHotKey；重复音频键和路由切换键冲突会拒绝。
+bridge 以分类、大小写不敏感名称搜索、名称排序和每页 20 条计算可见顺序；所有行操作按同一顺序映射回配置下标。格式、采样率和码率来自真实文件元数据。
+详情文件音量调用 `AudioEngine::set_sfx_volume()` 并防抖写入 `AppConfig.mix.sfx`；本机试听音量仍由 monitor API 单独控制。
 - `category_paths(categories, entries)`：展开配置和条目中的 `/` 父子路径；根项是否存在由配置决定。
 - `new_category(...)`：生成所选分类下不冲突的“未命名分类”名称。
 - `rename_category(...)`：递归更新父分类、全部子节点和音频条目路径。

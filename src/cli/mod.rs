@@ -54,6 +54,29 @@ pub(crate) fn run() -> Result<(), Error> {
             let menu = args_has(&args, "--menu");
             let category_menu = args_has(&args, "--category-menu");
             let category_row_menu = args_has(&args, "--category-row-menu");
+            let source_dialog_tab = match parse_flag_str(&args, "--source-dialog-tab") {
+                Some("process") => 0,
+                Some("audio") => 1,
+                Some("microphone") => 2,
+                Some(_) => {
+                    return Err(Error::InvalidArgs("unknown source dialog tab".into()));
+                }
+                None => -1,
+            };
+            let source_dialog_click_tab = match parse_flag_str(&args, "--source-dialog-click-tab") {
+                Some("process") => 0,
+                Some("audio") => 1,
+                Some("microphone") => 2,
+                Some(_) => {
+                    return Err(Error::InvalidArgs(
+                        "unknown source dialog click target".into(),
+                    ));
+                }
+                None => -1,
+            };
+            let source_dialog_reopen = args_has(&args, "--source-dialog-reopen");
+            let source_menu_click = args_has(&args, "--source-menu-click");
+            let source_meter = args_has(&args, "--source-meter");
             let page = parse_flag_str(&args, "--page").unwrap_or("player");
             let diagnostics = args_has(&args, "--diagnostics");
             let diagnostics_log = args_has(&args, "--diagnostics-log");
@@ -68,6 +91,11 @@ pub(crate) fn run() -> Result<(), Error> {
                 entry_menu: menu,
                 empty_category_menu: category_menu,
                 category_row_menu,
+                source_dialog_tab,
+                source_dialog_click_tab,
+                source_dialog_reopen,
+                source_menu_click,
+                source_meter,
                 diagnostics,
                 diagnostics_log,
                 diagnostics_badge,
@@ -109,7 +137,7 @@ fn probe_playback(
     use_sfx: bool,
 ) -> Result<(), Error> {
     use std::sync::Arc;
-    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::{AtomicBool, AtomicU32};
     use std::time::Instant;
 
     use audio::buffer::SpscRing;
@@ -163,8 +191,9 @@ fn probe_playback(
         let (tx, commands) = audio::sfx::channel();
         let ring_mixer = ring.clone();
         let stop_mixer = stop.clone();
+        let peak = Arc::new(AtomicU32::new(0.0f32.to_bits()));
         let source = thread::spawn(move || {
-            audio::sfx::run_sfx_loop(ring_mixer, target, stop_mixer, commands)
+            audio::sfx::run_sfx_loop(ring_mixer, target, stop_mixer, peak, commands)
         });
         tx.send(audio::sfx::SfxCommand::PlayStream {
             sample_rate: rate,
@@ -289,8 +318,8 @@ fn print_help() {
          --list-devices\n\
          --capture <pid> --wav <path> --seconds N\n\
          --route <pid> --device <id> --seconds N\n\
-         --snapshot-ui --out <path> [--page route|player|settings] [菜单参数]\n\
-         --probe-audio --device <id> [--mode reopen|monitor|multi] [--device2 <id>]\n\
+         --snapshot-ui --out <path> [--page route|player|settings] [--source-dialog-tab ...] [--source-dialog-click-tab ...] [--source-dialog-reopen] [--source-menu-click] [--source-meter] [菜单参数]\
+         --probe-audio --device <id> [--mode reopen|monitor|multi] [--device2 <id>]\
          --probe-playback <file> [--seconds N] [--start N] [--out path]"
     );
 }

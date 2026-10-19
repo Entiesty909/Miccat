@@ -13,6 +13,7 @@ export component ContextMenuHost inherits Rectangle {
     in-out property <int> category-index: 0;
     in-out property <string> category-edit-name: "";
     in property <string> entry-hotkey: "";
+    callback category-edit-requested();
     callback category-new();
     callback category-rename();
     callback category-delete();
@@ -22,6 +23,7 @@ export component ContextMenuHost inherits Rectangle {
     callback entry-hotkey-clear();
     callback entry-remove();
     callback entry-explorer();
+    callback entry-edit-requested();
     callback entry-edit-file();
 
     width: 100%;
@@ -38,6 +40,7 @@ export component ContextMenuHost inherits Rectangle {
         category-index <=> root.category-index;
         category-edit-name <=> root.category-edit-name;
         entry-hotkey: root.entry-hotkey;
+        category-edit-requested => { root.category-edit-requested(); }
         category-new => { root.category-new(); }
         category-rename => { root.category-rename(); }
         category-delete => { root.category-delete(); }
@@ -46,6 +49,7 @@ export component ContextMenuHost inherits Rectangle {
         entry-hotkey-bind => { root.entry-hotkey-bind(); }
         entry-hotkey-clear => { root.entry-hotkey-clear(); }
         entry-remove => { root.entry-remove(); }
+        entry-edit-requested => { root.entry-edit-requested(); }
         entry-explorer => { root.entry-explorer(); }
         entry-edit-file => { root.entry-edit-file(); }
     }

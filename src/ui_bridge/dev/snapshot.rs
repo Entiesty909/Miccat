@@ -1,6 +1,7 @@
 //! 使用 Slint 软件渲染器输出音频库 UI 快照。
 
 use super::super::*;
+use slint::Model;
 
 /// 快照渲染选项：页面、菜单模拟与诊断面板状态。
 #[derive(Clone, Copy, Default)]
@@ -15,8 +16,18 @@ pub(crate) struct SnapshotOptions<'a> {
     pub(crate) empty_category_menu: bool,
     /// 在音频库页模拟分类行右键。
     pub(crate) category_row_menu: bool,
+    /// 路由页添加源初始页下标；-1 表示关闭，0/1/2 对应进程/音频/麦克风。
+    pub(crate) source_dialog_tab: i32,
+    /// 先打开其它类型，再通过鼠标点击目标类型并校验切换；-1 表示不模拟。
+    pub(crate) source_dialog_click_tab: i32,
+    /// 对同一源窗口执行隐藏/重开并比较像素，检查再次显示的完整重绘。
+    pub(crate) source_dialog_reopen: bool,
     /// 打开问题中心并填入示例条目。
     pub(crate) diagnostics: bool,
+    /// 在路由页点击第一条音源的更多按钮，生成 PopupWindow 快照。
+    pub(crate) source_menu_click: bool,
+    /// 在路由页展开实时源与总线电平 Popover。
+    pub(crate) source_meter: bool,
     /// 问题中心切到「日志」标签页。
     pub(crate) diagnostics_log: bool,
     /// 只显示状态栏问题徽标，不打开面板。
@@ -35,6 +46,11 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
         entry_menu,
         empty_category_menu,
         category_row_menu,
+        source_dialog_tab,
+        source_dialog_click_tab,
+        source_dialog_reopen,
+        source_menu_click,
+        source_meter,
         diagnostics,
         diagnostics_log,
         diagnostics_badge,
@@ -57,6 +73,39 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
     {
         return Err(Error::InvalidArgs(
             "menu snapshots require the player page".into(),
+        ));
+    }
+    if !(-1..=2).contains(&source_dialog_tab) {
+        return Err(Error::InvalidArgs("unknown source dialog tab".into()));
+    }
+    if source_dialog_tab >= 0 && page_index != 0 {
+        return Err(Error::InvalidArgs(
+            "source dialog snapshots require the route page".into(),
+        ));
+    }
+    if !(-1..=2).contains(&source_dialog_click_tab) {
+        return Err(Error::InvalidArgs(
+            "unknown source dialog click target".into(),
+        ));
+    }
+    if source_dialog_click_tab >= 0 && page_index != 0 {
+        return Err(Error::InvalidArgs(
+            "source dialog click simulation requires the route page".into(),
+        ));
+    }
+    if source_menu_click && page_index != 0 {
+        return Err(Error::InvalidArgs(
+            "source menu click simulation requires the route page".into(),
+        ));
+    }
+    if source_meter && page_index != 0 {
+        return Err(Error::InvalidArgs(
+            "source meter snapshots require the route page".into(),
+        ));
+    }
+    if source_dialog_reopen && (page_index != 0 || source_dialog_tab < 0) {
+        return Err(Error::InvalidArgs(
+            "source dialog reopen snapshots require a route page and source tab".into(),
         ));
     }
     let ui = MainWindow::new().map_err(|e| Error::InvalidArgs(e.to_string()))?;
@@ -96,7 +145,9 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
     if page_index == 2 && settings_section >= 0 {
         ui.set_settings_section_index(settings_section);
     }
-    ui.set_audio_categories(ModelRc::new(VecModel::from(audio_categories(&cache))));
+    ui.set_audio_categories(ModelRc::new(VecModel::from(
+        super::super::library::audio_categories(&cache),
+    )));
     if page_index == 1 {
         refill_devices(&ui, &cache, false);
         let cache_state = cache.borrow();
@@ -166,7 +217,7 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
                     &entry.path,
                     "已导入",
                     (false, false),
-                    persisted.mix.sfx,
+                    (persisted.mix.sfx, 0.0),
                     0,
                 );
                 let detail = format!(
@@ -198,6 +249,17 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
                 rows.muted.push(false);
             }
             rows.apply(&ui);
+            if source_meter {
+                let source_count = ui.get_source_titles().row_count();
+                let source_history = vec![0.0; source_count * 32];
+                let source_decibels = vec![slint::SharedString::from("-∞ dB"); source_count];
+                ui.set_source_meter_history(ModelRc::new(VecModel::from(source_history)));
+                ui.set_source_meter_dbs(ModelRc::new(VecModel::from(source_decibels)));
+                ui.set_master_meter_history(ModelRc::new(VecModel::from(vec![0.0; 32])));
+                ui.set_master_peak_value(0.0);
+                ui.set_master_peak_db("-∞ dB".into());
+                ui.set_source_meter_open(true);
+            }
         }
     }
     if with_entry_menu {
@@ -220,9 +282,107 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
         diagnostics::sync(&ui, &last);
     }
     ui.window().set_size(slint::LogicalSize::new(1280.0, 800.0));
+    let source_dialog =
+        if source_dialog_tab >= 0 || source_dialog_click_tab >= 0 || source_dialog_reopen {
+            super::super::library::update_audio_catalog(&ui, &cache);
+            let initial_tab = if source_dialog_click_tab >= 0 {
+                (source_dialog_click_tab + 1) % 3
+            } else {
+                source_dialog_tab
+            };
+            let dialog =
+                AddSourceWindow::new().map_err(|error| Error::InvalidArgs(error.to_string()))?;
+            dialog.set_processes(ui.get_processes());
+            dialog.set_process_index(ui.get_process_index());
+            dialog.set_process_icon_images(ui.get_process_icon_images());
+            dialog.set_process_pids(ui.get_process_pids());
+            dialog.set_mics(ui.get_mics());
+            dialog.set_mic_index(ui.get_mic_index());
+            dialog.set_audio_entries(ui.get_audio_library_catalog());
+            dialog.set_audio_entry_metadata(ui.get_audio_library_metadata());
+            dialog.set_audio_entry_durations(ui.get_audio_library_durations());
+            dialog.set_audio_entry_sizes(ui.get_audio_library_sizes());
+            dialog.set_audio_entry_categories(ui.get_audio_library_categories());
+            dialog.set_audio_entry_hotkeys(ui.get_audio_library_hotkeys());
+            dialog.set_audio_entry_loops(ui.get_audio_library_loops());
+            dialog.set_output_options(ui.get_devices());
+            dialog.set_file_output_index(ui.get_file_output_index());
+            dialog.set_file_volume(ui.get_audio_file_volume());
+            dialog.set_mic_volume(ui.get_microphone_input_volume());
+            dialog.set_mix_mic(ui.get_mix_mic());
+            dialog.set_running(ui.get_running());
+            dialog.set_selected_tab(initial_tab);
+            Some(dialog)
+        } else {
+            None
+        };
     ui.window()
         .show()
-        .map_err(|e| Error::InvalidArgs(e.to_string()))?;
+        .map_err(|error| Error::InvalidArgs(error.to_string()))?;
+    if let Some(dialog) = source_dialog.as_ref() {
+        dialog
+            .show()
+            .map_err(|error| Error::InvalidArgs(error.to_string()))?;
+    }
+    if source_dialog_reopen {
+        let dialog = source_dialog
+            .as_ref()
+            .ok_or_else(|| Error::InvalidArgs("source dialog window was not created".into()))?;
+        let first_frame = dialog
+            .window()
+            .take_snapshot()
+            .map_err(|error| Error::InvalidArgs(error.to_string()))?;
+        dialog
+            .hide()
+            .map_err(|error| Error::InvalidArgs(error.to_string()))?;
+        dialog
+            .show()
+            .map_err(|error| Error::InvalidArgs(error.to_string()))?;
+        dialog.set_refresh_surface(!dialog.get_refresh_surface());
+        dialog.window().request_redraw();
+        let second_frame = dialog
+            .window()
+            .take_snapshot()
+            .map_err(|error| Error::InvalidArgs(error.to_string()))?;
+        if first_frame.width() != second_frame.width()
+            || first_frame.height() != second_frame.height()
+            || first_frame.as_bytes() != second_frame.as_bytes()
+        {
+            return Err(Error::InvalidArgs(
+                "source window rendering changed after hide/show".into(),
+            ));
+        }
+    }
+    if source_dialog_click_tab >= 0 {
+        let dialog = source_dialog
+            .as_ref()
+            .ok_or_else(|| Error::InvalidArgs("source dialog window was not created".into()))?;
+        let _ = dialog
+            .window()
+            .take_snapshot()
+            .map_err(|error| Error::InvalidArgs(error.to_string()))?;
+        let positions = [127.0, 360.0, 593.0];
+        dispatch_left_click(
+            dialog,
+            slint::LogicalPosition::new(positions[source_dialog_click_tab as usize], 90.0),
+        );
+        if dialog.get_selected_tab() != source_dialog_click_tab {
+            return Err(Error::InvalidArgs(
+                "source dialog type card did not switch to the clicked tab".into(),
+            ));
+        }
+    }
+    if source_menu_click {
+        let _ = ui
+            .window()
+            .take_snapshot()
+            .map_err(|error| Error::InvalidArgs(error.to_string()))?;
+        dispatch_left_click(&ui, slint::LogicalPosition::new(1208.0, 167.0));
+        let _ = ui
+            .window()
+            .take_snapshot()
+            .map_err(|error| Error::InvalidArgs(error.to_string()))?;
+    }
     if simulate_empty_category_right_click {
         let _ = ui
             .window()
@@ -249,10 +409,12 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
     }
     // 软件渲染器按需渲染：先压一次事件循环，再取快照。
     let _ = slint::invoke_from_event_loop(|| {});
-    let snapshot = ui
-        .window()
-        .take_snapshot()
-        .map_err(|e| Error::InvalidArgs(e.to_string()))?;
+    let snapshot = if let Some(dialog) = source_dialog.as_ref() {
+        dialog.window().take_snapshot()
+    } else {
+        ui.window().take_snapshot()
+    }
+    .map_err(|error| Error::InvalidArgs(error.to_string()))?;
     let mut bytes = Vec::with_capacity(8 + snapshot.as_bytes().len());
     bytes.extend_from_slice(&snapshot.width().to_le_bytes());
     bytes.extend_from_slice(&snapshot.height().to_le_bytes());
@@ -315,5 +477,18 @@ fn dispatch_right_click(ui: &MainWindow, position: slint::LogicalPosition) {
     window.dispatch_event(slint::platform::WindowEvent::PointerReleased {
         position,
         button: slint::platform::PointerEventButton::Right,
+    });
+}
+
+fn dispatch_left_click<T: ComponentHandle>(ui: &T, position: slint::LogicalPosition) {
+    let window = ui.window();
+    window.dispatch_event(slint::platform::WindowEvent::PointerMoved { position });
+    window.dispatch_event(slint::platform::WindowEvent::PointerPressed {
+        position,
+        button: slint::platform::PointerEventButton::Left,
+    });
+    window.dispatch_event(slint::platform::WindowEvent::PointerReleased {
+        position,
+        button: slint::platform::PointerEventButton::Left,
     });
 }

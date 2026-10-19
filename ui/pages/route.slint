@@ -4,10 +4,15 @@ import { ScrollView } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
 import { PmButton } from "../components/button.slint";
 import { SourceRow } from "../components/source-row.slint";
-import { AddSourceDialog } from "../components/add-source-dialog.slint";
-
+import { SourceActionsMenu } from "../components/source-actions-menu.slint";
 export component RoutePage inherits Rectangle {
     in-out property <[string]> processes: [];
+    in-out property <[string]> process-pids: [];
+    in-out property <[image]> process-icon-images: [];
+    in-out property <float> audio-file-volume: 100;
+    in-out property <float> microphone-input-volume: 100;
+    in-out property <string> process-search: "";
+    in-out property <[string]> categories: [];
     in-out property <int> process-index: 0;
     in-out property <[int]> source-kinds: [];
     in-out property <[string]> source-icons: [];
@@ -17,20 +22,36 @@ export component RoutePage inherits Rectangle {
     in-out property <[string]> source-details: [];
     in-out property <[string]> source-statuses: [];
     in-out property <[bool]> source-active: [];
+    in-out property <[string]> source-peak-dbs: [];
+    in-out property <[float]> source-peak-values: [];
+    in-out property <[string]> source-volume-dbs: [];
     in-out property <[float]> source-volumes: [];
     in-out property <[bool]> source-muted: [];
     in-out property <[int]> source-output-indices: [];
     in-out property <[string]> outputs: [];
     in-out property <[bool]> source-paused: [];
+    in-out property <[string]> audio-entries: [];
+    in-out property <[string]> audio-catalog-metadata: [];
+    in-out property <[string]> audio-catalog-durations: [];
+    in-out property <[string]> audio-catalog-sizes: [];
+    in-out property <[string]> audio-catalog-categories: [];
+    in-out property <[string]> audio-catalog-hotkeys: [];
+    in-out property <[bool]> audio-catalog-loops: [];
     in-out property <int> output-index: 0;
+    in-out property <int> file-output-index: 0;
     in-out property <[string]> mics: [];
     in-out property <int> mic-index: 0;
     in-out property <bool> mix-mic: false;
-    in-out property <bool> sources-expanded: true;
-    in-out property <bool> source-add-open: false;
+    in-out property <int> source-replace-index: -1;
+    in-out property <int> source-add-tab: 0;
     in-out property <int> source-menu-index: -1;
+    in-out property <length> source-menu-x: 0px;
+    in-out property <length> source-menu-y: 0px;
+    in-out property <int> source-menu-kind: 0;
+    in-out property <length> source-menu-height: 96px;
     in-out property <bool> running: false;
     callback refresh();
+    callback source-add-requested();
     callback process-add();
     callback add-files();
     callback mic-mix-changed(bool);
@@ -43,6 +64,10 @@ export component RoutePage inherits Rectangle {
     callback source-output-changed(int, int);
     callback open-settings();
     callback open-library();
+    callback audio-entry-add-route(int);
+    callback audio-file-volume-edited(float);
+    callback audio-file-output-changed(int);
+    callback microphone-input-volume-edited(float);
 
     background: transparent;
 
@@ -68,7 +93,7 @@ export component RoutePage inherits Rectangle {
             PmButton {
                 label: "＋  添加音频源";
                 filled: true;
-                clicked => { root.source-add-open = !root.source-add-open; }
+                clicked => { root.source-add-requested(); }
             }
             PmButton {
                 label: "刷新进程";
@@ -81,8 +106,7 @@ export component RoutePage inherits Rectangle {
             vertical-stretch: 1;
             min-height: 0px;
             spacing: 8px;
-            if root.sources-expanded
-                && root.source-titles.length == 0: Rectangle {
+            if root.source-titles.length == 0: Rectangle {
                 height: 104px;
                 width: 100%;
                 border-radius: 8px;
@@ -107,7 +131,7 @@ export component RoutePage inherits Rectangle {
                     }
                 }
             }
-            if root.sources-expanded: ScrollView {
+            ScrollView {
                 width: 100%;
                 vertical-stretch: 1;
                 min-height: 0px;
@@ -142,11 +166,28 @@ export component RoutePage inherits Rectangle {
                         paused: index < root.source-paused.length
                             ? root.source-paused[index]
                             : false;
-                        actions-open: root.source-menu-index == index;
-                        actions-requested => {
+                        actions-open: source-menu-popup.is-open
+                            && root.source-menu-index == index;
+                        actions-requested(x, y) => {
                             root.source-menu-index = index;
+                            root.source-menu-kind = index < root.source-kinds.length
+                                ? root.source-kinds[index]
+                                : 0;
+                            root.source-menu-height = root.source-menu-kind == 1
+                                ? 188px
+                                : 126px;
+                            root.source-menu-x = min(
+                                max(0px, x - root.absolute-position.x),
+                                max(0px, root.width - 230px)
+                            );
+                            root.source-menu-y = min(
+                                max(0px, y - root.absolute-position.y),
+                                max(0px, root.height - root.source-menu-height)
+                            );
+                            source-menu-popup.show();
                         }
                         actions-closed => {
+                            source-menu-popup.close();
                             root.source-menu-index = -1;
                         }
                         route-running: root.running;
@@ -160,6 +201,15 @@ export component RoutePage inherits Rectangle {
                         initial-output-index: index < root.source-output-indices.length
                             ? root.source-output-indices[index]
                             : root.output-index;
+                        volume-db: index < root.source-volume-dbs.length
+                            ? root.source-volume-dbs[index]
+                            : "0.0 dB";
+                        peak-value: index < root.source-peak-values.length
+                            ? root.source-peak-values[index]
+                            : 0.0;
+                        peak-db: index < root.source-peak-dbs.length
+                            ? root.source-peak-dbs[index]
+                            : "-∞ dB";
                         volume: index < root.source-volumes.length
                             ? root.source-volumes[index]
                             : 100;
@@ -183,26 +233,26 @@ export component RoutePage inherits Rectangle {
             }
         }
     }
-    if root.source-add-open: AddSourceDialog {
-        processes <=> root.processes;
-        process-index <=> root.process-index;
-        mics <=> root.mics;
-        mic-index <=> root.mic-index;
-        mix-mic <=> root.mix-mic;
-        running: root.running;
-        process-add => {
-            root.process-add();
-            root.source-add-open = false;
+    source-menu-popup := PopupWindow {
+        x: root.source-menu-x;
+        y: root.source-menu-y;
+        width: 230px;
+        height: root.source-menu-height;
+        close-policy: close-on-click-outside;
+        SourceActionsMenu {
+            width: 100%;
+            height: 100%;
+            kind: root.source-menu-kind;
+            action(code) => {
+                let index = root.source-menu-index;
+                source-menu-popup.close();
+                root.source-menu-index = -1;
+                root.source-action(index, code);
+            }
+            closed => {
+                source-menu-popup.close();
+                root.source-menu-index = -1;
+            }
         }
-        add-files => {
-            root.add-files();
-            root.source-add-open = false;
-        }
-        mic-mix-changed(value) => { root.mic-mix-changed(value); }
-        open-library => {
-            root.source-add-open = false;
-            root.open-library();
-        }
-        closed => { root.source-add-open = false; }
     }
 }

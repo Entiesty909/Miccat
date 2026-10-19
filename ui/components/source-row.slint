@@ -4,8 +4,6 @@ import { Theme } from "../theme.slint";
 import { MarqueeComboBox } from "marquee-combo-box.slint";
 import { PmButton } from "button.slint";
 import { SliderRow } from "slider-row.slint";
-import { SourceActionsMenu } from "source-actions-menu.slint";
-
 export component SourceRow inherits Rectangle {
     in property <int> kind: 0;
     in property <int> row-index: 0;
@@ -27,6 +25,9 @@ export component SourceRow inherits Rectangle {
     init => {
         root.output-index = root.initial-output-index;
     }
+    in property <string> peak-db: "-∞ dB";
+    in property <float> peak-value: 0;
+    in property <string> volume-db: "0.0 dB";
     in-out property <float> volume: 100;
     callback active-toggled(bool);
     callback volume-edited(float);
@@ -34,7 +35,7 @@ export component SourceRow inherits Rectangle {
     callback output-changed(int);
     callback mic-selection-changed();
     callback action(int);
-    callback actions-requested();
+    callback actions-requested(length, length);
     callback actions-closed();
     callback pause();
     callback stop();
@@ -121,12 +122,28 @@ export component SourceRow inherits Rectangle {
                     vertical-alignment: center;
                 }
             }
-            if root.kind == 2: MarqueeComboBox {
-                model: root.mics;
+            if root.kind == 2: HorizontalLayout {
+                width: 100%;
                 height: 34px;
-                current-index <=> root.mic-index;
-                enabled: !root.route-running;
-                selected(value) => { root.mic-selection-changed(); }
+                spacing: 0px;
+                Rectangle {
+                    width: 50px;
+                    height: 1px;
+                    background: transparent;
+                }
+                MarqueeComboBox {
+                    width: 190px;
+                    horizontal-stretch: 0;
+                    height: 34px;
+                    model: root.mics;
+                    current-index <=> root.mic-index;
+                    enabled: !root.route-running;
+                    selected(value) => { root.mic-selection-changed(); }
+                }
+                Rectangle {
+                    horizontal-stretch: 1;
+                    background: transparent;
+                }
             }
             if root.kind != 2: Text {
                 text: root.subtitle;
@@ -168,10 +185,34 @@ export component SourceRow inherits Rectangle {
             alignment: LayoutAlignment.center;
             HorizontalLayout {
                 width: 100%;
+                spacing: 8px;
                 Text {
-                    text: "音量";
+                    text: "峰值";
                     color: Theme.text2;
-                    font-size: 12px;
+                    font-size: 11px;
+                    width: 30px;
+                }
+                Text {
+                    text: root.peak-db;
+                    width: 58px;
+                    color: Theme.text;
+                    font-size: 11px;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: "增益";
+                    color: Theme.text2;
+                    font-size: 11px;
+                    width: 30px;
+                }
+                Text {
+                    text: root.volume-db;
+                    horizontal-stretch: 1;
+                    color: Theme.text;
+                    font-size: 11px;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
                 }
             }
             SliderRow {
@@ -199,41 +240,32 @@ export component SourceRow inherits Rectangle {
                     label: root.paused ? "\u{E768}" : "\u{E769}";
                     icon-only: true;
                     button-width: 36px;
-                    enabled: root.active || root.paused;
+                    enabled: root.route-running
+                        && (root.status == "播放中" || root.paused);
                     clicked => { root.pause(); }
                 }
                 if root.kind == 1: PmButton {
                     label: "\u{E71A}";
                     icon-only: true;
                     button-width: 36px;
-                    enabled: root.active || root.paused;
+                    enabled: root.route-running
+                        && (root.status == "播放中" || root.paused);
                     clicked => { root.stop(); }
                 }
-                if !root.actions-open: PmButton {
+                PmButton {
                     label: "\u{E712}";
                     icon-only: true;
                     button-width: 36px;
                     enabled: !root.route-running || root.kind == 1;
-                    clicked => { root.actions-requested(); }
+                    clicked => {
+                        root.actions-requested(
+                            root.absolute-position.x + root.width - 246px,
+                            root.absolute-position.y + (root.height - 36px) / 2 + 36px
+                        );
+                    }
                 }
             }
         }
     }
 
-    if root.actions-open: Rectangle {
-        width: 100%;
-        height: 100%;
-        background: transparent;
-        SourceActionsMenu {
-            kind: root.kind;
-            x: max(0px, root.width - 246px);
-            y: 8px;
-            action(code) => {
-                root.actions-closed();
-                root.action(code);
-            }
-            closed => { root.actions-closed(); }
-        }
-    }
 }
-

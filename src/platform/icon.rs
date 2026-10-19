@@ -33,6 +33,19 @@ pub(crate) fn process_icon(pid: u32) -> Image {
 
 /// 提取本地音频文件的 Windows 文件图标；失败时返回空图片。
 pub(crate) fn file_icon(path: &str) -> Image {
+    let path = std::path::Path::new(path);
+    let extension = path.extension().and_then(std::ffi::OsStr::to_str);
+    if extension.is_some_and(|extension| {
+        [
+            "avif", "bmp", "exr", "gif", "jpeg", "jpg", "png", "qoi", "tif", "tiff", "webp",
+        ]
+        .iter()
+        .any(|candidate| extension.eq_ignore_ascii_case(candidate))
+    }) && let Ok(image) = Image::load_from_path(path)
+    {
+        return image;
+    }
+    let path = path.to_string_lossy();
     let wide = path
         .encode_utf16()
         .chain(std::iter::once(0))

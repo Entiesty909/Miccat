@@ -1,0 +1,92 @@
+//! 添加路由时显示所选音频文件的真实元数据和输出设置。
+
+import { ComboBox } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { SliderRow } from "slider-row.slint";
+
+export component AudioSourceDetails inherits Rectangle {
+    in property <string> entry-name: "";
+    in property <string> entry-metadata: "";
+    in property <string> entry-duration: "";
+    in property <string> entry-size: "";
+    in property <string> entry-category: "";
+    in property <string> entry-hotkey: "";
+    in property <string> entry-loop-state: "";
+    in-out property <[string]> outputs: [];
+    in-out property <int> output-index: 0;
+    in-out property <float> volume: 100;
+    callback output-changed(int);
+    callback volume-edited(float);
+
+    horizontal-stretch: 1;
+    border-radius: Theme.radiusControl;
+    border-width: 1px;
+    border-color: Theme.border;
+
+    VerticalLayout {
+        padding: 14px;
+        spacing: 8px;
+        Text {
+            text: root.entry-name;
+            color: Theme.text;
+            font-size: 13px;
+            font-weight: 600;
+            overflow: elide;
+        }
+        Text {
+            text: root.entry-metadata;
+            color: Theme.text2;
+            font-size: 10px;
+            overflow: elide;
+        }
+        HorizontalLayout {
+            spacing: 12px;
+            Text {
+                text: "时长  " + root.entry-duration;
+                color: Theme.text2;
+                font-size: 10px;
+            }
+            Text {
+                text: "大小  " + root.entry-size;
+                color: Theme.text2;
+                font-size: 10px;
+            }
+        }
+        HorizontalLayout {
+            spacing: 12px;
+            Text {
+                text: "分类  " + root.entry-category;
+                color: Theme.text2;
+                font-size: 10px;
+            }
+            Text {
+                text: "快捷键  " + root.entry-hotkey;
+                color: Theme.text2;
+                font-size: 10px;
+            }
+        }
+        Text {
+            text: root.entry-loop-state;
+            color: Theme.text2;
+            font-size: 10px;
+        }
+        Text {
+            text: "输出设备";
+            color: Theme.text2;
+            font-size: 11px;
+        }
+        ComboBox {
+            model: root.outputs;
+            current-index <=> root.output-index;
+            selected(value) => {
+                root.output-changed(root.output-index);
+            }
+        }
+        SliderRow {
+            label: "音量";
+            value <=> root.volume;
+            edited(value) => { root.volume-edited(value); }
+        }
+        Rectangle { vertical-stretch: 1; background: transparent; }
+    }
+}

@@ -1,5 +1,3 @@
-//! 持有桥接层运行期共享对象，缩短回调参数列表。
-
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
@@ -13,6 +11,7 @@ use crate::process::ProcessInfo;
 
 use super::cache::UiCache;
 use super::persist::SaveQueue;
+use super::{AddSourceWindow, AudioEditWindow};
 /// 所有 UI 设备源的后台枚举结果。
 pub(super) struct EnumeratedLists {
     /// 可选择的本地进程。
@@ -32,6 +31,12 @@ pub(super) struct ListRefresh {
     pub(super) result: Mutex<Option<Result<EnumeratedLists, String>>>,
 }
 
+pub(super) struct AppWindows {
+    /// 添加源的独立顶层窗口。
+    pub(super) add_source: Rc<AddSourceWindow>,
+    /// 音频条目编辑的独立顶层窗口。
+    pub(super) audio_edit: Rc<AudioEditWindow>,
+}
 /// 桥接层共享对象；音频运行时仍由 AudioEngine 持有。
 #[derive(Clone)]
 pub(super) struct AppState {
@@ -49,6 +54,8 @@ pub(super) struct AppState {
     pub(super) app_config: Rc<RefCell<config::AppConfig>>,
     /// 配置防抖写入与退出时 flush 的队列。
     pub(super) save_queue: Rc<SaveQueue>,
+    /// 独立可见的添加源和编辑窗口。
+    pub(super) windows: Rc<AppWindows>,
     /// 进程/设备列表枚举任务及其待消费结果。
     pub(super) list_refresh: Arc<ListRefresh>,
 }

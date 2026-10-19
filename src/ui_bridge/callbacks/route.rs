@@ -3,6 +3,7 @@ mod refresh;
 mod sources;
 
 use super::super::*;
+use slint::{ComponentHandle, Model};
 pub(super) fn register(ui: &MainWindow, state: &AppState) {
     refresh::register(ui, state);
     register_1(ui, state);
@@ -97,25 +98,76 @@ fn register_2(ui: &MainWindow, state: &AppState) {
     }
     {
         let ui_weak = ui.as_weak();
+        let state = state.clone();
+        ui.on_source_add_requested(move || {
+            if let Some(ui) = ui_weak.upgrade() {
+                super::super::open_add_source_window(&ui, &state);
+            }
+        });
+    }
+    {
+        let engine = state.engine.clone();
+        let ui_weak = ui.as_weak();
         let cache = cache.clone();
         let app_config = app_config.clone();
         let save_queue = save_queue.clone();
+        let state_for_update = state.clone();
         ui.on_process_add(move || {
             let Some(ui) = ui_weak.upgrade() else { return };
             let index = ui.get_process_index().max(0) as usize;
-            let added = {
-                let mut cache = cache.borrow_mut();
-                if let Some(pid) = cache.pids.get(index).copied().filter(|pid| *pid != 0)
-                    && !cache.selected_pids.contains(&pid)
+            let Some(pid) = cache
+                .borrow()
+                .pids
+                .get(index)
+                .copied()
+                .filter(|pid| *pid != 0)
+            else {
+                return;
+            };
+            let replace_index = ui.get_source_replace_index();
+            let changed = if replace_index >= 0 {
+                let source_kinds = ui.get_source_kinds();
+                let source_index = replace_index as usize;
+                let slot = (0..source_index)
+                    .filter(|row| source_kinds.row_data(*row) == Some(0))
+                    .count();
+                let mut cache_state = cache.borrow_mut();
+                if source_kinds.row_data(source_index) == Some(0)
+                    && slot < cache_state.selected_pids.len()
                 {
-                    cache.selected_pids.push(pid);
+                    cache_state.selected_pids[slot] = pid;
+                    cache_state
+                        .disabled_pids
+                        .retain(|disabled| *disabled != pid);
                     true
                 } else {
                     false
                 }
+            } else {
+                let mut cache_state = cache.borrow_mut();
+                if cache_state.selected_pids.contains(&pid) {
+                    false
+                } else {
+                    cache_state.selected_pids.push(pid);
+                    true
+                }
             };
-            if added {
+            ui.set_source_replace_index(-1);
+            if changed {
+                if ui.get_running() {
+                    let wanted = {
+                        let cache_state = cache.borrow();
+                        cache_state
+                            .selected_pids
+                            .iter()
+                            .copied()
+                            .filter(|pid| !cache_state.disabled_pids.contains(pid))
+                            .collect::<Vec<_>>()
+                    };
+                    let _ = engine.replace_process_sources(&wanted);
+                }
                 super::super::persist::save_process_selection(&cache, &app_config, &save_queue);
+                super::super::sources::update(&ui, &state_for_update);
             }
         });
     }
@@ -125,6 +177,7 @@ fn register_2(ui: &MainWindow, state: &AppState) {
         let cache = cache.clone();
         let save_queue = save_queue.clone();
         let app_config = app_config.clone();
+        let state_for_update = state.clone();
         ui.on_mic_mix_changed(move |on| {
             let Some(ui) = ui_weak.upgrade() else { return };
             let mic_id = cache
@@ -151,6 +204,7 @@ fn register_2(ui: &MainWindow, state: &AppState) {
                     super::super::diagnostics::report_error(&ui, &error);
                 }
             }
+            super::super::sources::update(&ui, &state_for_update);
         });
     }
 }

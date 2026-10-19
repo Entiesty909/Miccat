@@ -297,3 +297,32 @@ impl AudioEngine {
             .ok_or(Error::RenderInit("sfx is closed"))
     }
 }
+
+impl AudioEngine {
+    /// 把一个音频条目追加到当前路由 SFX 混音器，不停止其它文件流。
+    pub fn play_file_source(&self, entry: &crate::config::AudioEntry) -> Result<(), Error> {
+        let sender = self.sfx_sender()?;
+        let request = FilePlaybackRequest {
+            target: PlaybackTarget::Route,
+            ..FilePlaybackRequest::from(entry)
+        };
+        let path = request.path.clone();
+        let looped = request.looped;
+        thread::Builder::new()
+            .name("engine-file-source".into())
+            .spawn(move || {
+                let cancel = Arc::new(AtomicBool::new(false));
+                let Ok((info, rx)) = decode::stream_to_channel(path, 0, looped, cancel) else {
+                    return;
+                };
+                let _ = sender.send(SfxCommand::PlayStream {
+                    sample_rate: info.sample_rate,
+                    channels: info.channels,
+                    volume: 1.0,
+                    rx,
+                });
+            })
+            .map_err(|_| Error::RenderInit("spawn file source"))?;
+        Ok(())
+    }
+}

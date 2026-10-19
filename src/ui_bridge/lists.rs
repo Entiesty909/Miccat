@@ -33,9 +33,19 @@ pub(super) fn apply_process_list(
         let state = cache.borrow();
         state.pids.get(ui.get_process_index() as usize).copied()
     };
-    let labels: Vec<slint::SharedString> =
-        list.iter().map(|process| process.label().into()).collect();
+    let labels: Vec<slint::SharedString> = list
+        .iter()
+        .map(|process| process.name.clone().into())
+        .collect();
     let pids: Vec<u32> = list.iter().map(|process| process.pid).collect();
+    let process_pids: Vec<slint::SharedString> = list
+        .iter()
+        .map(|process| process.pid.to_string().into())
+        .collect();
+    let process_icon_images = list
+        .iter()
+        .map(|process| crate::platform::icon::process_icon(process.pid))
+        .collect::<Vec<_>>();
     let selected_index = selected_pid
         .and_then(|pid| pids.iter().position(|candidate| *candidate == pid))
         .unwrap_or(0);
@@ -47,6 +57,8 @@ pub(super) fn apply_process_list(
         cache.pids = pids;
     }
     ui.set_processes(ModelRc::new(VecModel::from(labels)));
+    ui.set_process_pids(ModelRc::new(VecModel::from(process_pids)));
+    ui.set_process_icon_images(ModelRc::new(VecModel::from(process_icon_images)));
     ui.set_process_index(selected_index as i32);
     ui.set_about_text(about_text(cache).into());
 }

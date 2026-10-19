@@ -84,6 +84,21 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
     }
     {
         let engine = state.engine.clone();
+        let app_config = state.app_config.clone();
+        let save_queue = state.save_queue.clone();
+        let ui_weak = ui.as_weak();
+        ui.on_microphone_input_volume_edited(move |value| {
+            let volume = (value / 100.0).clamp(0.0, 1.0);
+            engine.set_mic_volume(volume);
+            app_config.borrow_mut().mix.mic = volume;
+            save_queue.schedule();
+            if let Some(ui) = ui_weak.upgrade() {
+                ui.set_microphone_input_volume(volume * 100.0);
+            }
+        });
+    }
+    {
+        let engine = state.engine.clone();
         let cache = state.cache.clone();
         let app_config = state.app_config.clone();
         let ui_weak = ui.as_weak();
@@ -140,7 +155,7 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
                         }
                     }
                 }
-                1 => toggle_file_source(&ui, &engine, enabled),
+                1 => toggle_file_source(&ui, &engine, &cache, index, enabled),
                 2 if enabled != ui.get_mix_mic() => ui.invoke_mic_mix_changed(enabled),
                 _ => {}
             }
@@ -150,7 +165,7 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
         let ui_weak = ui.as_weak();
         ui.on_source_pause(move |index| {
             let Some(ui) = ui_weak.upgrade() else { return };
-            if source_kind(&ui, index) == Some(1) {
+            if source_kind(&ui, index) == Some(1) && ui.get_running() && ui.get_player_playing() {
                 ui.invoke_player_pause_toggle();
             }
         });
@@ -169,6 +184,7 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
         let cache = state.cache.clone();
         let app_config = state.app_config.clone();
         let save_queue = state.save_queue.clone();
+        let state_for_update = state.clone();
         let ui_weak = ui.as_weak();
         move |index, action| {
             let Some(ui) = ui_weak.upgrade() else { return };
@@ -203,6 +219,16 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
                         ui.set_audio_entry_index(entry_index);
                     }
                 }
+                5 if kind == 0 => {
+                    ui.set_source_replace_index(index);
+                    ui.set_source_add_tab(0);
+                    super::super::super::open_add_source_window(&ui, &state_for_update);
+                }
+                6 if kind == 1 => {
+                    ui.set_source_replace_index(index);
+                    ui.set_source_add_tab(1);
+                    super::super::super::open_add_source_window(&ui, &state_for_update);
+                }
                 4 => {
                     delete_source(&ui, &cache, &engine, kind, index);
                     crate::ui_bridge::persist::save_process_selection(
@@ -213,6 +239,7 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
                 }
                 _ => {}
             }
+            super::super::super::sources::update(&ui, &state_for_update);
         }
     });
 }
@@ -256,9 +283,34 @@ fn delete_source(
             }
         }
         1 => {
-            cache.borrow_mut().file_source_hidden = true;
-            ui.invoke_audio_stop();
+            let Ok(source_index) = usize::try_from(source_index) else {
+                return;
+            };
+            let kinds = ui.get_source_kinds();
+            let file_slot = (0..source_index)
+                .filter(|row| kinds.row_data(*row) == Some(1))
+                .count();
+            let mut cache_state = cache.borrow_mut();
+            if file_slot < cache_state.route_audio_entries.len() {
+                cache_state.route_audio_entries.remove(file_slot);
+                if file_slot < cache_state.route_audio_enabled.len() {
+                    cache_state.route_audio_enabled.remove(file_slot);
+                }
+            }
+            cache_state.route_audio_entry = cache_state.route_audio_entries.first().copied();
+            cache_state.route_file_enabled = cache_state
+                .route_audio_enabled
+                .iter()
+                .any(|enabled| *enabled);
+            if cache_state.route_audio_entries.is_empty() {
+                cache_state.file_source_hidden = true;
+            }
+            drop(cache_state);
+            if ui.get_player_playing() {
+                ui.invoke_audio_stop();
+            }
         }
+
         2 => {
             cache.borrow_mut().mic_source_hidden = true;
             if ui.get_mix_mic() {
@@ -268,7 +320,6 @@ fn delete_source(
         _ => {}
     }
 }
-
 fn source_kind(ui: &MainWindow, index: i32) -> Option<usize> {
     ui.get_source_kinds()
         .row_data(index as usize)
@@ -290,15 +341,44 @@ fn hot_swap_process_sources(engine: &AudioEngine, cache: &Rc<RefCell<UiCache>>) 
     }
 }
 
-fn toggle_file_source(ui: &MainWindow, engine: &AudioEngine, enabled: bool) {
-    if enabled {
-        if ui.get_player_paused() {
-            ui.invoke_player_pause_toggle();
-        } else if !engine.file_state().playing {
-            ui.invoke_audio_entry_play(0);
+fn toggle_file_source(
+    ui: &MainWindow,
+    engine: &AudioEngine,
+    cache: &Rc<RefCell<UiCache>>,
+    source_index: i32,
+    enabled: bool,
+) {
+    let Ok(source_index) = usize::try_from(source_index) else {
+        return;
+    };
+    let kinds = ui.get_source_kinds();
+    let file_slot = (0..source_index)
+        .filter(|row| kinds.row_data(*row) == Some(1))
+        .count();
+    let selected_visible = visible_entry(cache, ui.get_audio_entry_index().max(0) as usize);
+    let entry = {
+        let mut cache_state = cache.borrow_mut();
+        if cache_state.route_audio_entries.is_empty()
+            && let Some(index) = selected_visible
+        {
+            cache_state.route_audio_entries.push(index);
+            cache_state.route_audio_enabled.push(false);
         }
-    } else if engine.file_state().playing {
-        ui.invoke_player_pause_toggle();
+        if file_slot >= cache_state.route_audio_entries.len() {
+            return;
+        }
+        if let Some(state) = cache_state.route_audio_enabled.get_mut(file_slot) {
+            *state = enabled;
+        }
+        cache_state.route_file_enabled = cache_state.route_audio_enabled.iter().any(|state| *state);
+        let index = cache_state.route_audio_entries[file_slot];
+        cache_state.audio_entries.get(index).cloned()
+    };
+    if engine.is_running()
+        && enabled
+        && let Some(entry) = entry
+    {
+        let _ = engine.play_file_source(&entry);
     }
 }
 

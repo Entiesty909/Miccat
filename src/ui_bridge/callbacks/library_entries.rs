@@ -1,6 +1,7 @@
 //! library_entries 相关 Slint 回调注册。
 
 use super::super::*;
+use slint::Model;
 
 pub(super) fn register(ui: &MainWindow, state: &AppState) {
     register_1(ui, state);
@@ -43,6 +44,7 @@ fn register_1(ui: &MainWindow, state: &AppState) {
                 path: path.to_string_lossy().into_owned(),
                 category,
                 icon_path: None,
+                icon_glyph: "\u{EC4F}".into(),
                 duration_hns: validate_info.duration_hns,
                 file_size_bytes: std::fs::metadata(&path)
                     .map(|metadata| metadata.len())
@@ -145,25 +147,42 @@ fn register_3(ui: &MainWindow, state: &AppState) {
         });
     }
     {
-        // 「添加到路由主页」：把该条目的播放目标设为路由，并切到路由页展示。
         let ui_weak = ui.as_weak();
         let cache = cache.clone();
-        ui.on_audio_entry_add_route(move || {
-            let Some(ui) = ui_weak.upgrade() else {
+        let state_for_update = state.clone();
+        ui.on_audio_entry_add_route_index(move |actual_index| {
+            let Some(ui) = ui_weak.upgrade() else { return };
+            let Some(actual_index) = usize::try_from(actual_index).ok() else {
                 return;
             };
-            let index = ui.get_audio_entry_index().max(0) as usize;
-            let Some(actual) = visible_entry(&cache, index) else {
-                return;
-            };
-            if cache.borrow().audio_entries.get(actual).is_none() {
-                return;
+            let replace_index = ui.get_source_replace_index();
+            {
+                let mut cache_state = cache.borrow_mut();
+                if replace_index >= 0 {
+                    let source_kinds = ui.get_source_kinds();
+                    let source_index = replace_index as usize;
+                    let file_slot = (0..source_index)
+                        .filter(|row| source_kinds.row_data(*row) == Some(1))
+                        .count();
+                    if source_kinds.row_data(source_index) == Some(1)
+                        && file_slot < cache_state.route_audio_entries.len()
+                    {
+                        cache_state.route_audio_entries[file_slot] = actual_index;
+                        if file_slot < cache_state.route_audio_enabled.len() {
+                            cache_state.route_audio_enabled[file_slot] = false;
+                        }
+                    }
+                } else if !cache_state.route_audio_entries.contains(&actual_index) {
+                    cache_state.route_audio_entries.push(actual_index);
+                    cache_state.route_audio_enabled.push(false);
+                }
+                cache_state.route_audio_entry = Some(actual_index);
+                cache_state.route_file_enabled = false;
+                cache_state.file_source_hidden = false;
             }
-            cache.borrow_mut().playback_target = crate::engine::PlaybackTarget::Route;
-            cache.borrow_mut().file_source_hidden = false;
-            // 路由页的文件源行显示当前选中/播放的条目；切过去即可看到它。
+            ui.set_source_replace_index(-1);
             ui.set_page(0);
-            ui.invoke_audio_entry_play(2);
+            super::super::sources::update(&ui, &state_for_update);
         });
     }
     {

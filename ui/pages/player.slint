@@ -8,14 +8,28 @@ import { CategorySidebar } from "../components/category-sidebar.slint";
 import { AudioList } from "../components/audio-list.slint";
 import { AudioDetail } from "../components/audio-detail.slint";
 import { AudioTransport } from "../components/audio-transport.slint";
+import { LibrarySplitter } from "../components/library-splitter.slint";
 
 export component PlayerPage inherits Rectangle {
     in-out property <[string]> categories: ["全部", "未分类"];
+    in-out property <[int]> category-depths: [];
+    in-out property <[image]> category-icon-images: [];
+    in-out property <[string]> category-icon-glyphs: [];
     in-out property <[int]> category-counts: [];
     in-out property <[string]> audio-hotkeys: [];
+    in-out property <length> sidebar-width: 230px;
+    in-out property <length> detail-width: 340px;
     in-out property <int> category-index: 0;
     in-out property <int> category-drop-target: -1;
     in-out property <int> category-drop-position: -1;
+    in-out property <[image]> entry-icon-images: [];
+    in-out property <[string]> entry-icon-glyphs: [];
+    in-out property <bool> edit-dialog-open: false;
+    in-out property <image> edit-custom-icon-image;
+    in-out property <bool> edit-category-mode: false;
+    in-out property <string> edit-name: "";
+    in-out property <int> edit-icon-index: 0;
+    in-out property <string> edit-custom-icon-path: "";
     in-out property <[string]> entries: [];
     in-out property <[string]> entry-durations: [];
     in-out property <[string]> entry-metadata: [];
@@ -40,7 +54,7 @@ export component PlayerPage inherits Rectangle {
     in-out property <float> duration-seconds: 0;
     in-out property <bool> paused: false;
     in-out property <bool> preview-enabled: false;
-    in-out property <float> monitor-volume: 50;
+    in-out property <float> file-volume: 100;
     in-out property <bool> loop: false;
     in-out property <bool> playing: false;
     in-out property <bool> route-running: false;
@@ -71,15 +85,20 @@ export component PlayerPage inherits Rectangle {
     callback previous();
     callback next();
     callback preview-enabled-toggled(bool);
+    callback file-volume-edited(float);
     callback preview-volume-edited(float);
     callback file-output-changed(int);
     callback search-edited(string);
     callback sort-toggled();
     callback page-changed(int);
-    callback entry-category-changed(int);
     callback loop-changed(bool);
+    callback entry-category-changed(int);
     callback entry-hotkey-bind();
+    callback entry-hotkey-clear();
     callback hotkey-settings();
+    callback edit-accepted(string, int, string);
+    callback edit-cancelled();
+    callback edit-custom-icon-requested();
     background: transparent;
 
     VerticalLayout {
@@ -87,14 +106,17 @@ export component PlayerPage inherits Rectangle {
         padding-right: 22px;
         padding-top: 16px;
         padding-bottom: 14px;
-        spacing: 12px;
+        spacing: 14px;
         HorizontalLayout {
             vertical-stretch: 1;
             min-height: 0px;
-            spacing: 12px;
+            spacing: 14px;
             CategorySidebar {
-                width: 228px;
+                width: root.sidebar-width;
+                category-depths <=> root.category-depths;
                 categories <=> root.categories;
+                category-icon-images <=> root.category-icon-images;
+                category-icon-glyphs <=> root.category-icon-glyphs;
                 category-counts <=> root.category-counts;
                 audio-hotkeys <=> root.audio-hotkeys;
                 category-index <=> root.category-index;
@@ -115,6 +137,13 @@ export component PlayerPage inherits Rectangle {
                     root.category-drop(data, target, position);
                 }
                 hotkey-settings => { root.hotkey-settings(); }
+            }
+            LibrarySplitter {
+                width: 8px;
+                value: root.sidebar-width;
+                resized(value) => {
+                    root.sidebar-width = min(max(value, 180px), 360px);
+                }
             }
             Card {
                 horizontal-stretch: 1;
@@ -143,14 +172,9 @@ export component PlayerPage inherits Rectangle {
                         clicked => { root.add-files(); }
                     }
                     PmButton {
-                        label: root.sort-ascending ? "↑ 名称" : "↓ 名称";
+                        label: root.sort-ascending ? "↑ 按名称" : "↓ 按名称";
                         clicked => { root.sort-toggled(); }
                     }
-                }
-                Rectangle {
-                    width: 100%;
-                    height: 1px;
-                    background: Theme.border;
                 }
                 AudioList {
                     vertical-stretch: 1;
@@ -161,6 +185,8 @@ export component PlayerPage inherits Rectangle {
                     entry-categories <=> root.entry-categories;
                     entry-statuses <=> root.entry-statuses;
                     entry-index <=> root.entry-index;
+                    entry-icon-images <=> root.entry-icon-images;
+                    entry-icon-glyphs <=> root.entry-icon-glyphs;
                     playing <=> root.playing;
                     playing-entry-index <=> root.playing-entry-index;
                     entry-menu-open <=> root.entry-menu-open;
@@ -217,7 +243,16 @@ export component PlayerPage inherits Rectangle {
                     }
                 }
             }
+            LibrarySplitter {
+                bar-width: 8px;
+                value: root.detail-width;
+                reverse-delta: true;
+                resized(value) => {
+                    root.detail-width = min(max(value, 280px), 460px);
+                }
+            }
             AudioDetail {
+                width: root.detail-width;
                 vertical-stretch: 1;
                 entries <=> root.entries;
                 metadata <=> root.entry-metadata;
@@ -236,18 +271,19 @@ export component PlayerPage inherits Rectangle {
                 entry-index <=> root.entry-index;
                 category-index <=> root.entry-category-index;
                 output-index <=> root.file-output-index;
-                monitor-volume <=> root.monitor-volume;
+                file-volume <=> root.file-volume;
                 preview-enabled <=> root.preview-enabled;
                 loop <=> root.loop;
                 play => { root.play-action(0); }
                 preview => { root.play-action(1); }
                 context => { root.entry-context(root.entry-index); }
+                hotkey-clear => { root.entry-hotkey-clear(); }
                 output-changed(value) => { root.file-output-changed(value); }
                 category-changed(value) => {
                     root.entry-category-changed(value);
                 }
-                monitor-volume-edited(value) => {
-                    root.preview-volume-edited(value);
+                file-volume-edited(value) => {
+                    root.file-volume-edited(value);
                 }
                 preview-toggled(value) => {
                     root.preview-enabled-toggled(value);

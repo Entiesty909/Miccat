@@ -12,6 +12,23 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
     register_stop(ui, state);
     register_pause(ui, state);
     register_navigation(ui, state);
+    register_file_volume(ui, state);
+}
+
+fn register_file_volume(ui: &MainWindow, state: &AppState) {
+    let engine = state.engine.clone();
+    let app_config = state.app_config.clone();
+    let save_queue = state.save_queue.clone();
+    let ui_weak = ui.as_weak();
+    ui.on_audio_file_volume_edited(move |value| {
+        let volume = (value / 100.0).clamp(0.0, 1.0);
+        engine.set_sfx_volume(volume);
+        app_config.borrow_mut().mix.sfx = volume;
+        save_queue.schedule();
+        if let Some(ui) = ui_weak.upgrade() {
+            ui.set_audio_file_volume(volume * 100.0);
+        }
+    });
 }
 
 fn register_play_action(ui: &MainWindow, state: &AppState) {
@@ -96,6 +113,7 @@ fn register_seek(ui: &MainWindow, state: &AppState) {
             path: current.path,
             category: String::new(),
             icon_path: None,
+            icon_glyph: "\u{EC4F}".into(),
             duration_hns: current.duration_hns,
             file_size_bytes: 0,
             sample_rate: 0,

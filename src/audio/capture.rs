@@ -1,7 +1,7 @@
 //! WASAPI Process Loopback：按 PID 捕获该进程树的 PCM。
 
 use std::ptr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use windows::Win32::Foundation::{CloseHandle, HANDLE, S_OK, WAIT_OBJECT_0, WAIT_TIMEOUT};
 use windows::Win32::Media::Audio::{
@@ -387,6 +387,7 @@ pub fn run_capture_loop(
     ring: Arc<SpscRing>,
     mut converter: Converter,
     stop: Arc<AtomicBool>,
+    peak: Option<Arc<AtomicU32>>,
     on_fail: impl FnOnce(Error),
 ) {
     let CaptureClient {
@@ -451,6 +452,13 @@ pub fn run_capture_loop(
                 silent || data.is_null(),
                 &mut converted,
             );
+            if let Some(peak) = &peak {
+                let value = converted
+                    .iter()
+                    .map(|sample| sample.abs())
+                    .fold(0.0f32, f32::max);
+                peak.store(value.to_bits(), Ordering::Relaxed);
+            }
             ring.push_latest(&converted);
             if let Err(e) = unsafe { capture.ReleaseBuffer(frames) } {
                 failed = Some(classify_capture_error(e));

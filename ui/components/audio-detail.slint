@@ -21,7 +21,7 @@ export component AudioDetail inherits Card {
     in property <bool> route-running: false;
     in-out property <int> category-index: 0;
     in-out property <int> output-index: 0;
-    in-out property <float> monitor-volume: 50;
+    in-out property <float> file-volume: 100;
     in-out property <bool> preview-enabled: false;
     in-out property <bool> loop: false;
     callback play();
@@ -29,10 +29,11 @@ export component AudioDetail inherits Card {
     callback context();
     callback output-changed(int);
     callback category-changed(int);
-    callback monitor-volume-edited(float);
+    callback file-volume-edited(float);
     callback preview-toggled(bool);
     callback loop-toggled(bool);
     callback hotkey-bind();
+    callback hotkey-clear();
 
     width: 340px;
     vertical-stretch: 1;
@@ -41,6 +42,8 @@ export component AudioDetail inherits Card {
     ScrollView {
         width: 100%;
         height: 100%;
+        vertical-scrollbar-policy: always-off;
+        horizontal-scrollbar-policy: always-off;
         VerticalLayout {
             width: 100%;
             alignment: LayoutAlignment.start;
@@ -142,32 +145,90 @@ export component AudioDetail inherits Card {
             }
             SliderRow {
                 label: "音量";
-                value <=> root.monitor-volume;
-                edited(value) => { root.monitor-volume-edited(value); }
+                value <=> root.file-volume;
+                edited(value) => { root.file-volume-edited(value); }
             }
-            PmButton {
-                label: root.listening-hotkey
-                    ? "按下快捷键…"
-                    : (root.hotkey == "" ? "设置快捷键" : "快捷键  \{root.hotkey}");
-                enabled: root.entry-index >= 0;
-                clicked => { root.hotkey-bind(); }
+            Text {
+                text: "快捷键";
+                color: Theme.text2;
+                font-size: 11px;
             }
-            CheckBox {
-                text: "循环播放";
-                checked <=> root.loop;
-                enabled: root.entry-index >= 0;
-                toggled => { root.loop-toggled(self.checked); }
+            Rectangle {
+                height: 36px;
+                background: Theme.field;
+                border-width: 1px;
+                border-color: Theme.borderStrong;
+                border-radius: Theme.radiusControl;
+                Text {
+                    x: 12px;
+                    width: parent.width - 44px;
+                    text: root.listening-hotkey
+                        ? "按下快捷键…"
+                        : (root.hotkey == "" ? "未设置" : root.hotkey);
+                    color: Theme.text;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                if root.hotkey != "": Text {
+                    x: parent.width - 28px;
+                    width: 20px;
+                    text: "×";
+                    color: Theme.text3;
+                    font-size: 16px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    TouchArea {
+                        clicked => { root.hotkey-clear(); }
+                    }
+                }
+                TouchArea {
+                    enabled: root.hotkey == "";
+                    clicked => { root.hotkey-bind(); }
+                }
             }
+            HorizontalLayout {
+                height: 30px;
+                Text {
+                    text: "循环播放";
+                    horizontal-stretch: 1;
+                    color: Theme.text2;
+                    font-size: 11px;
+                    vertical-alignment: center;
+                }
+                CheckBox {
+                    checked <=> root.loop;
+                    enabled: root.entry-index >= 0;
+                    toggled => { root.loop-toggled(self.checked); }
+                }
+            }
+            Text { text: "分类"; color: Theme.text2; font-size: 11px; }
             ComboBox {
                 model: root.category-options;
                 current-index <=> root.category-index;
                 enabled: root.entry-index >= 0;
                 selected(value) => { root.category-changed(root.category-index); }
             }
-            CheckBox {
-                text: "路由播放时本机监听";
-                checked <=> root.preview-enabled;
-                toggled => { root.preview-toggled(self.checked); }
+            VerticalLayout {
+                spacing: 2px;
+                HorizontalLayout {
+                    height: 28px;
+                    Text {
+                        text: "本机试听";
+                        horizontal-stretch: 1;
+                        color: Theme.text2;
+                        font-size: 11px;
+                        vertical-alignment: center;
+                    }
+                    CheckBox {
+                        checked <=> root.preview-enabled;
+                        toggled => { root.preview-toggled(self.checked); }
+                    }
+                }
+                Text {
+                    text: "在本机设备上播放该音频（不经过路由）";
+                    color: Theme.text3;
+                    font-size: 9px;
+                }
             }
             Rectangle { height: 1px; width: 100%; background: Theme.border; }
             Text {
