@@ -1,7 +1,7 @@
 //! 声板混音线程：读取已经解码的 WAV，在固定 ring 中混合并输出。
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
 
 use super::buffer::SpscRing;
 use super::format::AudioFormat;
@@ -28,6 +28,8 @@ pub enum SfxCommand {
     },
     /// 停止一个音频卡片槽位。
     StopSlot(usize),
+    /// 暂停或恢复一个音频卡片槽位。
+    SetPaused { slot: usize, paused: bool },
 }
 
 /// 创建声板命令通道。
@@ -40,6 +42,7 @@ pub fn run_sfx_loop(
     render: AudioFormat,
     stop: Arc<AtomicBool>,
     peak: Arc<AtomicU32>,
+    states: Arc<Vec<AtomicU8>>,
     rx: Receiver<SfxCommand>,
 ) {
     let channels = render.channels as usize;
@@ -58,6 +61,9 @@ pub fn run_sfx_loop(
                     rx,
                 } => {
                     players.retain(|player| player.slot() != slot);
+                    if let Some(state) = states.get(slot) {
+                        state.store(1, Ordering::Relaxed);
+                    }
                     players.push(SfxPlayer::Stream(StreamPlayer::new(
                         slot,
                         sample_rate,
@@ -68,6 +74,17 @@ pub fn run_sfx_loop(
                 }
                 SfxCommand::StopSlot(slot) => {
                     players.retain(|player| player.slot() != slot);
+                    if let Some(state) = states.get(slot) {
+                        state.store(0, Ordering::Relaxed);
+                    }
+                }
+                SfxCommand::SetPaused { slot, paused } => {
+                    if let Some(player) = players.iter_mut().find(|player| player.slot() == slot) {
+                        player.set_paused(paused);
+                        if let Some(state) = states.get(slot) {
+                            state.store(if paused { 2 } else { 1 }, Ordering::Relaxed);
+                        }
+                    }
                 }
             }
         }
@@ -78,7 +95,11 @@ pub fn run_sfx_loop(
             if let Some(block) = blocks.get_mut(player.slot()) {
                 player.mix_into(block, render);
             }
-            !player.finished()
+            let finished = player.finished();
+            if finished && let Some(state) = states.get(player.slot()) {
+                state.store(3, Ordering::Relaxed);
+            }
+            !finished
         });
         let level = blocks
             .iter()
@@ -108,6 +129,12 @@ impl SfxPlayer {
         }
     }
 
+    fn set_paused(&mut self, paused: bool) {
+        match self {
+            Self::Stream(player) => player.paused = paused,
+        }
+    }
+
     fn mix_into(&mut self, out: &mut [f32], render: AudioFormat) {
         match self {
             Self::Stream(player) => player.mix_into(out, render),
@@ -124,6 +151,7 @@ struct StreamPlayer {
     position: f64,
     done: bool,
     finished: bool,
+    paused: bool,
 }
 impl StreamPlayer {
     fn new(
@@ -143,6 +171,7 @@ impl StreamPlayer {
             position: 0.0,
             done: false,
             finished: false,
+            paused: false,
         }
     }
     fn pump(&mut self) {
@@ -157,6 +186,9 @@ impl StreamPlayer {
         }
     }
     fn mix_into(&mut self, out: &mut [f32], render: AudioFormat) {
+        if self.paused {
+            return;
+        }
         self.pump();
         if self.sample_rate == 0 {
             self.finished = true;
@@ -193,5 +225,38 @@ impl StreamPlayer {
             }
         }
         self.pump();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{StreamChunk, StreamPlayer};
+    use crate::audio::format::{AudioFormat, SampleKind};
+    use std::sync::mpsc;
+
+    #[test]
+    fn paused_stream_holds_position_and_resumes_from_buffered_audio() {
+        let (tx, rx) = mpsc::channel();
+        tx.send(StreamChunk {
+            samples: vec![0.5; 8],
+            done: false,
+        })
+        .unwrap();
+        let mut player = StreamPlayer::new(0, 48_000, 1, 1.0, rx);
+        let format = AudioFormat {
+            sample_rate: 48_000,
+            channels: 1,
+            kind: SampleKind::F32,
+        };
+        let mut output = [0.0; 4];
+
+        player.paused = true;
+        player.mix_into(&mut output, format);
+        assert_eq!(output, [0.0; 4]);
+        assert!(player.buffer.is_empty());
+
+        player.paused = false;
+        player.mix_into(&mut output, format);
+        assert_eq!(output, [0.5; 4]);
     }
 }

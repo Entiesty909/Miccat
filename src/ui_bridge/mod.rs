@@ -271,22 +271,31 @@ fn register_window_callbacks(ui: &MainWindow, state: &AppState) {
 
     let add_source_weak = windows.add_source.as_weak();
     let main_weak = ui.as_weak();
+    let cache_for_source_sync = state.cache.clone();
+    let config_for_source_sync = state.app_config.clone();
     windows.add_source.on_refresh(move || {
         if let Some(main) = main_weak.upgrade() {
             main.invoke_refresh();
             if let Some(source) = add_source_weak.upgrade() {
-                sync_add_source_window(&main, &source);
+                sync_add_source_window(
+                    &main,
+                    &source,
+                    &cache_for_source_sync,
+                    &config_for_source_sync,
+                );
             }
         }
     });
 
     let add_source_weak = windows.add_source.as_weak();
     let main_weak = ui.as_weak();
+    let cache_for_file_sync = state.cache.clone();
+    let config_for_file_sync = state.app_config.clone();
     windows.add_source.on_add_files(move || {
         if let Some(main) = main_weak.upgrade() {
             main.invoke_add_audio_files();
             if let Some(source) = add_source_weak.upgrade() {
-                sync_add_source_window(&main, &source);
+                sync_add_source_window(&main, &source, &cache_for_file_sync, &config_for_file_sync);
                 source.set_refresh_surface(!source.get_refresh_surface());
                 refresh_window_after_show(&source);
             }
@@ -481,7 +490,7 @@ pub(in crate::ui_bridge) fn open_add_source_window(ui: &MainWindow, state: &AppS
     if first_show {
         window::restore_position(source.window(), saved_position);
     }
-    sync_add_source_window(ui, source);
+    sync_add_source_window(ui, source, &state.cache, &state.app_config);
     source.set_selected_tab(ui.get_source_add_tab());
     source.set_single_tab(ui.get_source_replace_index() >= 0);
     if let Err(error) = source.show() {
@@ -540,7 +549,12 @@ where
     });
 }
 
-fn sync_add_source_window(ui: &MainWindow, window: &AddSourceWindow) {
+fn sync_add_source_window(
+    ui: &MainWindow,
+    window: &AddSourceWindow,
+    cache: &Rc<RefCell<UiCache>>,
+    app_config: &Rc<RefCell<config::AppConfig>>,
+) {
     window.set_processes(ui.get_processes());
     window.set_process_index(ui.get_process_index());
     window.set_process_icon_images(ui.get_process_icon_images());
@@ -555,6 +569,17 @@ fn sync_add_source_window(ui: &MainWindow, window: &AddSourceWindow) {
     window.set_audio_entry_hotkeys(ui.get_audio_library_hotkeys());
     window.set_audio_entry_loops(ui.get_audio_library_loops());
     window.set_output_options(ui.get_devices());
+    let output_id = app_config.borrow().output.mic_output_id.clone();
+    let cache = cache.borrow();
+    let mut mic_output_options = vec!["跟随全局默认设备".into()];
+    mic_output_options.extend(cache.dests.iter().map(|device| device.label.clone().into()));
+    let mic_output_index = output_id
+        .as_deref()
+        .and_then(|id| cache.dests.iter().position(|device| device.render_id == id))
+        .map(|index| (index + 1) as i32)
+        .unwrap_or(0);
+    window.set_mic_output_options(ModelRc::new(VecModel::from(mic_output_options)));
+    window.set_mic_output_index(mic_output_index);
     window.set_file_output_index(ui.get_file_output_index());
     window.set_file_volume(ui.get_audio_file_volume());
     window.set_mic_volume(ui.get_microphone_input_volume());

@@ -61,11 +61,13 @@ audio/com ─────────────→ platform::com
   - `AudioEntry.name`、`icon_glyph`、`icon_path`：软件显示名称与图标配置；不改磁盘文件名。
  - `src/ui_bridge/sources.rs`：将进程、当前音频文件和物理麦克风投影为路由源行；`update_dynamic` 只写实时峰值/音量/状态，不重建静态模型。
  - `UiCache` 的 `process_volumes` / `audio_volumes` 与对应输出 ID 按卡片槽位保存；卡片操作不再读写同一 kind 的共享增益或输出目标。
- - `AudioEngine` 为最多 4 个进程槽和 4 个文件槽保留独立原子增益；每个 render 目标按槽位路由，SFX mixer 按槽位并行流。
- - `UiCache.route_audio_entry`：待加入路由或当前路由使用的音频条目实际下标；仍是桥接派生状态，不替代引擎播放状态。
- - `UiCache.route_file_enabled`：用户为文件源选择的启用状态；与全局路由启停和文件播放器播放状态分离。
- - `UiCache.route_audio_entries` 与 `route_audio_enabled`：多个已加入路由的音频条目及其启用状态；不保存 PCM。
- - `OutputConfig.device_ids` 持久化多选 render 设备 ID；`process_output_ids` / `file_output_ids` 保存卡片级目标，UI 使用 friendly name 显示，按 ID 恢复。
+- `AudioEngine` 为最多 4 个进程槽和 4 个文件槽保留独立原子增益；SFX 槽位状态区分停止、播放、暂停和完成，暂停保持解码位置。
+- `UiCache.route_audio_entry`：待加入路由或当前路由使用的音频条目实际下标；仍是桥接派生状态，不替代引擎播放状态。
+- `UiCache.route_file_enabled`：用户为文件源选择的启用状态；与全局路由启停和文件播放器播放状态分离。
+- `UiCache.route_audio_entries` 与 `route_audio_enabled`：多个已加入路由的音频条目及其启用状态；不保存 PCM。
+  运行期播放状态由引擎 SFX mixer 的槽位原子状态提供，UI 每 50 ms 更新对应行。
+- `OutputConfig.device_ids` 持久化多选 render 设备 ID；`process_output_ids` / `file_output_ids` 保存卡片级目标。
+- `OutputConfig.mic_output_id` 保存麦克风源可选目标；未设置时跟随路由主输出。
 Slint 属性只作为显示投影和事件契约，不保存 PCM。
 
 ## 运行线程

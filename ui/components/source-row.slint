@@ -123,6 +123,12 @@ export component SourceRow inherits Rectangle {
                 font-size: 11px;
                 overflow: elide;
             }
+            if root.kind == 1: Text {
+                text: root.status;
+                color: root.status == "播放中" ? Theme.accent : Theme.text2;
+                font-size: 11px;
+                overflow: elide;
+            }
             if root.kind == 0: Text {
                 text: root.detail;
                 color: Theme.text3;
@@ -189,11 +195,10 @@ export component SourceRow inherits Rectangle {
                         clicked => { root.mute-toggled(); }
                     }
                     if root.kind == 1: PmButton {
-                        label: root.paused ? "\u{E768}" : "\u{E769}";
+                        label: root.status == "播放中" ? "\u{E768}" : "\u{E769}";
                         icon-only: true;
                         button-width: 36px;
-                        enabled: root.route-running
-                            && (root.status == "播放中" || root.paused);
+                        enabled: root.route-running && root.active;
                         clicked => { root.pause(); }
                     }
                     if root.kind == 1: PmButton {
@@ -201,6 +206,7 @@ export component SourceRow inherits Rectangle {
                         icon-only: true;
                         button-width: 36px;
                         enabled: root.route-running
+                            && root.active
                             && (root.status == "播放中" || root.paused);
                         clicked => { root.stop(); }
                     }

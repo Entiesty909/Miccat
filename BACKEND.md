@@ -36,6 +36,8 @@ AudioEngine::volume() / process_volume(slot) / mic_volume() / sfx_volume_for_slo
 AudioEngine::play_file(entry, start_hns, target)
 AudioEngine::play_file_source(entry, slot)
 AudioEngine::stop_file_source(slot)
+AudioEngine::set_file_source_paused(slot, paused)
+AudioEngine::file_source_state(slot)
 AudioEngine::stop_file()
 AudioEngine::file_state()
 AudioEngine::stop()
@@ -43,7 +45,7 @@ AudioEngine::stop()
 
 `SourceOutputRoutes` 为进程槽和音频文件槽分别保存 render 下标；未使用独立路由时，`open_outputs()` 将所有槽位送到全部目标。进程/文件增益按槽位使用原子值，渲染线程不会因修改一张卡片而读取另一张卡片的增益。
 
-`play_file_source(entry, slot)` 在 SFX mixer 中替换同槽旧流、保留其它槽流；`stop_file_source(slot)` 只停止指定文件卡片。
+`play_file_source(entry, slot)` 在 SFX mixer 中替换同槽旧流、保留其它槽流；`stop_file_source(slot)` 只停止指定文件卡片。暂停/恢复通过槽位命令保持当前解码位置；`file_source_state(slot)` 提供停止、播放、暂停和自然完成状态。
 路由启动的文件槽位只读取路由卡片的 `audio_output_ids`；没有卡片级目标时回退到当前主输出，不再因为历史 `file_output_id` 打开未使用的虚拟端点。
 
 设备 ID 列表为空时，启动路由回退为单个 `device_id`。

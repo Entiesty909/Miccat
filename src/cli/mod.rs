@@ -137,7 +137,7 @@ fn probe_playback(
     use_sfx: bool,
 ) -> Result<(), Error> {
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, AtomicU32};
+    use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32};
     use std::time::Instant;
 
     use audio::buffer::SpscRing;
@@ -192,8 +192,9 @@ fn probe_playback(
         let ring_mixer = vec![ring.clone()];
         let stop_mixer = stop.clone();
         let peak = Arc::new(AtomicU32::new(0.0f32.to_bits()));
+        let states = Arc::new(vec![AtomicU8::new(0)]);
         let source = thread::spawn(move || {
-            audio::sfx::run_sfx_loop(ring_mixer, target, stop_mixer, peak, commands)
+            audio::sfx::run_sfx_loop(ring_mixer, target, stop_mixer, peak, states, commands)
         });
         tx.send(audio::sfx::SfxCommand::PlayStream {
             slot: 0,

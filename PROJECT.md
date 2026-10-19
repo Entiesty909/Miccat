@@ -47,12 +47,10 @@ Miccat 是 Windows 桌面进程音频路由器：以 WASAPI Process Loopback 捕
 ## 当前重构状态
 
 S1–S6 重构阶段均有历史记录。最近变更：
+- [`docs/step-82-route-audio-controls-and-dialog-layout.md`](docs/step-82-route-audio-controls-and-dialog-layout.md)：修复音频源状态/播放控制，并整理添加源音频与麦克风双栏布局及输出设备选择。
+- [`docs/step-81-window-icons.md`](docs/step-81-window-icons.md)：统一主窗口、添加源/分类与条目编辑窗口以及 Windows 任务栏的应用图标资源。
 - [`docs/step-76-window-reopen-fixes.md`](docs/step-76-window-reopen-fixes.md)：窗口首次定位改为显示前恢复/立即居中；独立窗口下一轮重绘；添加进程/音频到路由后隐藏子窗口且不启动全局转发。
 - [`docs/step-77-route-card-isolation.md`](docs/step-77-route-card-isolation.md)：隔离每张进程/音频卡片的增益、静音、输出和 SFX 流，并拒绝重复进程或音频添加/替换。
-- [`docs/step-78-library-playback-settings.md`](docs/step-78-library-playback-settings.md)：移除音频详情输出/音量播放设置，路由文件槽位忽略历史未使用的 `file_output_id`，避免错误打开虚拟设备另一端。
-- [`docs/step-79-route-card-visual-polish.md`](docs/step-79-route-card-visual-polish.md)：按参考图调整路由卡片布局、麦克风名称展示、最右启用开关、进程图标和路由功能栏应用图标。
-- [`docs/step-80-route-scrollbar-spacing.md`](docs/step-80-route-scrollbar-spacing.md)：路由源列表右侧预留滚动条宽度，避免卡片和操作区与垂直滚动条重叠。
-- [`docs/step-75-native-movable-windows.md`](docs/step-75-native-movable-windows.md)：记录原生标题栏、位置持久化、独立窗口重绘与添加源交互基线。
 - [`docs/step-69-route-source-details-and-sfx-peak.md`](docs/step-69-route-source-details-and-sfx-peak.md)：添加源窗口显示真实条目详情与SFX实时峰值，并补齐空分类区右键命中。
 - [`docs/step-70-ui-routing-source-polish.md`](docs/step-70-ui-routing-source-polish.md)：修复音频库拖动/图标编辑、添加源三类入口、真实进程图标、实时声纹、路由源启动和顶层源菜单。
 - [`docs/step-71-ui-regression-fixes.md`](docs/step-71-ui-regression-fixes.md)：统一添加源类型卡、缩短并对齐麦克风下拉，修复文件源启用误启动全局路由和分类图标原名保存，源菜单改为 PopupWindow。
@@ -80,4 +78,4 @@ S1–S6 重构阶段均有历史记录。最近变更：
 - [`docs/step-47-route-controls.md`](docs/step-47-route-controls.md)：路由页交互接线审查。
 - [`docs/step-46-library-tests.md`](docs/step-46-library-tests.md)：分离音频库单元测试，恢复 `library.rs` 行数门禁。
 - [`docs/step-45-reference-ui-and-source-logic.md`](docs/step-45-reference-ui-and-source-logic.md)：参考图驱动的页面与音频行为。
-本轮 34 个单元测试、`scripts\check.cmd`、`scripts\smoke.cmd` 和路由/添加源快照通过。真实桌面鼠标替换、独立多源听感、设备拔插和 RAM/CPU/启动基线仍需人工验收。
+本轮 35 项单元测试、`scripts\check.cmd`、`scripts\smoke.cmd`、路由及添加源快照通过；真实输出设备的路由听感和鼠标操作仍需人工验收。

@@ -39,7 +39,7 @@
 `EngineStatus` 值包括 `Idle`、`Running`、`ProcessExited`、`DeviceGone` 和 `Error(String)`。
 文件 seek 当前由调用方停止后再次调用 `play_file()`；没有独立 `seek_file()` API。
 音频源行的输出下拉绑定全局设备选择；多选输出 ID 保存于 `OutputConfig.device_ids`。
-进程行启用只改变 `UiCache.disabled_pids`；文件行启用只改变 `UiCache.route_file_enabled`，不启动全局转发。全局路由由 `start-stop` 回调控制；文件播放按钮只暂停/继续已运行路由中的播放。
+进程行启用只改变 `UiCache.disabled_pids`；文件行启用只改变 `UiCache.route_file_enabled`，不启动全局转发。全局路由由 `start-stop` 回调控制；每张文件卡片的播放/暂停/停止操作按其 SFX 槽位执行，不操作音频库全局播放器。
 源行静音为运行期操作，不改写持久化音量；源音量滑块更新 AudioEngine 增益和配置。Popover 峰值标记为 dBFS；增益 dB 为相对 100% 音量倍率。
 内部命令通道、ring 和 WASAPI session 不属于 UI API。
 

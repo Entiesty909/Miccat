@@ -220,12 +220,42 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
         });
     }
     {
+        let engine = state.engine.clone();
+        let cache = state.cache.clone();
+        let state_for_update = state.clone();
         let ui_weak = ui.as_weak();
         ui.on_source_pause(move |index| {
             let Some(ui) = ui_weak.upgrade() else { return };
-            if source_kind(&ui, index) == Some(1) && ui.get_running() && ui.get_player_playing() {
-                ui.invoke_player_pause_toggle();
+            if source_kind(&ui, index) != Some(1) || !ui.get_running() {
+                return;
             }
+            let Some(slot) = source_slot(&ui, index, 1) else {
+                return;
+            };
+            let result = match engine.file_source_state(slot) {
+                crate::engine::FileSourceState::Playing => {
+                    engine.set_file_source_paused(slot, true)
+                }
+                crate::engine::FileSourceState::Paused => {
+                    engine.set_file_source_paused(slot, false)
+                }
+                crate::engine::FileSourceState::Stopped
+                | crate::engine::FileSourceState::Finished => {
+                    let entry = {
+                        let cache = cache.borrow();
+                        let index =
+                            cache.route_audio_entries.get(slot).copied().or_else(|| {
+                                (slot == 0).then_some(cache.route_audio_entry).flatten()
+                            });
+                        index.and_then(|index| cache.audio_entries.get(index).cloned())
+                    };
+                    entry.map_or(Ok(()), |entry| engine.play_file_source(&entry, slot))
+                }
+            };
+            if let Err(error) = result {
+                super::super::super::diagnostics::report_error(&ui, &error);
+            }
+            super::super::super::sources::update(&ui, &state_for_update);
         });
     }
     {

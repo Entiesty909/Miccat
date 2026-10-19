@@ -5,6 +5,7 @@ import { AddSourcePanel } from "components/add-source-panel.slint";
 import { AudioEntryEditor } from "components/audio-entry-editor.slint";
 
 export component AddSourceWindow inherits Window {
+    icon: @image-url("../resources/icon.ico");
     title: "添加音频源";
     height: 620px;
     preferred-width: 720px;
@@ -27,6 +28,8 @@ export component AddSourceWindow inherits Window {
     in-out property <[string]> audio-entry-hotkeys: [];
     in-out property <[bool]> audio-entry-loops: [];
     in-out property <[string]> output-options: [];
+    in-out property <[string]> mic-output-options: [];
+    in-out property <int> mic-output-index: 0;
     in-out property <int> file-output-index: 0;
     in-out property <float> file-volume: 100;
     in-out property <int> audio-selected-index: 0;
@@ -45,6 +48,7 @@ export component AddSourceWindow inherits Window {
     callback audio-entry-add-route(int);
     callback audio-file-volume-edited(float);
     callback audio-file-output-changed(int);
+    callback mic-output-changed(int);
     callback mic-volume-edited(float);
     callback mic-mix-changed(bool);
     callback open-library();
@@ -72,6 +76,8 @@ export component AddSourceWindow inherits Window {
         audio-entry-hotkeys <=> root.audio-entry-hotkeys;
         audio-entry-loops <=> root.audio-entry-loops;
         output-options <=> root.output-options;
+        mic-output-options <=> root.mic-output-options;
+        mic-output-index <=> root.mic-output-index;
         file-output-index <=> root.file-output-index;
         file-volume <=> root.file-volume;
         audio-selected-index <=> root.audio-selected-index;
@@ -88,6 +94,7 @@ export component AddSourceWindow inherits Window {
         audio-entry-add-route(index) => { root.audio-entry-add-route(index); }
         audio-file-volume-edited(value) => { root.audio-file-volume-edited(value); }
         audio-file-output-changed(index) => { root.audio-file-output-changed(index); }
+        mic-output-changed(index) => { root.mic-output-changed(index); }
         mic-volume-edited(value) => { root.mic-volume-edited(value); }
         mic-mix-changed(value) => { root.mic-mix-changed(value); }
         open-library => { root.open-library(); }
@@ -97,6 +104,7 @@ export component AddSourceWindow inherits Window {
 }
 
 export component AudioEditWindow inherits Window {
+    icon: @image-url("../resources/icon.ico");
     title: root.edit-title;
     width: 560px;
     height: 460px;

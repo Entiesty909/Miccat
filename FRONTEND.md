@@ -13,8 +13,8 @@
 `ui/overlays/diagnostic-panel.slint`、`ui/overlays/global-overlays.slint`：右侧抽屉式问题中心（问题列表 + 日志开关）、
 `DiagState` 全局状态与顶层覆盖层宿主；状态栏与设置页直接读写该全局，不经 `app-window` 透传。
 `ui/components/diagnostic-row.slint`、`ui/components/diagnostics-card.slint`：问题行/徽标与设置页诊断卡片。
-`ui/pages/route.slint`、`ui/components/source-row.slint`：卡片按“图标—源信息—输出设备—音量—操作—启用转发”排列；间距紧凑，列宽按卡片可用宽度收缩。滚动列表右侧预留 18px 空间，避开 Fluent `ScrollView` 叠加绘制的 14px 竖滚动条。麦克风显示当前名称、不显示设备下拉；卡片不显示 dB 文本；路由卡片显示实际进程 exe 图标。
-`ui/components/add-source-panel.slint`：按真实进程、音频库和物理麦模型添加路由源；普通模式使用三张类型卡，替换模式只显示单一目标 Tab；由独立、非模态的 `AddSourceWindow` 顶层窗口承载，使用 Windows 原生标题栏移动。
+`ui/pages/route.slint`、`ui/components/source-row.slint`：卡片按“图标—源信息—输出设备—音量—操作—启用转发”排列；音频文件行显示 SFX 槽位状态，并独立控制该槽位播放/暂停/停止。
+`ui/components/add-source-panel.slint`：按真实进程、音频库和物理麦模型添加路由源；音频/麦克风双栏各自成卡、不包额外底色容器；麦克风列表从首个真实设备起纵向排列，设置区可选择跟随全局输出或指定输出。
 `ui/components/audio-source-list.slint`、`audio-source-details.slint`：分别显示可搜索的真实音频条目列表和所选条目的元数据/路由音量设置。
 `ui/components/source-actions-menu.slint`：源卡片右侧更多菜单；由独立 `PopupWindow` 承载，提供替换进程/音频、删除和单独转发。
 `ui/components/category-sidebar.slint`：真实 `/` 分类路径、计数、拖拽排序、右键编辑和分类图标，图标与名称使用同一横向布局。
@@ -39,15 +39,16 @@ Rust 桥接：
 - 刷新进程/设备按钮在 worker 枚举所有列表，50 ms 状态定时器把结果写回 Slint；设备分类开关走同一刷新路径。
   - Process、file、mic 各自的 render ID 保存到 `OutputConfig`；进程和文件卡片额外按槽位保存独立 render ID，启动时 `SourceOutputRoutes` 将每个输入送到自己的 render 端点。
   - 进程行开关只切换当前进程的启用状态，关闭后保留卡片；删除动作才从路由源集合移除进程。
-  - 文件行开关是暂停/继续，不清除引擎播放请求或当前位置；删除源只隐藏路由行，不删除音频库条目和磁盘文件。
+  - 文件行启用是路由配置状态，不清除引擎播放请求或当前位置；播放、暂停和停止按钮操作当前文件卡片的 SFX 槽位。
   - 每个进程/音频卡片有独立增益、静音恢复值和输出目标；引擎的 process/file 槽位原子增益与 SFX 流按卡片隔离。
-  - 音频卡片的 SFX mixer 流按槽位并行；启停一张卡片不清除其它音频卡片。
+  - 音频卡片状态取自 SFX mixer 的对应槽位；暂停不丢弃解码位置，停止后播放按钮从文件开头重新启动。
   - 更多菜单的“单独转发”只打开选中的一个源，使用该源保存的输出设备，绕过底部总开关的多源选择。
   - 麦克风和进程源提供删除/单独转发；快捷键只对音频文件启用，避免伪造没有配置模型支撑的进程热键。
   - 添加/替换进程前检查 PID 是否已在其它卡片；添加/替换音频前检查音频库实际条目下标，重复项拒绝提交并保留当前替换目标。
+  - 添加源麦克风的输出目标保存到 `AppConfig.output.mic_output_id`；默认“跟随全局默认设备”时清除单独目标。
 -  输出设备下拉框的容器宽度固定；选中名称过长时只移动文字，使用往返横向滚动，不改变下拉框和列宽。
 -  源操作状态由路由页统一维护，同一时间只显示一个源菜单；菜单展开时隐藏对应 `...` 触发按钮，点击另一源的菜单会切换到新菜单。
-- 路由卡片和添加源进程列表显示实际 exe 图标；音频卡片优先使用条目 `icon_path` 或 Windows 文件关联图标。`resources/icon.ico` 作为 `MainWindow.icon` 和 Windows exe 资源，对应标题栏左上角程序图标，不显示在页签栏或路由卡片。
+- `resources/icon.ico` 同时用于主窗口、添加源窗口、音频库条目/分类编辑窗口，并作为 Windows exe 的数字资源 ID 1 嵌入，以显示在标题栏与任务栏；不显示在页签栏或路由卡片。
 - `SaveQueue` 以 300 ms 防抖串行写配置，退出时 flush。
 - 诊断：`src/diagnostics/` 汇总 WARN/ERROR，`ui_bridge/diagnostics.rs` 每 50 ms 把快照灌入 `DiagState`；
   状态栏徽标显示问题数与未读数，设置页「诊断」分组与问题中心共用同一面板。
@@ -120,7 +121,7 @@ Live Preview 是开发专用功能，不写入 `Cargo.toml` 默认 features。�
 - 路由页进程切换关闭时保留源行；音频文件切换关闭/打开保留暂停位置。
 - 源右侧更多菜单由独立 PopupWindow 承载，自动避开卡片/滚动容器裁剪；点外部关闭，菜单内点击执行操作后关闭。
 - 文件源启用是路由配置状态，不等同于播放，也不启动全局路由；全局转发只由状态栏启停控制。
-- 文件行暂停/停止共享 AudioEngine 播放状态；文件循环、seek、试听均复用已有播放控制。
+  - 文件路由卡片的状态和暂停/恢复/停止均作用于对应 SFX 槽位；音频库全局播放器状态与路由卡片状态互不混用。
 - 进程/文件/麦克风输出 ID 分别持久化，启动路由时 `SourceOutputRoutes` 将各输入送到各自 render 端点。
 - 详情页本机监听音量只作用于 `AudioEngine` monitor；文件路由增益继续由路由页文件音源行控制。
 - 音频快捷键字段由配置持久化，只在 Miccat 获得键盘焦点时触发；不是全局游戏热键。

@@ -147,7 +147,6 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
     }
     drop(cache);
 
-    let file = state.engine.file_state();
     if !state.cache.borrow().file_source_hidden {
         let audio_entries = {
             let cache = state.cache.borrow();
@@ -179,8 +178,9 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
             }
         };
         for (slot, entry, enabled) in audio_entries {
-            let playing = file.path == entry.path && file.playing;
-            let paused = file.path == entry.path && ui.get_player_paused();
+            let playback = state.engine.file_source_state(slot);
+            let playing = playback == crate::engine::FileSourceState::Playing;
+            let paused = playback == crate::engine::FileSourceState::Paused;
             let volume = state
                 .cache
                 .borrow()
@@ -193,13 +193,7 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
                 &mut rows,
                 &entry.name,
                 entry.icon_path.as_deref().unwrap_or(entry.path.as_str()),
-                if playing {
-                    "播放中"
-                } else if paused {
-                    "已暂停"
-                } else {
-                    "待播放"
-                },
+                file_source_status(playback),
                 (enabled, paused),
                 (
                     volume,
@@ -222,13 +216,10 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
             );
         }
     }
-    let (mic_count, mic_name, mic_index, mix_mic, mic_output_index) = {
+    let (mic_count, mix_mic, mic_output_index) = {
         let cache = state.cache.borrow();
-        let mic_index = ui.get_mic_index().max(0) as usize;
         (
             cache.mic_names.len(),
-            cache.mic_names.get(mic_index).cloned().unwrap_or_default(),
-            mic_index,
             ui.get_mix_mic(),
             output_index(
                 &cache.dests,
@@ -242,15 +233,6 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
         rows.icons.push("\u{E720}".into());
         rows.icon_images.push(slint::Image::default());
         rows.titles.push("麦克风".into());
-        rows.subtitles.push("真实麦克风".into());
-        rows.details.push(
-            if mic_index == 0 {
-                "请选择真实麦克风"
-            } else {
-                &mic_name
-            }
-            .into(),
-        );
         rows.statuses.push("".into());
         rows.active.push(mix_mic);
         rows.volumes.push(state.engine.mic_volume() * 100.0);
@@ -274,7 +256,7 @@ pub(super) fn update_dynamic(ui: &MainWindow, state: &AppState) {
     let mut file_slot = 0usize;
     for row in 0..kinds.row_count() {
         let kind = kinds.row_data(row).unwrap_or(-1);
-        let (peak, volume, active, paused) = match kind {
+        let (peak, volume, active, paused, status) = match kind {
             0 => {
                 let mut slot = process_slot;
                 let mut peak = 0.0;
@@ -299,6 +281,7 @@ pub(super) fn update_dynamic(ui: &MainWindow, state: &AppState) {
                         .unwrap_or_else(|| state.engine.process_volume(slot)),
                     active,
                     false,
+                    "",
                 )
             }
             1 => {
@@ -309,15 +292,21 @@ pub(super) fn update_dynamic(ui: &MainWindow, state: &AppState) {
                     .copied()
                     .unwrap_or(cache.route_file_enabled);
                 file_slot += 1;
+                let playback = state.engine.file_source_state(slot);
                 (
-                    state.engine.sfx_peak(),
+                    if playback == crate::engine::FileSourceState::Playing {
+                        state.engine.sfx_peak()
+                    } else {
+                        0.0
+                    },
                     cache
                         .audio_volumes
                         .get(slot)
                         .copied()
                         .unwrap_or_else(|| state.engine.sfx_volume_for_slot(slot)),
                     active,
-                    ui.get_player_paused(),
+                    playback == crate::engine::FileSourceState::Paused,
+                    file_source_status(playback),
                 )
             }
             2 => (
@@ -325,6 +314,7 @@ pub(super) fn update_dynamic(ui: &MainWindow, state: &AppState) {
                 state.engine.mic_volume(),
                 ui.get_mix_mic(),
                 false,
+                "",
             ),
             _ => continue,
         };
@@ -354,6 +344,11 @@ pub(super) fn update_dynamic(ui: &MainWindow, state: &AppState) {
         let paused_rows = ui.get_source_paused();
         if paused_rows.row_data(row) != Some(paused) {
             paused_rows.set_row_data(row, paused);
+        }
+        let statuses = ui.get_source_statuses();
+        let status: slint::SharedString = status.into();
+        if statuses.row_data(row).as_ref() != Some(&status) {
+            statuses.set_row_data(row, status);
         }
     }
 }
@@ -393,8 +388,8 @@ pub(super) fn add_file_row(
         .push(crate::platform::icon::file_icon(path));
     rows.titles.push(name.into());
     rows.subtitles.push("音频文件".into());
-    rows.details.push(status.into());
-    rows.statuses.push("".into());
+    rows.details.push("".into());
+    rows.statuses.push(status.into());
     rows.active.push(enabled);
     rows.volumes.push(volume * 100.0);
     rows.volume_dbs.push(gain_db(volume * 100.0));
@@ -403,6 +398,15 @@ pub(super) fn add_file_row(
     rows.muted.push(volume <= 0.001);
     rows.paused.push(is_paused);
     rows.output_indices.push(output_index);
+}
+
+fn file_source_status(state: crate::engine::FileSourceState) -> &'static str {
+    match state {
+        crate::engine::FileSourceState::Stopped => "待播放",
+        crate::engine::FileSourceState::Playing => "播放中",
+        crate::engine::FileSourceState::Paused => "已暂停",
+        crate::engine::FileSourceState::Finished => "播放完成",
+    }
 }
 
 fn gain_db(value: f32) -> slint::SharedString {

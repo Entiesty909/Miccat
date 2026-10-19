@@ -146,7 +146,12 @@ fn apply_list_refresh(ui: &MainWindow, state: &AppState) {
                 ui.invoke_mic_mix_changed(false);
             }
             if state.windows.add_source.window().is_visible() {
-                super::sync_add_source_window(ui, state.windows.add_source.as_ref());
+                super::sync_add_source_window(
+                    ui,
+                    state.windows.add_source.as_ref(),
+                    &state.cache,
+                    &state.app_config,
+                );
             }
         }
         Err(message) => super::diagnostics::report_warning(ui, &message),

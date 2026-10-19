@@ -7,7 +7,21 @@ mod playback;
 mod status;
 mod volume;
 pub(crate) use playback::PlaybackTarget;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
+/// 单个路由音频源的混音状态。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum FileSourceState {
+    /// 没有活动流。
+    #[default]
+    Stopped,
+    /// 槽位正在输出音频。
+    Playing,
+    /// 槽位暂停，解码位置保留。
+    Paused,
+    /// 流已自然播放完毕。
+    Finished,
+}
+
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
@@ -75,6 +89,7 @@ struct SourceThreads {
     sfx_tx: Option<std::sync::mpsc::Sender<crate::audio::sfx::SfxCommand>>,
     sfx_stop: Option<Arc<AtomicBool>>,
     sfx_peak: Option<Arc<AtomicU32>>,
+    sfx_states: Option<Arc<Vec<AtomicU8>>>,
     sfx: Option<JoinHandle<()>>,
 }
 
@@ -291,6 +306,13 @@ impl AudioEngine {
         }
     }
     fn stop_sfx_source(&self) {
+        if let Ok(sources) = self.sources.lock()
+            && let Some(states) = &sources.sfx_states
+        {
+            for state in states.iter() {
+                state.store(0, Ordering::Relaxed);
+            }
+        }
         let (s, t) = self
             .sources
             .lock()

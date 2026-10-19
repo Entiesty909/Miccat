@@ -95,6 +95,8 @@ Live Preview 只保留属性、模型和回调；改变 Rust 代码直接使用�
 - 长文本不滚动：先确认实测显示宽度大于选项视口，且鼠标确实悬停在该选项；短文本保持静止。
 - 路由和设置页刷新共用异步列表刷新：worker 枚举进程/物理麦/输出设备，`status.rs` 在 UI 线程应用整组结果；进程图标只在列表刷新时读取，不在 50 ms 状态轮询中读取。
 - 麦克风下拉变更通过 `mic-mix-changed` 保存当前 ID；选“不混入”时混麦自动关闭。
+- 路由音频卡片状态不显示或按钮无效：状态由 `AudioEngine::file_source_state(slot)` 对应 SFX 槽位驱动；检查 `source-statuses` 是否绑定到 `SourceRow.status`，暂停回调应调用 `set_file_source_paused` 而不是音频库播放器的全局暂停。
+- 添加源麦克风输出选择：索引 0 表示跟随路由主输出，其余索引对应 `UiCache.dests[index - 1]`；配置落在 `AppConfig.output.mic_output_id`，运行中下拉禁用。
 - 添加源/编辑窗口被主窗遮挡或无法拖动：确认 `ui/windows.slint` 未启用 `no-frame`，`src/platform/window.rs::activate_window()` 在 `show()` 后成功前置；Win32 样式应有 `WS_CAPTION`，独立窗口没有 owner，主窗口保持 enabled。
 - 窗口重新打开白屏：运行 `--snapshot-ui --page route --source-dialog-tab process --source-dialog-reopen`；该烟测会隐藏并重开同一AddSourceWindow，比较两帧像素。
 - 位置恢复：`AppConfig.windows.main/add_source/audio_edit` 保存物理坐标；未保存位置时主窗启动后居中，独立窗口首次显示时居中。

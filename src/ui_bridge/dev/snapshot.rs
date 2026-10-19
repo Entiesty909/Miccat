@@ -215,7 +215,7 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
                     &mut rows,
                     &entry.name,
                     &entry.path,
-                    "已导入",
+                    "待播放",
                     (false, false),
                     (persisted.mix.sfx, 0.0),
                     0,
@@ -292,25 +292,7 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
             };
             let dialog =
                 AddSourceWindow::new().map_err(|error| Error::InvalidArgs(error.to_string()))?;
-            dialog.set_processes(ui.get_processes());
-            dialog.set_process_index(ui.get_process_index());
-            dialog.set_process_icon_images(ui.get_process_icon_images());
-            dialog.set_process_pids(ui.get_process_pids());
-            dialog.set_mics(ui.get_mics());
-            dialog.set_mic_index(ui.get_mic_index());
-            dialog.set_audio_entries(ui.get_audio_library_catalog());
-            dialog.set_audio_entry_metadata(ui.get_audio_library_metadata());
-            dialog.set_audio_entry_durations(ui.get_audio_library_durations());
-            dialog.set_audio_entry_sizes(ui.get_audio_library_sizes());
-            dialog.set_audio_entry_categories(ui.get_audio_library_categories());
-            dialog.set_audio_entry_hotkeys(ui.get_audio_library_hotkeys());
-            dialog.set_audio_entry_loops(ui.get_audio_library_loops());
-            dialog.set_output_options(ui.get_devices());
-            dialog.set_file_output_index(ui.get_file_output_index());
-            dialog.set_file_volume(ui.get_audio_file_volume());
-            dialog.set_mic_volume(ui.get_microphone_input_volume());
-            dialog.set_mix_mic(ui.get_mix_mic());
-            dialog.set_running(ui.get_running());
+            super::super::sync_add_source_window(&ui, &dialog, &cache, &persisted_state);
             dialog.set_selected_tab(initial_tab);
             Some(dialog)
         } else {

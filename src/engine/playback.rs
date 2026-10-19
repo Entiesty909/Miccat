@@ -337,4 +337,32 @@ impl AudioEngine {
             .send(SfxCommand::StopSlot(slot))
             .map_err(|_| Error::RenderInit("sfx is closed"))
     }
+    /// 读取路由音频槽位状态，不包含音频库独立播放槽。
+    pub(crate) fn file_source_state(&self, slot: usize) -> super::FileSourceState {
+        let state = self
+            .sources
+            .lock()
+            .ok()
+            .and_then(|sources| {
+                sources
+                    .sfx_states
+                    .as_ref()
+                    .and_then(|states| states.get(slot))
+                    .map(|state| state.load(Ordering::Relaxed))
+            })
+            .unwrap_or(0);
+        match state {
+            1 => super::FileSourceState::Playing,
+            2 => super::FileSourceState::Paused,
+            3 => super::FileSourceState::Finished,
+            _ => super::FileSourceState::Stopped,
+        }
+    }
+
+    /// 暂停或恢复指定路由音频槽位，保留当前解码位置。
+    pub(crate) fn set_file_source_paused(&self, slot: usize, paused: bool) -> Result<(), Error> {
+        self.sfx_sender()?
+            .send(SfxCommand::SetPaused { slot, paused })
+            .map_err(|_| Error::RenderInit("sfx is closed"))
+    }
 }

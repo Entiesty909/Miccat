@@ -6,6 +6,7 @@ import { SliderRow } from "slider-row.slint";
 import { PmButton } from "button.slint";
 import { AudioSourceDetails } from "audio-source-details.slint";
 import { AudioSourceList } from "audio-source-list.slint";
+import { MarqueeComboBox } from "marquee-combo-box.slint";
 
 export component AddSourcePanel inherits Rectangle {
     in-out property <[string]> processes: [];
@@ -21,6 +22,8 @@ export component AddSourcePanel inherits Rectangle {
     in-out property <[string]> audio-entry-categories: [];
     in-out property <[string]> audio-entry-hotkeys: [];
     in-out property <[bool]> audio-entry-loops: [];
+    in-out property <[string]> mic-output-options: [];
+    in-out property <int> mic-output-index: 0;
     in-out property <[string]> output-options: [];
     in-out property <int> file-output-index: 0;
     in-out property <float> file-volume: 100;
@@ -38,6 +41,7 @@ export component AddSourcePanel inherits Rectangle {
     callback audio-entry-add-route(int);
     callback audio-file-volume-edited(float);
     callback audio-file-output-changed(int);
+    callback mic-output-changed(int);
     callback mic-volume-edited(float);
     callback mic-mix-changed(bool);
     callback open-library();
@@ -295,13 +299,10 @@ export component AddSourcePanel inherits Rectangle {
             }
             if root.selected-tab == 1: Rectangle {
                 vertical-stretch: 1;
-                border-radius: Theme.radiusCard;
-                border-width: 1px;
-                border-color: Theme.border;
-                background: Theme.field;
                 HorizontalLayout {
                     spacing: 12px;
                     AudioSourceList {
+                        vertical-stretch: 1;
                         entries <=> root.audio-entries;
                         metadata <=> root.audio-entry-metadata;
                         selected-index <=> root.audio-selected-index;
@@ -311,6 +312,7 @@ export component AddSourcePanel inherits Rectangle {
                         }
                     }
                     AudioSourceDetails {
+                        vertical-stretch: 1;
                         entry-name: root.audio-selected-index >= 0
                             && root.audio-selected-index < root.audio-entries.length
                             ? root.audio-entries[root.audio-selected-index]
@@ -358,19 +360,18 @@ export component AddSourcePanel inherits Rectangle {
             }
             if root.selected-tab == 2: Rectangle {
                 vertical-stretch: 1;
-                border-radius: Theme.radiusCard;
-                border-width: 1px;
-                border-color: Theme.border;
-                background: Theme.field;
                 HorizontalLayout {
                     spacing: 12px;
                     Rectangle {
                         width: 330px;
+                        vertical-stretch: 1;
                         border-radius: Theme.radiusControl;
                         border-width: 1px;
                         border-color: Theme.border;
+                        background: Theme.card;
                         VerticalLayout {
                             padding: 12px;
+                            alignment: LayoutAlignment.start;
                             spacing: 8px;
                             Text {
                                 text: "选择麦克风设备";
@@ -382,41 +383,42 @@ export component AddSourcePanel inherits Rectangle {
                                 vertical-stretch: 1;
                                 vertical-scrollbar-policy: always-off;
                                 VerticalLayout {
+                                    alignment: LayoutAlignment.start;
                                     for microphone[index] in root.mics: Rectangle {
-                                        if index > 0: Rectangle {
-                                            height: 44px;
-                                            border-radius: Theme.radiusControl;
-                                            background: root.mic-index == index
-                                                ? Theme.accentSoft
-                                                : transparent;
-                                            HorizontalLayout {
-                                                padding-left: 10px;
-                                                spacing: 10px;
-                                                Text {
-                                                    text: root.mic-index == index ? "●" : "○";
-                                                    color: Theme.accent;
-                                                    vertical-alignment: center;
-                                                }
-                                                Text {
-                                                    text: "\u{E720}";
-                                                    font-family: "Segoe MDL2 Assets";
-                                                    color: Theme.accent;
-                                                    vertical-alignment: center;
-                                                }
-                                                Text {
-                                                    text: microphone;
-                                                    horizontal-stretch: 1;
-                                                    min-width: 0px;
-                                                    color: Theme.text;
-                                                    overflow: elide;
-                                                    vertical-alignment: center;
-                                                }
+                                        visible: index > 0;
+                                        height: index > 0 ? 44px : 0px;
+                                        border-radius: Theme.radiusControl;
+                                        background: root.mic-index == index
+                                            ? Theme.accentSoft
+                                            : transparent;
+                                        HorizontalLayout {
+                                            padding-left: 10px;
+                                            spacing: 10px;
+                                            Text {
+                                                text: root.mic-index == index ? "●" : "○";
+                                                color: Theme.accent;
+                                                vertical-alignment: center;
                                             }
-                                            TouchArea {
-                                                clicked => {
-                                                    root.mic-index = index;
-                                                    root.mic-mix-changed(root.mix-mic);
-                                                }
+                                            Text {
+                                                text: "\u{E720}";
+                                                font-family: "Segoe MDL2 Assets";
+                                                color: Theme.accent;
+                                                vertical-alignment: center;
+                                            }
+                                            Text {
+                                                text: microphone;
+                                                horizontal-stretch: 1;
+                                                min-width: 0px;
+                                                color: Theme.text;
+                                                overflow: elide;
+                                                vertical-alignment: center;
+                                            }
+                                        }
+                                        TouchArea {
+                                            enabled: index > 0;
+                                            clicked => {
+                                                root.mic-index = index;
+                                                root.mic-mix-changed(root.mix-mic);
                                             }
                                         }
                                     }
@@ -425,12 +427,15 @@ export component AddSourcePanel inherits Rectangle {
                         }
                     }
                     Rectangle {
+                        vertical-stretch: 1;
                         horizontal-stretch: 1;
                         border-radius: Theme.radiusControl;
                         border-width: 1px;
                         border-color: Theme.border;
+                        background: Theme.card;
                         VerticalLayout {
                             padding: 14px;
+                            alignment: LayoutAlignment.start;
                             spacing: 12px;
                             Text {
                                 text: "设备设置";
@@ -443,18 +448,18 @@ export component AddSourcePanel inherits Rectangle {
                                 value <=> root.mic-volume;
                                 edited(value) => { root.mic-volume-edited(value); }
                             }
-                            CheckBox {
-                                text: "混入当前路由";
-                                checked <=> root.mix-mic;
-                                enabled: root.mics.length > 1 && !root.running;
-                                toggled => { root.mic-mix-changed(self.checked); }
-                            }
-                            Rectangle { vertical-stretch: 1; background: transparent; }
                             Text {
-                                text: "音频增强选项仅显示已有真实处理能力。";
-                                color: Theme.text3;
-                                font-size: 10px;
-                                wrap: word-wrap;
+                                text: "输出设备";
+                                color: Theme.text2;
+                                font-size: 11px;
+                            }
+                            MarqueeComboBox {
+                                model: root.mic-output-options;
+                                current-index <=> root.mic-output-index;
+                                enabled: !root.running;
+                                selected(value) => {
+                                    root.mic-output-changed(root.mic-output-index);
+                                }
                             }
                         }
                     }

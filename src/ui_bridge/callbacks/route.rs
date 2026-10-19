@@ -9,8 +9,36 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
     register_1(ui, state);
     register_2(ui, state);
     sources::register(ui, state);
+    register_add_source_mic_output(state);
 }
 
+fn register_add_source_mic_output(state: &AppState) {
+    let cache = state.cache.clone();
+    let app_config = state.app_config.clone();
+    let save_queue = state.save_queue.clone();
+    state
+        .windows
+        .add_source
+        .on_mic_output_changed(move |index| {
+            let Ok(index) = usize::try_from(index) else {
+                return;
+            };
+            let device_id = if index == 0 {
+                None
+            } else {
+                cache
+                    .borrow()
+                    .dests
+                    .get(index - 1)
+                    .map(|device| device.render_id.clone())
+            };
+            if index > 0 && device_id.is_none() {
+                return;
+            }
+            app_config.borrow_mut().output.mic_output_id = device_id;
+            save_queue.schedule();
+        });
+}
 fn register_1(ui: &MainWindow, state: &AppState) {
     let engine = state.engine.clone();
     let cache = state.cache.clone();
