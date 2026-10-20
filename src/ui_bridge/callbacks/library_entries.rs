@@ -204,6 +204,11 @@ fn register_3(ui: &MainWindow, state: &AppState) {
             cache_state.route_file_enabled = false;
             cache_state.file_source_hidden = false;
             drop(cache_state);
+            super::super::persist::save_process_selection(
+                &cache,
+                &app_config,
+                &state_for_update.save_queue,
+            );
             ui.set_source_replace_index(-1);
             ui.set_page(0);
             super::super::sources::update(&ui, &state_for_update);

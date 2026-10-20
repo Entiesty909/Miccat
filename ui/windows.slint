@@ -51,6 +51,7 @@ export component AddSourceWindow inherits Window {
     callback mic-output-changed(int);
     callback mic-volume-edited(float);
     callback mic-mix-changed(bool);
+    callback mic-add();
     callback open-library();
     callback audio-search-changed();
 
@@ -97,6 +98,7 @@ export component AddSourceWindow inherits Window {
         mic-output-changed(index) => { root.mic-output-changed(index); }
         mic-volume-edited(value) => { root.mic-volume-edited(value); }
         mic-mix-changed(value) => { root.mic-mix-changed(value); }
+        mic-add => { root.mic-add(); }
         open-library => { root.open-library(); }
         audio-search-changed => { root.audio-search-changed(); }
         dismiss => { root.close(); }

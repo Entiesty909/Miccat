@@ -59,7 +59,7 @@ audio/com ─────────────→ platform::com
 - `AppConfig`：本地持久化配置，路径 `%APPDATA%\\Miccat\\config.json`。
   - `AppConfig.audio_category_icons`：分类路径到 glyph/图标文件路径的持久化映射。
   - `AudioEntry.name`、`icon_glyph`、`icon_path`：软件显示名称与图标配置；不改磁盘文件名。
- - `src/ui_bridge/sources.rs`：将进程、当前音频文件和物理麦克风投影为路由源行；`update_dynamic` 只写实时峰值/音量/状态，不重建静态模型。
+  - `src/ui_bridge/sources.rs`：将进程、当前音频文件和物理麦克风投影为路由源行；麦克风源行固定显示“麦克风”，副标题使用所选物理设备的 Windows 友好名称，`update_dynamic` 只写实时峰值/音量/状态，不重建静态模型。
  - `UiCache` 的 `process_volumes` / `audio_volumes` 与对应输出 ID 按卡片槽位保存；卡片操作不再读写同一 kind 的共享增益或输出目标。
 - `AudioEngine` 为最多 4 个进程槽和 4 个文件槽保留独立原子增益；SFX 槽位状态区分停止、播放、暂停和完成，暂停保持解码位置。
 - `UiCache.route_audio_entry`：待加入路由或当前路由使用的音频条目实际下标；仍是桥接派生状态，不替代引擎播放状态。

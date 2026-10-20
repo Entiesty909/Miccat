@@ -216,8 +216,9 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
             );
         }
     }
-    let (mic_count, mix_mic, mic_output_index) = {
+    let (mic_count, mix_mic, mic_output_index, mic_name) = {
         let cache = state.cache.borrow();
+        let mic_index = ui.get_mic_index().max(0) as usize;
         (
             cache.mic_names.len(),
             ui.get_mix_mic(),
@@ -226,6 +227,12 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
                 settings.mic_output_id.as_deref(),
                 global_output,
             ),
+            cache
+                .mic_names
+                .get(mic_index)
+                .filter(|name| !name.is_empty())
+                .cloned()
+                .unwrap_or_else(|| "麦克风".to_string()),
         )
     };
     if mic_count > 1 && !state.cache.borrow().mic_source_hidden {
@@ -233,6 +240,8 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
         rows.icons.push("\u{E720}".into());
         rows.icon_images.push(slint::Image::default());
         rows.titles.push("麦克风".into());
+        rows.subtitles.push(mic_name.into());
+        rows.details.push("".into());
         rows.statuses.push("".into());
         rows.active.push(mix_mic);
         rows.volumes.push(state.engine.mic_volume() * 100.0);

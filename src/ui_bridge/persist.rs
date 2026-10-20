@@ -182,20 +182,73 @@ pub(super) fn restore_saved_selection(
     }
     let mut cache_state = cache.borrow_mut();
     cache_state.selected_pids = selected_pids;
+    cache_state.disabled_pids = saved
+        .route
+        .disabled_process_slots
+        .iter()
+        .filter_map(|slot| cache_state.selected_pids.get(*slot).copied())
+        .collect();
+    let audio_sources = saved
+        .route
+        .audio_source_paths
+        .iter()
+        .enumerate()
+        .filter_map(|(saved_slot, path)| {
+            cache_state
+                .audio_entries
+                .iter()
+                .position(|entry| entry.path == *path)
+                .map(|index| (saved_slot, index))
+        })
+        .collect::<Vec<_>>();
+    cache_state.route_audio_entries = audio_sources.iter().map(|(_, index)| *index).collect();
+    cache_state.route_audio_enabled = audio_sources
+        .iter()
+        .map(|(saved_slot, _)| {
+            saved
+                .route
+                .audio_source_enabled
+                .get(*saved_slot)
+                .copied()
+                .unwrap_or(false)
+        })
+        .collect();
+    cache_state.route_audio_entry = cache_state.route_audio_entries.first().copied();
+    cache_state.route_file_enabled = cache_state
+        .route_audio_enabled
+        .iter()
+        .any(|enabled| *enabled);
+    cache_state.file_source_hidden = cache_state.route_audio_entries.is_empty();
     let process_count = cache_state.selected_pids.len();
+    cache_state.process_volumes.truncate(process_count);
     cache_state
         .process_volumes
         .resize(process_count, saved.mix.process);
+    cache_state.process_muted_volumes.truncate(process_count);
     cache_state
         .process_muted_volumes
         .resize(process_count, None);
+    cache_state.process_output_ids.truncate(process_count);
     cache_state
         .process_output_ids
         .resize(process_count, saved.output.process_output_id.clone());
+    let audio_count = cache_state.route_audio_entries.len();
+    cache_state.audio_volumes.truncate(audio_count);
+    cache_state.audio_volumes.resize(audio_count, saved.mix.sfx);
+    cache_state.audio_muted_volumes.truncate(audio_count);
+    cache_state.audio_muted_volumes.resize(audio_count, None);
+    cache_state.audio_output_ids = saved
+        .output
+        .file_output_ids
+        .iter()
+        .take(audio_count)
+        .cloned()
+        .map(Some)
+        .collect();
+    cache_state.audio_output_ids.resize(audio_count, None);
     drop(cache_state);
     update_output_text(ui, cache);
 }
-
 /// 把当前选择与混音值合并到持久化配置。
 pub(super) fn persist_config(
     ui: &MainWindow,
@@ -240,6 +293,18 @@ pub(super) fn persist_config(
             .find(|p| p.pid == pid)
             .map(|p| p.name.clone())
     });
+    saved.route.disabled_process_slots = c
+        .selected_pids
+        .iter()
+        .enumerate()
+        .filter_map(|(slot, pid)| c.disabled_pids.contains(pid).then_some(slot))
+        .collect();
+    saved.route.audio_source_paths = c
+        .route_audio_entries
+        .iter()
+        .filter_map(|index| c.audio_entries.get(*index).map(|entry| entry.path.clone()))
+        .collect();
+    saved.route.audio_source_enabled = c.route_audio_enabled.clone();
     saved.mix.master = (ui.get_master_volume() / 100.0).clamp(0.0, 1.0);
     saved.mix.process_volumes = c.process_volumes.clone();
     saved.mix.sfx_volumes = c.audio_volumes.clone();
@@ -254,15 +319,16 @@ pub(super) fn persist_config(
         .filter_map(|id| id.clone())
         .collect();
 }
-/// 将当前已选进程名称防抖写回配置，恢复时再解析为新 PID。
+
+/// 将进程、音频卡片及其启用状态防抖写回配置。
 pub(super) fn save_process_selection(
     cache: &Rc<RefCell<UiCache>>,
     app_config: &Rc<RefCell<config::AppConfig>>,
     save_queue: &SaveQueue,
 ) {
-    let names = {
+    let (names, disabled_slots, audio_paths, audio_enabled) = {
         let cache = cache.borrow();
-        cache
+        let names = cache
             .selected_pids
             .iter()
             .filter_map(|pid| {
@@ -272,11 +338,36 @@ pub(super) fn save_process_selection(
                     .find(|process| process.pid == *pid)
                     .map(|process| process.name.clone())
             })
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>();
+        let disabled_slots = cache
+            .selected_pids
+            .iter()
+            .enumerate()
+            .filter_map(|(slot, pid)| cache.disabled_pids.contains(pid).then_some(slot))
+            .collect::<Vec<_>>();
+        let audio_paths = cache
+            .route_audio_entries
+            .iter()
+            .filter_map(|index| {
+                cache
+                    .audio_entries
+                    .get(*index)
+                    .map(|entry| entry.path.clone())
+            })
+            .collect::<Vec<_>>();
+        (
+            names,
+            disabled_slots,
+            audio_paths,
+            cache.route_audio_enabled.clone(),
+        )
     };
     let mut config = app_config.borrow_mut();
     config.route.process_name = names.first().cloned();
     config.route.process_names = names;
+    config.route.disabled_process_slots = disabled_slots;
+    config.route.audio_source_paths = audio_paths;
+    config.route.audio_source_enabled = audio_enabled;
     save_queue.schedule();
 }
 

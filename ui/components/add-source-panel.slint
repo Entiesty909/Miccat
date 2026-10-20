@@ -44,6 +44,7 @@ export component AddSourcePanel inherits Rectangle {
     callback mic-output-changed(int);
     callback mic-volume-edited(float);
     callback mic-mix-changed(bool);
+    callback mic-add();
     callback open-library();
     callback dismiss();
     callback audio-search-changed();
@@ -490,7 +491,7 @@ export component AddSourcePanel inherits Rectangle {
                         } else if root.selected-tab == 1 {
                             root.audio-entry-add-route(root.audio-selected-index);
                         } else {
-                            root.mic-mix-changed(true);
+                            root.mic-add();
                         }
                     }
                 }

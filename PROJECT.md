@@ -46,7 +46,7 @@ Miccat 是 Windows 桌面进程音频路由器：以 WASAPI Process Loopback 捕
 
 ## 当前重构状态
 
-S1–S6 重构阶段均有历史记录。最近变更：
+- [`docs/step-83-microphone-source-add-and-name.md`](docs/step-83-microphone-source-add-and-name.md)：修复添加物理麦克风后独立窗口未隐藏，并在路由卡片显示实际麦克风友好名称。
 - [`docs/step-82-route-audio-controls-and-dialog-layout.md`](docs/step-82-route-audio-controls-and-dialog-layout.md)：修复音频源状态/播放控制，并整理添加源音频与麦克风双栏布局及输出设备选择。
 - [`docs/step-81-window-icons.md`](docs/step-81-window-icons.md)：统一主窗口、添加源/分类与条目编辑窗口以及 Windows 任务栏的应用图标资源。
 - [`docs/step-76-window-reopen-fixes.md`](docs/step-76-window-reopen-fixes.md)：窗口首次定位改为显示前恢复/立即居中；独立窗口下一轮重绘；添加进程/音频到路由后隐藏子窗口且不启动全局转发。

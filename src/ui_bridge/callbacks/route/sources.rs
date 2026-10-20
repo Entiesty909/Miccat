@@ -213,7 +213,14 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
                         }
                     }
                 }
-                1 => toggle_file_source(&ui, &engine, &cache, index, enabled),
+                1 => {
+                    toggle_file_source(&ui, &engine, &cache, index, enabled);
+                    crate::ui_bridge::persist::save_process_selection(
+                        &cache,
+                        &app_config,
+                        &save_queue,
+                    );
+                }
                 2 if enabled != ui.get_mix_mic() => ui.invoke_mic_mix_changed(enabled),
                 _ => {}
             }
@@ -321,6 +328,11 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
                 6 if kind == 1 => {
                     ui.set_source_replace_index(index);
                     ui.set_source_add_tab(1);
+                    super::super::super::open_add_source_window(&ui, &state_for_update);
+                }
+                7 if kind == 2 => {
+                    ui.set_source_replace_index(index);
+                    ui.set_source_add_tab(2);
                     super::super::super::open_add_source_window(&ui, &state_for_update);
                 }
                 4 => {

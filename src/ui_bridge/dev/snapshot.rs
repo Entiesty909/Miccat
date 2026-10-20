@@ -236,9 +236,9 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
                 rows.kinds.push(2);
                 rows.icons.push("\u{E720}".into());
                 rows.icon_images.push(slint::Image::default());
-                rows.titles.push(name.clone().into());
-                rows.subtitles.push("麦克风音频".into());
-                rows.details.push(name.clone().into());
+                rows.titles.push("麦克风".into());
+                rows.subtitles.push(name.clone().into());
+                rows.details.push("".into());
                 rows.statuses.push(if persisted.route.mix_mic {
                     "已启用".into()
                 } else {

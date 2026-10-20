@@ -35,6 +35,10 @@ export component SourceActionsMenu inherits Rectangle {
             label: "替换音频";
             clicked => { root.action(6); }
         }
+        if root.kind == 2: MenuItem {
+            label: "替换麦克风";
+            clicked => { root.action(7); }
+        }
         MenuItem {
             label: "单独转发此源";
             clicked => { root.action(2); }

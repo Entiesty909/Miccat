@@ -129,6 +129,8 @@ fn register_2(ui: &MainWindow, state: &AppState) {
         let state = state.clone();
         ui.on_source_add_requested(move || {
             if let Some(ui) = ui_weak.upgrade() {
+                ui.set_source_replace_index(-1);
+                ui.set_source_add_tab(0);
                 super::super::open_add_source_window(&ui, &state);
             }
         });

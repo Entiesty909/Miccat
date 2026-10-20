@@ -268,6 +268,26 @@ fn register_window_callbacks(ui: &MainWindow, state: &AppState) {
             &queue_for_process,
         );
     });
+    let add_source_weak = windows.add_source.as_weak();
+    let main_weak = ui.as_weak();
+    let config_for_mic_add = state.app_config.clone();
+    let queue_for_mic_add = state.save_queue.clone();
+    windows.add_source.on_mic_add(move || {
+        let Some(source) = add_source_weak.upgrade() else {
+            return;
+        };
+        if let Some(main) = main_weak.upgrade() {
+            main.set_mic_index(source.get_mic_index());
+            main.invoke_mic_mix_changed(true);
+            main.set_source_replace_index(-1);
+        }
+        save_and_hide_window(
+            &source,
+            WindowSlot::AddSource,
+            &config_for_mic_add,
+            &queue_for_mic_add,
+        );
+    });
 
     let add_source_weak = windows.add_source.as_weak();
     let main_weak = ui.as_weak();

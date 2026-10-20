@@ -115,6 +115,15 @@ pub struct RouteConfig {
     /// 选择混入的物理麦克风 ID。
     #[serde(default)]
     pub mic_id: Option<String>,
+    /// 已关闭的进程卡片槽位；按启动时恢复的进程顺序定位。
+    #[serde(default)]
+    pub disabled_process_slots: Vec<usize>,
+    /// 已加入路由的音频文件路径；启动时映射回音频库条目。
+    #[serde(default)]
+    pub audio_source_paths: Vec<String>,
+    /// 与 `audio_source_paths` 对齐的音频卡片启用状态。
+    #[serde(default)]
+    pub audio_source_enabled: Vec<bool>,
 }
 
 /// 三路混音增益。
