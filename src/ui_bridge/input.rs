@@ -26,6 +26,7 @@ pub(super) fn start_hotkey(
         crate::hotkey::HotkeyMode::System,
         bindings,
         Arc::new(move |id| {
+            // 热键线程不能直接触碰 Slint；通过事件循环把动作转回 UI 线程，并用弱引用避免关闭后悬挂。
             let ui_weak = ui_weak.clone();
             let _ = slint::invoke_from_event_loop(move || {
                 let Some(ui) = ui_weak.upgrade() else { return };
@@ -38,6 +39,7 @@ pub(super) fn start_hotkey(
 /// 按绑定 id 触发对应动作。
 fn dispatch(ui: &MainWindow, id: i32) {
     match id {
+        // 内置动作使用固定 ID，音频条目从 ENTRY_ID_BASE 起按库内下标编码。
         ACTION_TOGGLE_ROUTE => ui.invoke_start_stop(),
         ACTION_PREVIOUS => ui.invoke_player_previous(),
         ACTION_NEXT => ui.invoke_player_next(),
@@ -78,9 +80,53 @@ pub(super) fn collect_bindings(config: &config::AppConfig) -> BTreeMap<i32, conf
         bindings.insert(ACTION_STOP_PLAYBACK, hk);
     }
     for (index, entry) in config.audio_entries.iter().enumerate() {
+        // 条目热键 ID 的下标必须对应 AppConfig.audio_entries，不能使用当前分页模型下标。
         if let Some(hk) = entry.hotkey_binding {
             bindings.insert(ENTRY_ID_BASE + index as i32, hk);
         }
     }
     bindings
+}
+
+/// 将 Slint 捕获到的文本转换为 Windows 虚拟键码。
+pub(crate) fn slint_key_to_vk(text: &str) -> Option<u32> {
+    // Slint 传入的是显示文本，系统注册需要 ASCII/功能键对应的 Win32 VK 常量。
+    if text == " " || text.eq_ignore_ascii_case("space") {
+        return Some(0x20);
+    }
+    if let Some(number) = text.strip_prefix('F').or_else(|| text.strip_prefix('f'))
+        && let Ok(number) = number.parse::<u32>()
+        && (1..=12).contains(&number)
+    {
+        return Some(0x70 + number - 1);
+    }
+    let mut characters = text.chars();
+    let key = characters.next()?;
+    if characters.next().is_some() {
+        return None;
+    }
+    let value = key as u32;
+    if (0xF001..=0xF00C).contains(&value) {
+        return Some(0x70 + value - 0xF001);
+    }
+    let value = key.to_ascii_uppercase() as u32;
+    if (0x30..=0x39).contains(&value) || (0x41..=0x5A).contains(&value) {
+        Some(value)
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::slint_key_to_vk;
+
+    #[test]
+    /// 覆盖空格、功能键、字母和数字，拒绝多字符或未支持的按键名称。
+    fn maps_supported_key_text_to_virtual_keys() {
+        assert_eq!(slint_key_to_vk(" "), Some(0x20));
+        assert_eq!(slint_key_to_vk("F12"), Some(0x7B));
+        assert_eq!(slint_key_to_vk("a"), Some(0x41));
+        assert_eq!(slint_key_to_vk("Escape"), None);
+    }
 }

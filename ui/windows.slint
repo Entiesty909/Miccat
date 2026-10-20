@@ -4,62 +4,113 @@ import { Theme } from "theme.slint";
 import { AddSourcePanel } from "components/add-source-panel.slint";
 import { AudioEntryEditor } from "components/audio-entry-editor.slint";
 
+// 独立窗口由 Rust 在需要时创建并保持自身生命周期；关闭通过 dismiss 回调交还宿主。
 export component AddSourceWindow inherits Window {
+    // 使用应用图标资源，Windows 窗口标题栏和任务栏均由此取图标。
     icon: @image-url("../resources/icon.ico");
+    // 标题用于区分添加源窗口；内容数据由下方 AddSourcePanel 双向绑定。
     title: "添加音频源";
+    // 固定内容高度，保证添加源面板的三类页签和操作区完整可见。
     height: 620px;
+    // 首次创建窗口的建议宽度，适配进程与音频条目列表。
     preferred-width: 720px;
+    // 首次创建窗口的建议高度，与固定内容高度保持一致。
     preferred-height: 620px;
+    // 窗口底色与主窗口一致，避免面板边缘出现闪烁或色差。
     background: Theme.bg;
+    // 统一独立窗口内控件的字体族。
     default-font-family: "Segoe UI";
+    // 统一正文基准字号，子组件按层级覆盖。
     default-font-size: 14px;
 
+    // 进程列表及 PID 由 bridge 刷新，PID 用于避免重复添加同一进程。
     in-out property <[string]> processes: [];
+    // 当前选择的进程下标；-1 表示没有可提交的进程选择。
     in-out property <int> process-index: 0;
+    // Rust 解析出的进程图标，按进程列表下标对齐。
     in-out property <[image]> process-icon-images: [];
+    // 进程 PID 文本仅用于展示和重复校验，不参与渲染。
     in-out property <[string]> process-pids: [];
+    // 麦克风设备列表由 bridge 提供，首项通常是占位选项。
     in-out property <[string]> mics: [];
+    // 当前麦克风下标，选择后由面板回传给 bridge。
     in-out property <int> mic-index: 0;
+    // 音频库可添加的文件名列表。
     in-out property <[string]> audio-entries: [];
+    // 音频条目的元数据文本，和音频列表下标保持一致。
     in-out property <[string]> audio-entry-metadata: [];
+    // 预格式化时长文本，避免 UI 自行解析音频文件。
     in-out property <[string]> audio-entry-durations: [];
+    // 预格式化文件大小文本，来源于 Rust 音频库模型。
     in-out property <[string]> audio-entry-sizes: [];
+    // 每个音频文件当前分类名称。
     in-out property <[string]> audio-entry-categories: [];
+    // 每个音频文件绑定的快捷键显示文本。
     in-out property <[string]> audio-entry-hotkeys: [];
+    // 每个音频条目的循环播放开关。
     in-out property <[bool]> audio-entry-loops: [];
+    // 可选输出设备名称列表，供文件路由选择。
     in-out property <[string]> output-options: [];
+    // 麦克风专用输出设备列表，和文件输出列表分开维护。
     in-out property <[string]> mic-output-options: [];
+    // 当前麦克风输出设备下标。
     in-out property <int> mic-output-index: 0;
+    // 当前文件输出设备下标；提交音频源时随配置发送给 bridge。
     in-out property <int> file-output-index: 0;
+    // 待添加文件的音量百分比，范围由 SliderRow 约束。
     in-out property <float> file-volume: 100;
+    // 音频库列表当前选中项。
     in-out property <int> audio-selected-index: 0;
+    // 音频文件搜索草稿，编辑时双向同步到库查询。
     in-out property <string> audio-search: "";
+    // 麦克风输入增益百分比。
     in-out property <float> mic-volume: 100;
+    // 是否把麦克风加入混音；变更会立即触发 bridge 配置。
     in-out property <bool> mix-mic: false;
+    // 转发运行态只读镜像；运行中禁止会改变设备拓扑的操作。
     in property <bool> running: false;
+    // 添加源的当前页签：0 进程、1 文件、2 麦克风。
     in-out property <int> selected-tab: 0;
+    // 进程搜索草稿，仅影响面板过滤，不改变 bridge 列表。
     in-out property <string> process-search: "";
+    // 单页模式由替换流程设置，隐藏类型选择但保留同一提交逻辑。
     in property <bool> single-tab: false;
+    // 触发一次背景重绘以清理关闭窗口后残留的旧 surface。
     in-out property <bool> refresh-surface: false;
 
+    // 提交进程选择；宿主负责去重、创建路由槽位并关闭窗口。
     callback process-add();
+    // 请求重新枚举进程或设备，结果通过属性数组回流。
     callback refresh();
+    // 请求文件选择器，把新文件导入音频库。
     callback add-files();
+    // 将指定音频条目添加到路由，参数是列表下标。
     callback audio-entry-add-route(int);
+    // 文件音量编辑值，百分比单位；宿主负责持久化和应用增益。
     callback audio-file-volume-edited(float);
+    // 文件输出设备下标变更，宿主负责校验并切换 render target。
     callback audio-file-output-changed(int);
+    // 麦克风输出设备下标变更。
     callback mic-output-changed(int);
+    // 麦克风输入音量编辑值，百分比单位。
     callback mic-volume-edited(float);
+    // 麦克风混音开关变更，可能立即创建或移除输入流。
     callback mic-mix-changed(bool);
+    // 请求新增麦克风路由槽位。
     callback mic-add();
+    // 打开主窗口的音频库页。
     callback open-library();
+    // 搜索条件变化通知，宿主据此刷新列表。
     callback audio-search-changed();
+    // 面板的 dismiss 事件由下方绑定直接调用 Window.close，结束窗口生命周期。
 
+    // 关闭/刷新 surface 只负责覆盖背景，避免改变窗口内容行为。
     if root.refresh-surface: Rectangle {
         width: 100%;
         height: 100%;
         background: Theme.bg;
     }
+    // 面板占满独立窗口，所有控件事件都从此处转发到 Rust bridge。
     AddSourcePanel {
         width: 100%;
         height: 100%;
@@ -89,6 +140,7 @@ export component AddSourceWindow inherits Window {
         selected-tab <=> root.selected-tab;
         process-search <=> root.process-search;
         single-tab: root.single-tab;
+        // 事件绑定保持面板与窗口的契约边界；窗口只转发，不复制业务状态。
         process-add => { root.process-add(); }
         refresh => { root.refresh(); }
         add-files => { root.add-files(); }
@@ -101,37 +153,60 @@ export component AddSourceWindow inherits Window {
         mic-add => { root.mic-add(); }
         open-library => { root.open-library(); }
         audio-search-changed => { root.audio-search-changed(); }
+        // dismiss 由面板取消按钮触发，关闭动作由 Window 宿主执行。
         dismiss => { root.close(); }
     }
 }
 
+// 音频条目和分类共用的编辑窗口；表单提交后由宿主决定保存哪一种实体。
 export component AudioEditWindow inherits Window {
+    // 与添加源窗口一致，保证编辑窗口标题栏使用应用图标。
     icon: @image-url("../resources/icon.ico");
+    // 根据编辑模式由宿主传入“编辑音频”或“编辑分类”等标题。
     title: root.edit-title;
+    // 固定编辑表单宽度，容纳名称、图标选择和底部操作区。
     width: 560px;
+    // 固定编辑表单高度，避免两种编辑模式切换时布局跳动。
     height: 460px;
+    // 首次创建窗口的建议宽度，与表单固定宽度一致。
     preferred-width: 560px;
+    // 首次创建窗口的建议高度，与表单固定高度一致。
     preferred-height: 460px;
+    // 编辑窗口复用主窗口背景色，保持多窗口视觉一致。
     background: Theme.bg;
+    // 统一编辑表单内控件的字体族。
     default-font-family: "Segoe UI";
+    // 统一编辑表单的正文基准字号。
     default-font-size: 14px;
+    // 当前编辑对象的标题文本；双向绑定使表单修改实时可见。
     in-out property <string> edit-title: "编辑音频";
 
+    // true 表示编辑分类，false 表示编辑音频条目。
     in-out property <bool> category-mode: false;
+    // 编辑对象名称草稿，确认前不会写回持久化模型。
     in-out property <string> name: "";
+    // 关闭后请求刷新背景 surface，避免旧窗口内容残留。
     in-out property <bool> refresh-surface: false;
+    // 预设图标索引，取值与编辑器的图标候选表约定一致。
     in-out property <int> icon-index: 0;
+    // 自定义图标图像，由 Rust 文件选择流程异步提供。
     in-out property <image> custom-icon-image;
+    // 自定义图标路径，提交时作为 bridge 的可持久化来源。
     in-out property <string> custom-icon-path: "";
+    // 提交名称、预设图标索引和自定义路径；由宿主校验后保存。
     callback accepted(string, int, string);
+    // 取消编辑并关闭窗口，不应产生持久化副作用。
     callback cancelled();
+    // 请求打开原生文件选择器以选择自定义图标。
     callback custom-icon-requested();
 
+    // 与 AddSourceWindow 相同的 surface 清理遮罩，仅在宿主要求时出现。
     if root.refresh-surface: Rectangle {
         width: 100%;
         height: 100%;
         background: Theme.bg;
     }
+    // 表单组件通过属性与回调连接到 Rust bridge，窗口不持有业务副本。
     AudioEntryEditor {
         width: 100%;
         height: 100%;

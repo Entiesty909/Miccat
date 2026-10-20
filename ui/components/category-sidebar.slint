@@ -4,26 +4,47 @@ import { Card } from "card.slint";
 import { Theme } from "../theme.slint";
 import { PmButton } from "button.slint";
 
+// 分类侧栏：展示分类树，并把选择、拖放和菜单操作上报宿主。
 export component CategorySidebar inherits Card {
+    // 分类名称按树序排列；每个名称与其他分类数组共享同一索引。
     in-out property <[string]> categories: [];
+    // 分类条目计数，与 categories 按索引对齐。
     in-out property <[int]> category-counts: [];
+    // 分类树深度，单位为层级，决定行内容的缩进量。
     in-out property <[int]> category-depths: [];
+    // 分类自定义图标图像，与字形数组按分类索引配对。
     in-out property <[image]> category-icon-images: [];
+    // 分类图标字形；空字符串表示优先显示对应图像。
     in-out property <[string]> category-icon-glyphs: [];
+    // 已绑定的音频快捷键标签，按宿主提供的显示顺序展示。
     in-out property <[string]> audio-hotkeys: [];
+    // 当前选中的分类索引，-1 表示上下文菜单作用于空白区域。
     in-out property <int> category-index: 0;
+    // 当前拖放命中的分类索引，-1 表示没有有效目标。
     in-out property <int> category-drop-target: -1;
+    // 拖放位置协议：0 为上方、1 为内部、2 为下方，-1 表示未命中。
     in-out property <int> category-drop-position: -1;
+    // 分类上下文菜单可见状态，由本组件的选择和右键交互维护。
     in-out property <bool> category-menu-open: false;
+    // 条目菜单可见状态；打开分类菜单时必须关闭它。
     in-out property <bool> entry-menu-open: false;
+    // 分类上下文菜单左上角横坐标，单位为 length。
     in-out property <length> category-menu-x: 0px;
+    // 分类上下文菜单左上角纵坐标，单位为 length。
     in-out property <length> category-menu-y: 0px;
+    // 主窗口提供的路由快捷键标签，仅作为底部状态文本展示。
     in property <string> hotkey-label: "";
+    // 用户选择分类后通知宿主刷新条目筛选。
     callback category-changed(int);
+    // 请求宿主打开指定分类的上下文菜单。
     callback category-context(int);
+    // 将分类索引转换为拖放数据，保持拖动协议由宿主定义。
     pure callback category-to-transfer(int) -> data-transfer;
+    // 宿主校验拖放数据、目标分类和插入位置是否有效。
     callback category-can-drop(data-transfer, int, int) -> bool;
+    // 提交已校验的分类拖放操作。
     callback category-drop(data-transfer, int, int);
+    // 请求宿主打开快捷键设置页。
     callback hotkey-settings();
 
     width: 230px;
@@ -43,6 +64,7 @@ export component CategorySidebar inherits Card {
             vertical-stretch: 1;
             height: 100%;
             spacing: 2px;
+            // 分类列表为空时保留空白命中区，右键仍可请求创建分类。
             if root.categories.length == 0: Rectangle {
                 width: 100%;
                 vertical-stretch: 1;
@@ -56,6 +78,7 @@ export component CategorySidebar inherits Card {
                     font-size: 12px;
                     wrap: word-wrap;
                 }
+                // 空列表命中区只处理右键，并把菜单作用对象标记为 -1。
                 TouchArea {
                     width: 100%;
                     height: 100%;
@@ -72,10 +95,12 @@ export component CategorySidebar inherits Card {
                     }
                 }
             }
+            // 每个分类行携带宿主序列化的数据；系统分类不可移动。
             for category[index] in root.categories: DragArea {
                 height: 36px;
                 allow-move: category != "全部" && category != "未分类";
                 data: root.category-to-transfer(index);
+                // 无论拖放是否成功都清除指示器，避免旧目标残留。
                 drag-finished(action) => {
                     root.category-drop-target = -1;
                     root.category-drop-position = -1;
@@ -86,13 +111,16 @@ export component CategorySidebar inherits Card {
                     background: index == root.category-index
                         ? Theme.accentSoft
                         : transparent;
+                    // “全部”和“未分类”是固定入口，不能作为拖放目标。
                     if category != "全部" && category != "未分类": DropArea {
                         width: 100%;
                         height: 100%;
+                        // 按指针在行内的垂直区域选择上方、内部或下方插入协议。
                         can-drop(event) => {
                             let position = event.position.y < self.height * 0.25
                                 ? 0
                                 : (event.position.y > self.height * 0.75 ? 2 : 1);
+                            // 只有宿主确认可放置时才显示高亮并允许移动手势。
                             if root.category-can-drop(event.data, index, position) {
                                 root.category-drop-target = index;
                                 root.category-drop-position = position;
@@ -100,6 +128,7 @@ export component CategorySidebar inherits Card {
                             }
                             return DragAction.none;
                         }
+                        // 提交宿主确认的目标位置后清空临时拖放状态。
                         dropped(event) => {
                             let position = event.position.y < self.height * 0.25
                                 ? 0
@@ -121,6 +150,7 @@ export component CategorySidebar inherits Card {
                             width: 18px;
                             height: 18px;
                             background: transparent;
+                            // 有图像且字形为空时使用自定义图标资源。
                             if index < root.category-icon-images.length
                                 && index < root.category-icon-glyphs.length
                                 && root.category-icon-glyphs[index] == "": Image {
@@ -129,6 +159,7 @@ export component CategorySidebar inherits Card {
                                 source: root.category-icon-images[index];
                                 image-fit: contain;
                             }
+                            // 没有可用图像时显示字形，缺失字形再回退到分类默认图标。
                             if index >= root.category-icon-glyphs.length
                                 || root.category-icon-glyphs[index] != "": Text {
                                 text: index < root.category-icon-glyphs.length
@@ -165,12 +196,14 @@ export component CategorySidebar inherits Card {
                             horizontal-alignment: right;
                         }
                     }
+                    // 仅在目标位置为行首时绘制上方插入提示线。
                     if root.category-drop-target == index
                         && root.category-drop-position == 0: Rectangle {
                         width: 100%;
                         height: 2px;
                         background: Theme.accent;
                     }
+                    // 仅在目标位置为行尾时绘制下方插入提示线。
                     if root.category-drop-target == index
                         && root.category-drop-position == 2: Rectangle {
                         y: parent.height - 2px;
@@ -178,6 +211,7 @@ export component CategorySidebar inherits Card {
                         height: 2px;
                         background: Theme.accent;
                     }
+                    // 行点击选择分类并关闭两个互斥的上下文菜单。
                     TouchArea {
                         clicked => {
                             root.category-index = index;
@@ -185,6 +219,7 @@ export component CategorySidebar inherits Card {
                             root.category-menu-open = false;
                             root.entry-menu-open = false;
                         }
+                        // 行右键按屏幕坐标打开分类菜单，并关闭条目菜单。
                         pointer-event(event) => {
                             if event.button == PointerEventButton.right
                                 && event.kind == PointerEventKind.down {
@@ -201,6 +236,7 @@ export component CategorySidebar inherits Card {
                     }
                 }
             }
+            // 列表末尾空白区也支持右键菜单，但不绑定具体分类。
             TouchArea {
                 width: 100%;
                 vertical-stretch: 1;
@@ -235,6 +271,7 @@ export component CategorySidebar inherits Card {
                 font-weight: 600;
                 vertical-alignment: TextVerticalAlignment.center;
             }
+            // 管理按钮只请求打开设置页，快捷键变更由宿主处理。
             PmButton {
                 label: "管理";
                 flat: true;
@@ -242,11 +279,13 @@ export component CategorySidebar inherits Card {
                 clicked => { root.hotkey-settings(); }
             }
         }
+        // 没有绑定快捷键时显示占位提示，避免与实际标签混淆。
         if root.audio-hotkeys.length == 0: Text {
             text: "暂无已绑定的音频快捷键";
             color: Theme.text3;
             font-size: 10px;
         }
+        // 快捷键标签按宿主顺序逐行显示，不在侧栏内重新排序。
         for shortcut[index] in root.audio-hotkeys: Text {
             text: shortcut;
             height: 20px;

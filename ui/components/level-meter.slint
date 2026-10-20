@@ -1,11 +1,16 @@
 //! 声纹柱：把 0..1 的采样序列画成柱，用于进程/麦克风/输出的电平反馈。
 
 import { Theme } from "../theme.slint";
+// 电平柱组件：按固定槽位读取采样，缺失样本按静音绘制。
 
 export component LevelMeter inherits Rectangle {
+    // 扁平峰值采样数组，数值按 0..1 归一化。
     in property <[float]> samples;
+    // 当前槽位在 samples 中的起始偏移，用于多源历史复用同一数组。
     in property <int> sample-offset: 0;
+    // 当前槽位需要绘制的样本数量，通常为 32 个峰值点。
     in property <int> sample-count: 32;
+    // 电平柱颜色，由调用方按源类型提供。
     in property <color> tint: Theme.ok;
 
     height: Theme.meterHeight;
@@ -19,7 +24,9 @@ export component LevelMeter inherits Rectangle {
         padding-top: 6px;
         padding-bottom: 6px;
         spacing: 2px;
+        // 每个柱子独立读取对应样本，越界时保持静音高度。
         for i in root.sample-count: Rectangle {
+            // 单柱使用归一化样本计算高度和不透明度，保持缺样本为静音。
             property <float> sample: root.sample-offset + i < root.samples.length
                 ? root.samples[root.sample-offset + i]
                 : 0;

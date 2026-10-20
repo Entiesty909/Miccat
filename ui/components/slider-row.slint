@@ -3,11 +3,17 @@
 import { Slider } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
 
+// 可复用音量行：value 由父级持有，edited 只上报用户操作。
 export component SliderRow inherits HorizontalLayout {
+// 左侧标签，可由调用方隐藏以给滑块更多宽度。
     in property <string> label: "";
+// 禁用时同时限制滑块输入并降低标签强调。
     in property <bool> enabled: true;
+// 百分比数值，范围由内部 Slider 限制为 0..=100。
     in-out property <float> value: 100;
+// 是否显示左侧标签。
     in property <bool> show-label: true;
+// 用户拖动结束或数值改变时向 bridge 上报。
     callback edited(float);
 
     height: Theme.controlHeight;

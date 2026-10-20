@@ -4,37 +4,68 @@ import { Theme } from "../theme.slint";
 import { MarqueeComboBox } from "marquee-combo-box.slint";
 import { PmButton } from "button.slint";
 import { SliderRow } from "slider-row.slint";
+// 单行组件只投影一个路由槽位；所有变更经回调交给 RoutePage/Rust bridge。
 export component SourceRow inherits Rectangle {
+    // Rust bridge 保持 0=进程、1=文件、2=麦克风，与路由回调的槽位映射一致。
+    // 源类型由 bridge 约定：0 进程、1 文件、2 麦克风。
     in property <int> kind: 0;
+    // 行在源数组中的稳定下标，作为所有回调的槽位键。
     in property <int> row-index: 0;
+    // 字体图标回退文本，文件/麦克风源使用。
     in property <string> icon: "";
+    // 进程图像资源；空图像时保留统一图标占位。
     in property <image> icon-image;
+    // bridge 提供的主标题，不在 UI 侧拼接进程名或文件名。
     in property <string> title: "";
+    // 类型相关副标题，例如文件名、设备名或进程描述。
     in property <string> subtitle: "";
+    // 类型相关详情文本，保持与 source-details 下标一致。
     in property <string> detail: "";
+    // 文件源播放状态文本；“播放中”决定状态色。
     in property <string> status: "";
+    // 是否启用该槽位的转发；开关变化写回宿主。
     in property <bool> active: false;
+    // 文件源暂停状态，独立于 active，避免停止其他卡片。
     in property <bool> paused: false;
+    // 静音状态由宿主保存，进程/麦克风显示静音按钮。
     in property <bool> muted: false;
+    // 整体转发运行态；运行时禁用会改变设备拓扑的控件。
     in property <bool> route-running: false;
+    // 输出设备名称列表，来源于 bridge 的设备枚举。
     in property <[string]> outputs: [];
+    // 宿主解析出的初始设备下标；仅在 init 时投影到 output-index。
     in property <int> initial-output-index: 0;
+    // 当前输出设备下标，MarqueeComboBox 双向绑定并通过回调提交。
     in-out property <int> output-index: 0;
+    // 初始设备同步只发生一次，避免列表刷新时覆盖用户当前选择。
     init => {
+        // 初始设备下标由 bridge 根据保存的设备 ID 解析，组件只负责投影。
         root.output-index = root.initial-output-index;
     }
+    // 每行独立的百分比音量；SliderRow 改动只作用于 row-index。
     in-out property <float> volume: 100;
+    // active 开关改变路由槽位的启停状态。
     callback active-toggled(bool);
+    // 音量变化值，单位为百分比。
     callback volume-edited(float);
+    // 进程/麦克风静音切换；文件源通过独立播放控制处理。
     callback mute-toggled();
+    // 输出设备切换；Rust 负责重新绑定该槽位的 render target。
     callback output-changed(int);
+    // 更多菜单动作码，按源类型由 SourceActionsMenu 产生。
     callback action(int);
+    // 请求打开当前行菜单，坐标是窗口绝对坐标，供 PopupWindow 定位。
     callback actions-requested(length, length);
+    // 菜单关闭通知，RoutePage 会清理选中槽位。
     callback actions-closed();
+    // 文件源暂停/继续回调，不影响其他音频卡片。
     callback pause();
+    // 文件源停止回调，仅停止本行对应的播放流。
     callback stop();
+    // 父级 PopupWindow 的可见状态镜像，仅用于行边框/交互条件。
     in property <bool> actions-open: false;
 
+    // 选中态使用强调边框；布局尺寸保持固定避免滚动列表跳动。
     height: 112px;
     width: 100%;
     background: Theme.card;
@@ -51,6 +82,7 @@ export component SourceRow inherits Rectangle {
         background: root.kind == 0
             ? Theme.accentSoft
             : (root.kind == 1 ? #EEE9FF : #DDF6F0);
+            // 文件和麦克风依赖字体字形，进程图像叠加在同一图标框内。
         if root.kind != 0: Text {
             text: root.icon;
             font-family: "Segoe MDL2 Assets";
@@ -100,6 +132,7 @@ export component SourceRow inherits Rectangle {
                     vertical-alignment: center;
                 }
             }
+            // 麦克风展示两行设备信息；其他源使用单行副标题。
             if root.kind == 2: VerticalLayout {
                 width: 100%;
                 height: 34px;
@@ -117,18 +150,21 @@ export component SourceRow inherits Rectangle {
                     overflow: elide;
                 }
             }
+            // 非麦克风源的副标题位于同一垂直位置，保证行对齐。
             if root.kind != 2: Text {
                 text: root.subtitle;
                 color: Theme.text2;
                 font-size: 11px;
                 overflow: elide;
             }
+            // 文件源额外展示播放状态，来自音频播放槽而非 active 开关。
             if root.kind == 1: Text {
                 text: root.status;
                 color: root.status == "播放中" ? Theme.accent : Theme.text2;
                 font-size: 11px;
                 overflow: elide;
             }
+            // 进程源展示 bridge 提供的进程详情。
             if root.kind == 0: Text {
                 text: root.detail;
                 color: Theme.text3;
@@ -147,12 +183,15 @@ export component SourceRow inherits Rectangle {
                 color: Theme.text2;
                 font-size: 11px;
             }
+            // 输出下拉只在未运行时允许改变设备，防止运行中重建全局目标。
             MarqueeComboBox {
                 width: 100%;
                 height: 34px;
                 model: root.outputs;
+                // 设备下拉的双向绑定先更新本行下标，再通知宿主执行设备校验。
                 current-index <=> root.output-index;
                 enabled: !root.route-running;
+                    // selected 事件携带当前下标；回调由宿主做范围和设备校验。
                 selected(value) => {
                     root.output-changed(root.output-index);
                 }
@@ -168,8 +207,10 @@ export component SourceRow inherits Rectangle {
                 color: Theme.text2;
                 font-size: 11px;
             }
+            // 每一行拥有独立音量控件，双向绑定不共享其他卡片状态。
             SliderRow {
                 show-label: false;
+                // 滑块值与当前源双向绑定，编辑回调只上送本行音量。
                 value <=> root.volume;
                 edited(value) => { root.volume-edited(value); }
             }
@@ -188,12 +229,14 @@ export component SourceRow inherits Rectangle {
                     height: 36px;
                     spacing: 6px;
                     alignment: LayoutAlignment.end;
+                    // 进程/麦克风显示静音；文件源改为暂停和停止控制。
                     if root.kind != 1: PmButton {
                         label: root.muted ? "\u{E74F}" : "\u{E767}";
                         icon-only: true;
                         button-width: 36px;
                         clicked => { root.mute-toggled(); }
                     }
+                    // 暂停按钮只对已启用且正在运行的文件槽位开放。
                     if root.kind == 1: PmButton {
                         label: root.status == "播放中" ? "\u{E768}" : "\u{E769}";
                         icon-only: true;
@@ -201,6 +244,7 @@ export component SourceRow inherits Rectangle {
                         enabled: root.route-running && root.active;
                         clicked => { root.pause(); }
                     }
+                    // 停止按钮仅结束本行音频流，保留其他源的播放状态。
                     if root.kind == 1: PmButton {
                         label: "\u{E71A}";
                         icon-only: true;
@@ -210,11 +254,13 @@ export component SourceRow inherits Rectangle {
                             && (root.status == "播放中" || root.paused);
                         clicked => { root.stop(); }
                     }
+                    // 菜单按钮在运行中仍允许文件源操作，其他类型需停止转发。
                     PmButton {
                         label: "\u{E712}";
                         icon-only: true;
                         button-width: 36px;
                         enabled: !root.route-running || root.kind == 1;
+                        // 坐标交给父级 PopupWindow，避免行组件持有弹层生命周期。
                         clicked => {
                             root.actions-requested(
                                 root.absolute-position.x + root.width - 246px,
@@ -263,6 +309,8 @@ export component SourceRow inherits Rectangle {
                                 border-radius: 9px;
                                 background: Theme.card;
                             }
+                                // 启用开关在运行中锁定进程/麦克风，文件槽位允许独立启停。
+                            // 点击开关只切换当前行的 active，不触碰其他槽位。
                             TouchArea {
                                 enabled: !root.route-running || root.kind == 1;
                                 clicked => { root.active-toggled(!root.active); }

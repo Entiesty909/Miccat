@@ -26,7 +26,7 @@ Miccat 是 Windows 桌面进程音频路由器：以 WASAPI Process Loopback 捕
 | [`FRONTEND.md`](FRONTEND.md) | Slint 页面、桥接状态、UI 契约和限制 |
 | [`FILE-CONVENTIONS.md`](FILE-CONVENTIONS.md) | 目录职责、命名、规模、unsafe 与测试规范 |
 | [`DEBUGGING.md`](DEBUGGING.md) | CLI、音频链路和 UI 快照排障 |
-| [`goal.md`](goal.md) / [`docs/refactor-plan.md`](docs/refactor-plan.md) | 产品需求与 S0–S6 切片 |
+| [`goal.md`](goal.md) / [`docs/refactor-plan.md`](docs/refactor-plan.md) / [`docs/step-84-large-refactor-plan.md`](docs/step-84-large-refactor-plan.md) | 产品需求、S0–S6 历史计划与本轮大型收口重构 |
 | [`docs/step-*.md`](docs/) | 阶段实测记录；历史事实以最新记录为准 |
 
 ## 构建与冒烟
@@ -46,6 +46,7 @@ Miccat 是 Windows 桌面进程音频路由器：以 WASAPI Process Loopback 捕
 
 ## 当前重构状态
 
+- [`docs/step-84-large-refactor-plan.md`](docs/step-84-large-refactor-plan.md)：统一源行投影、窗口生命周期、桥接状态权威、展示格式、快照副作用和音频错误分类的重构计划；本轮代码已开始执行，真实设备性能基线仍待实测。
 - [`docs/step-83-microphone-source-add-and-name.md`](docs/step-83-microphone-source-add-and-name.md)：修复添加物理麦克风后独立窗口未隐藏，并在路由卡片显示实际麦克风友好名称。
 - [`docs/step-82-route-audio-controls-and-dialog-layout.md`](docs/step-82-route-audio-controls-and-dialog-layout.md)：修复音频源状态/播放控制，并整理添加源音频与麦克风双栏布局及输出设备选择。
 - [`docs/step-81-window-icons.md`](docs/step-81-window-icons.md)：统一主窗口、添加源/分类与条目编辑窗口以及 Windows 任务栏的应用图标资源。

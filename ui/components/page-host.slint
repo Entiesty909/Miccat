@@ -4,172 +4,336 @@ import { RoutePage } from "../pages/route.slint";
 import { PlayerPage } from "../pages/player.slint";
 import { SettingsPage } from "../pages/settings.slint";
 
+// 页面宿主只做属性桥接和事件转发；业务状态由 MainWindow/Rust bridge 持有。
 export component PageHost inherits Rectangle {
+    // 页面索引：0 路由、1 音频库、2 设置；切换时条件组件重建。
     in property <int> page: 0;
+    // 进程名称数组，由 bridge 刷新。
     in-out property <[string]> processes: [];
+    // 进程 PID 数组，用于添加源去重。
     in-out property <[string]> process-pids: [];
+    // 进程图标图像数组。
     in-out property <[image]> process-icon-images: [];
+    // 音频库文件名数组。
     in-out property <[string]> audio-catalog-entries: [];
+    // 音频库元数据数组。
     in-out property <[string]> audio-catalog-metadata: [];
+    // 音频库时长数组。
     in-out property <[string]> audio-catalog-durations: [];
+    // 音频库分类数组。
     in-out property <[string]> audio-catalog-categories: [];
+    // 音频库路径数组。
     in-out property <[string]> audio-catalog-paths: [];
+    // 音频库大小数组。
     in-out property <[string]> audio-catalog-sizes: [];
+    // 音频库快捷键数组。
     in-out property <[string]> audio-catalog-hotkeys: [];
+    // 音频库循环设置数组。
     in-out property <[bool]> audio-catalog-loops: [];
+    // 输出设备名称列表。
     in-out property <[string]> output-options: [];
+    // 文件输出设备下标。
     in-out property <int> file-output-index: 0;
+    // 文件音量百分比。
     in-out property <float> audio-file-volume: 100;
+    // 麦克风输入音量百分比。
     in-out property <float> microphone-input-volume: 100;
+    // 当前进程下标。
     in-out property <int> process-index: 0;
+    // 源类型数组。
     in-out property <[int]> source-kinds: [];
+    // 源字体图标数组。
     in-out property <[string]> source-icons: [];
+    // 源图像数组。
     in-out property <[image]> source-icon-images: [];
+    // 源标题数组。
     in-out property <[string]> source-titles: [];
+    // 每槽位音量 dB 文本。
     in-out property <[string]> source-volume-dbs: [];
+    // 每槽位副标题。
     in-out property <[string]> source-subtitles: [];
+    // 每槽位详情。
     in-out property <[string]> source-details: [];
+    // 每槽位播放状态。
     in-out property <[string]> source-statuses: [];
+    // 每槽位启用状态。
     in-out property <[bool]> source-active: [];
+    // 每槽位峰值 dB 文本。
     in-out property <[string]> source-peak-dbs: [];
+    // 每槽位峰值数值。
     in-out property <[float]> source-peak-values: [];
+    // 每槽位音量百分比。
     in-out property <[float]> source-volumes: [];
+    // 每槽位静音状态。
     in-out property <[bool]> source-muted: [];
+    // 每槽位暂停状态。
     in-out property <[bool]> source-paused: [];
+    // 每槽位输出设备下标。
     in-out property <[int]> source-output-indices: [];
+    // 输出设备列表。
     in-out property <[string]> outputs: [];
+    // 默认输出设备下标。
     in-out property <int> output-index: 0;
+    // 麦克风设备列表。
     in-out property <[string]> mics: [];
+    // 麦克风下标。
     in-out property <int> mic-index: 0;
+    // 麦克风混音开关。
     in-out property <bool> mix-mic: false;
+    // 替换目标槽位，-1 表示新增。
     in-out property <int> source-replace-index: -1;
+    // 添加源窗口当前页签。
     in-out property <int> source-add-tab: 0;
+    // 转发运行态。
     in-out property <bool> running: false;
+    // 分类名称数组。
     in-out property <[string]> categories: [];
+    // 分类树深度数组。
     in-out property <[int]> category-depths: [];
+    // 分类条目数量数组。
     in-out property <[int]> category-counts: [];
+    // 全局快捷键显示数组。
     in-out property <[string]> audio-hotkeys: [];
+    // 分类图标图像数组。
     in-out property <[image]> category-icon-images: [];
+    // 分类图标字形数组。
     in-out property <[string]> category-icon-glyphs: [];
+    // 编辑器自定义图标图像。
     in-out property <image> edit-custom-icon-image;
+    // 编辑窗口开关。
     in-out property <bool> edit-dialog-open: false;
+    // 编辑模式：true 分类，false 音频。
     in-out property <bool> edit-category-mode: false;
+    // 编辑对象名称草稿。
     in-out property <string> edit-name: "";
+    // 编辑图标索引。
     in-out property <int> edit-icon-index: 0;
+    // 编辑自定义图标路径。
     in-out property <string> edit-custom-icon-path: "";
+    // 当前分类下标。
     in-out property <int> category-index: 0;
+    // 当前页条目名称数组。
     in-out property <[string]> entries: [];
+    // 条目时长数组。
     in-out property <[string]> entry-durations: [];
+    // 条目图标图像数组。
     in-out property <[image]> entry-icon-images: [];
+    // 条目图标字形数组。
     in-out property <[string]> entry-icon-glyphs: [];
+    // 条目元数据数组。
     in-out property <[string]> entry-metadata: [];
+    // 条目分类数组。
     in-out property <[string]> entry-categories: [];
+    // 条目路径数组。
     in-out property <[string]> entry-paths: [];
+    // 条目大小数组。
     in-out property <[string]> entry-sizes: [];
+    // 条目快捷键数组。
     in-out property <[string]> entry-hotkeys: [];
+    // 条目播放状态数组。
     in-out property <[string]> entry-statuses: [];
+    // 条目搜索草稿。
     in-out property <string> search: "";
+    // 当前选中条目下标。
     in-out property <int> entry-index: -1;
+    // 当前条目分类下标。
     in-out property <int> entry-category-index: 0;
+    // 条目快捷键捕获态。
     in-out property <bool> listening-entry-hotkey: false;
+    // 分页页码。
     in-out property <int> page-index: 0;
+    // 分页总页数。
     in-out property <int> page-count: 1;
+    // 筛选后总条目数。
     in-out property <int> total-count: 0;
+    // 名称排序方向。
     in-out property <bool> sort-ascending: true;
+    // 当前播放条目下标。
     in-out property <int> playing-entry-index: -1;
+    // 播放进度比例。
     in-out property <float> progress: 0;
+    // 拖动进度保护标记。
     in-out property <bool> seeking-progress: false;
+    // 当前播放名称。
     in-out property <string> current-name: "";
+    // 当前播放位置文本。
     in-out property <string> current-position: "";
+    // 当前音频时长，单位秒。
     in-out property <float> duration-seconds: 0;
+    // 播放态。
     in-out property <bool> playing: false;
+    // 暂停态。
     in-out property <bool> paused: false;
+    // 预览态。
     in-out property <bool> preview-enabled: false;
+    // 循环态。
     in-out property <bool> loop: false;
+    // 分类菜单可见态。
     in-out property <bool> category-menu-open: false;
+    // 条目菜单可见态。
     in-out property <bool> entry-menu-open: false;
+    // 分类菜单 X 坐标。
     in-out property <length> category-menu-x: 0px;
+    // 分类菜单 Y 坐标。
     in-out property <length> category-menu-y: 0px;
+    // 条目菜单 X 坐标。
     in-out property <length> entry-menu-x: 0px;
+    // 条目菜单 Y 坐标。
     in-out property <length> entry-menu-y: 0px;
+    // 全局快捷键标签，只读展示。
     in property <string> hotkey-label: "";
+    // 设置分组索引。
     in-out property <int> settings-section-index: 0;
+    // 输出设备选择数组。
     in-out property <[bool]> device-selected: [];
+    // 是否显示全部设备。
     in-out property <bool> all-devices: false;
+    // 是否展示默认麦克风选项。
     in-out property <bool> show-set-default-mic: false;
+    // 默认麦克风开关。
     in-out property <bool> set-default-mic: false;
+    // 默认播放设备开关。
     in-out property <bool> set-default-render: false;
+    // 默认通信设备开关。
     in-out property <bool> set-default-communications: false;
+    // 默认目标设备提示。
     in-out property <string> dest-hint: "";
+    // 线缆安装态。
     in-out property <bool> cable-installed: false;
+    // 线缆任务忙碌态。
     in-out property <bool> cable-busy: false;
+    // 线缆状态文本。
     in-out property <string> cable-text: "";
+    // 全局快捷键捕获态。
     in-out property <bool> listening-hotkey: false;
+    // 关于文本。
     in-out property <string> about-text: "";
 
+    // 路由/设备刷新请求。
     callback refresh();
+    // 打开添加源窗口。
     callback source-add-requested();
+    // 添加进程请求。
     callback process-add();
+    // 导入音频文件请求。
     callback add-files();
+    // 麦克风混音变更。
     callback mic-mix-changed(bool);
+    // 源启停变更。
     callback source-active-toggled(int, bool);
+    // 源音量变更。
     callback source-volume-edited(int, float);
+    // 源静音切换。
     callback source-mute-toggled(int);
+    // 源输出设备变更。
     callback source-output-changed(int, int);
+    // 源菜单动作码。
     callback source-action(int, int);
+    // 源暂停。
     callback source-pause(int);
+    // 源停止。
     callback source-stop(int);
+    // 打开音频库。
     callback open-library();
+    // 打开设置并指定分组。
     callback settings-requested(int);
+    // 提交编辑表单。
     callback edit-accepted(string, int, string);
+    // 取消编辑。
     callback edit-cancelled();
+    // 将音频条目加入路由。
     callback audio-entry-add-route-index(int);
+    // 编辑文件音量。
     callback audio-file-volume-edited(float);
+    // 编辑文件输出设备。
     callback audio-file-output-changed(int);
+    // 编辑麦克风输入音量。
     callback microphone-input-volume-edited(float);
+    // 请求自定义图标。
     callback edit-custom-icon-requested();
+    // 分类选择。
     callback category-changed(int);
+    // 分类上下文菜单。
     callback category-context(int);
+    // 分类拖拽序列化。
     pure callback category-to-transfer(int) -> data-transfer;
+    // 分类拖拽校验。
     callback category-can-drop(data-transfer, int, int) -> bool;
+    // 分类拖拽提交。
     callback category-drop(data-transfer, int, int);
+    // 条目上下文菜单。
     callback entry-context(int);
+    // 条目选择。
     callback entry-selected(int);
+    // 条目双击。
     callback entry-double-clicked(int);
+    // 条目播放。
     callback entry-play(int);
+    // 清除条目快捷键。
     callback entry-hotkey-clear();
+    // 拖动播放进度。
     callback progress-seek(float);
+    // 停止播放。
     callback audio-stop();
+    // 播放动作码。
     callback play-action(int);
+    // 播放暂停切换。
     callback pause-toggle();
+    // 播放上一条。
     callback previous();
+    // 播放下一条。
     callback next();
+    // 预览开关。
     callback preview-enabled-toggled(bool);
+    // 预览音量编辑。
     callback preview-volume-edited(float);
+    // 文件输出变更。
     callback file-output-changed(int);
+    // 搜索编辑。
     callback search-edited(string);
+    // 格式变更。
     callback format-changed(int);
+    // 排序方向变更。
     callback sort-toggled();
+    // 分页变更。
     callback page-changed(int);
+    // 条目分类变更。
     callback entry-category-changed(int);
+    // 条目快捷键绑定。
     callback entry-hotkey-bind();
+    // 循环开关变更。
     callback loop-changed(bool);
+    // 打开快捷键设置。
     callback hotkey-settings-requested();
+    // 安装线缆。
     callback install-cable();
+    // 卸载线缆。
     callback uninstall-cable();
+    // 开始全局快捷键捕获。
     callback begin-hotkey-capture();
+    // 重置全局快捷键。
     callback reset-hotkey();
+    // 开始指定行快捷键捕获。
     callback begin-hotkey-row(int);
+    // 重置指定行快捷键。
     callback reset-hotkey-row(int);
+    // 回传行快捷键捕获结果。
     callback hotkey-row-captured(int, string, bool, bool, bool);
+    // 显示全部设备切换。
     callback all-devices-toggled(bool);
+    // 单设备选择切换。
     callback device-toggled(int, bool);
+    // 默认麦克风切换。
     callback set-default-mic-toggled(bool);
+    // 默认播放设备切换。
     callback set-default-render-toggled(bool);
+    // 默认通信设备切换。
     callback set-default-communications-toggled(bool);
 
     background: transparent;
 
+    // 条件组件按 page 重建，保证隐藏页面不继续接收交互。
+    // 路由页仅负责把桥接数组投影到页面，并将用户事件原样上送。
     if root.page == 0: RoutePage {
         width: 100%;
         height: 100%;
@@ -210,6 +374,7 @@ export component PageHost inherits Rectangle {
         source-replace-index <=> root.source-replace-index;
         source-add-tab <=> root.source-add-tab;
         running <=> root.running;
+        // 页面级入口事件交给宿主处理，RoutePage 不持有业务状态。
         source-add-requested => { root.source-add-requested(); }
         refresh => { root.refresh(); }
         audio-entry-add-route(actual) => {
@@ -227,6 +392,7 @@ export component PageHost inherits Rectangle {
         microphone-input-volume-edited(value) => {
             root.microphone-input-volume-edited(value);
         }
+        // 源槽位事件携带 index，确保音量、启停和设备变更只影响目标卡片。
         source-active-toggled(index, value) => {
             root.source-active-toggled(index, value);
         }
@@ -240,9 +406,11 @@ export component PageHost inherits Rectangle {
         source-action(index, code) => { root.source-action(index, code); }
         source-pause(index) => { root.source-pause(index); }
         source-stop(index) => { root.source-stop(index); }
+        // 导航事件切换宿主页面或打开设置，不在组件内改变路由数据。
         open-library => { root.open-library(); }
         open-settings => { root.settings-requested(1); }
     }
+    // 音频库页只挂载 page == 1，播放和菜单状态仍由 root 双向持有。
     if root.page == 1: PlayerPage {
         width: 100%;
         height: 100%;
@@ -292,6 +460,7 @@ export component PageHost inherits Rectangle {
         category-menu-y <=> root.category-menu-y;
         entry-menu-x <=> root.entry-menu-x;
         entry-menu-y <=> root.entry-menu-y;
+        // 音频库编辑与分类操作保持参数原样，业务校验由桥接层完成。
         edit-accepted(name, icon, path) => {
             root.edit-accepted(name, icon, path);
         }
@@ -311,6 +480,7 @@ export component PageHost inherits Rectangle {
         entry-double-clicked(index) => { root.entry-double-clicked(index); }
         entry-play(index) => { root.entry-play(index); }
         entry-hotkey-clear => { root.entry-hotkey-clear(); }
+        // 播放器控制事件统一转发给宿主，播放器组件只维护交互态。
         progress-seek(value) => { root.progress-seek(value); }
         add-files => { root.add-files(); }
         stop => { root.audio-stop(); }
@@ -326,6 +496,7 @@ export component PageHost inherits Rectangle {
         loop-changed(value) => { root.loop-changed(value); }
         hotkey-settings => { root.hotkey-settings-requested(); }
     }
+    // 设置页只挂载 page == 2，设备和线缆回调统一转发到宿主。
     if root.page == 2: SettingsPage {
         width: 100%;
         height: 100%;
@@ -346,6 +517,7 @@ export component PageHost inherits Rectangle {
         hotkey-label: root.hotkey-label;
         listening-hotkey <=> root.listening-hotkey;
         about-text <=> root.about-text;
+        // 设置页设备与线缆事件只做转发，运行态约束由桥接层执行。
         refresh => { root.refresh(); }
         install-cable => { root.install-cable(); }
         uninstall-cable => { root.uninstall-cable(); }

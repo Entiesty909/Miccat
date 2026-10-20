@@ -32,6 +32,7 @@ pub(crate) fn apply_levels(levels: &Levels) {
         return;
     };
     control.set_master(levels.master);
+    // 先覆盖全局默认级别，再逐项恢复分类设置，使持久化配置完整重现。
     for (key, level) in &levels.overrides {
         control.set_category(key, Some(*level));
     }
@@ -51,11 +52,17 @@ pub(crate) fn install_logging() {
     use tracing_subscriber::util::SubscriberInitExt;
     use tracing_subscriber::{EnvFilter, Layer, fmt, registry, reload};
 
+    // 初始级别先用于构造可热替换的文件过滤器；句柄由 Control 保存到进程结束。
+
     let levels = Levels::default();
     let (file_filter, handle) = reload::Layer::new(EnvFilter::new(levels.filter_string()));
+    // 控制台沿用环境变量，便于开发期查看；文件过滤器则由界面分类开关单独管理。
+
     let console = fmt::layer()
         .with_target(false)
         .with_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")));
+    // 文件不可创建时仍保留控制台和 HubLayer，诊断中心不能因日志落盘失败而消失。
+
     let file = log::make_writer().ok().map(|writer| {
         fmt::layer()
             .with_ansi(false)
@@ -63,11 +70,15 @@ pub(crate) fn install_logging() {
             .with_writer(move || writer.clone())
             .with_filter(file_filter)
     });
+    // Layer 组合顺序决定同一事件可同时输出到控制台、文件和问题中心。
+
     let _ = registry()
         .with(console)
         .with(file)
         .with(layer::HubLayer)
         .try_init();
+    // 重载回调只接收新的过滤器，不持有 UI 或文件锁，避免运行时调整形成锁环。
+
     let reload = Box::new(move |filter: EnvFilter| handle.reload(filter).is_ok());
     let _ = CONTROL.set(Control::new(levels, reload));
 }

@@ -28,11 +28,13 @@
 
 Rust 桥接：
 
-- `src/ui_bridge/mod.rs` 负责单实例、窗口装配、事件循环和退出 flush。
+- `src/ui_bridge/mod.rs` 负责单实例、初始化、窗口装配、事件循环和退出 flush。
+- `src/ui_bridge/window_lifecycle.rs` 负责独立窗口回调、位置持久化、显示/隐藏、重绘和添加源窗口属性同步。
 - `state.rs` 持有 `AudioEngine`、`AppConfig`、保存队列、热键、电平历史、异步进程刷新结果和独立窗口集合 `AppWindows`。
   `AppConfig.windows` 是主窗、添加源窗和编辑窗位置的持久化权威；窗口关闭或从音频加入路由后隐藏时保存坐标。
-- `cache.rs` 持有索引、菜单/点击态、列表快照、暂停恢复点和播放目标。
+- `cache.rs` 只持有列表、槽位和交互派生状态；设备筛选及默认设备配置从 Slint 属性/AppConfig 读取。
 - `callbacks/` 按路由、分类、播放和设置拆分回调。
+- `src/ui_bridge/sources.rs` 用统一 `SourceRows::push_*` 构造进程、文件、麦克风行；快照与运行时共享同一模型不变量检查。
 - `src/library.rs` 提供分类路径、可见索引、递归变更和文件验证规则。
 - 文件播放与试听通过 `AudioEngine` API；桥接不直接调用 decode、SFX 或 PreviewEngine。
 - `ui_bridge` 仍访问 `audio::device` / `audio::policy`、原生文件选择器和 VB-CABLE 安装；`src/platform/window.rs` 在独立窗口显示后将其带到前台，不设置 owner，不禁用主窗口。

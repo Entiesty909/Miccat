@@ -24,14 +24,17 @@ pub struct SpscRing {
     read: AtomicUsize,
 }
 
-// 生产者与消费者不会同时写同一槽位；跨线程共享是设计目标。
+// SAFETY: 只有一个生产者写入 `write` 所指槽位、一个消费者读取 `read` 所指槽位；两端
+// 通过 Release/Acquire 发布索引后，不会同时修改同一个样本槽位。
 unsafe impl Send for SpscRing {}
 unsafe impl Sync for SpscRing {}
 
+/// 环缓冲实现维护单调索引；索引回绕依赖容量为二的幂且只保留一个空槽。
 impl SpscRing {
     /// 按最少采样数分配，向上取 2 的幂，至少 4096。
     pub fn with_capacity_samples(min_samples: usize) -> Self {
         // 2 的幂才能用 mask 代替取模。
+        // `mask` 把单调索引映射到物理槽位，避免实时路径执行取模运算。
         let cap = min_samples.next_power_of_two().max(4096);
         Self {
             buf: UnsafeCell::new(vec![0.0; cap].into_boxed_slice()),
@@ -48,12 +51,14 @@ impl SpscRing {
 
     /// 当前已占用采样数。
     pub fn len(&self) -> usize {
+        // 先获取两端索引，差值在无符号回绕下仍表示环内积压量。
         let w = self.write.load(Ordering::Acquire);
         let r = self.read.load(Ordering::Acquire);
         w.wrapping_sub(r)
     }
     /// 丢弃当前积压样本，切换独立播放源时使用。
     pub fn clear(&self) {
+        // 发布端把读取位置追到当前写入位置，消费者随后看到的是空环。
         let write = self.write.load(Ordering::Acquire);
         self.read.store(write, Ordering::Release);
     }
@@ -65,6 +70,7 @@ impl SpscRing {
     /// 消费端停摆超过 `STALL_LIMIT` 时不再等待，交回 `push_latest` 保实时。
     pub fn push_paced(&self, src: &[f32], lead: usize, stop: &AtomicBool) {
         let deadline = Instant::now() + STALL_LIMIT;
+        // 生产者只在积压超过节拍上限时让出线程，避免正常情况下覆盖未播放样本。
         while self.len() + src.len() > lead && !stop.load(Ordering::Acquire) {
             if Instant::now() >= deadline {
                 break;
@@ -86,6 +92,7 @@ impl SpscRing {
             self.overwrite(src);
             return;
         }
+        // 读取端以 Acquire 观察消费者已释放的槽位，再决定本次可写空间。
         let mut w = self.write.load(Ordering::Relaxed);
         let r = self.read.load(Ordering::Acquire);
         let used = w.wrapping_sub(r);
@@ -94,6 +101,7 @@ impl SpscRing {
             let drop = src.len() - free;
             self.read.store(r.wrapping_add(drop), Ordering::Release);
         }
+        // SAFETY: SPSC 约束保证此时只有生产者访问写入槽；消费者只读已发布索引之前的数据。
         let buf = unsafe { &mut *self.buf.get() };
         for &sample in src {
             buf[w & self.mask] = sample;
@@ -104,7 +112,9 @@ impl SpscRing {
 
     /// 覆盖式写入，读写指针一起跳到最新窗口。
     fn overwrite(&self, src: &[f32]) {
+        // SAFETY: 调用者仍持有唯一生产端访问权；`src` 只覆盖即将发布的新窗口。
         let mut w = self.write.load(Ordering::Relaxed);
+        // SAFETY: 生产者独占写端；`src` 已被限制为可容纳的最新窗口。
         let buf = unsafe { &mut *self.buf.get() };
         for &sample in src {
             buf[w & self.mask] = sample;
@@ -117,9 +127,11 @@ impl SpscRing {
 
     /// 从环弹出到 `dst`。返回实际弹出数量；不足部分由调用方填静音。
     pub fn pop(&self, dst: &mut [f32]) -> usize {
+        // Acquire 确保消费者只读取生产者 Release 发布完成的样本。
         let mut r = self.read.load(Ordering::Relaxed);
         let w = self.write.load(Ordering::Acquire);
         let available = w.wrapping_sub(r).min(dst.len());
+        // SAFETY: 消费者独占读取端；生产者不会改写尚未通过 `write` 发布的槽位。
         let buf = unsafe { &*self.buf.get() };
         for sample in dst.iter_mut().take(available) {
             *sample = buf[r & self.mask];

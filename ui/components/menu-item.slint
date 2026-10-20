@@ -2,12 +2,16 @@
 
 import { Theme } from "../theme.slint";
 
+// 右键菜单项：将启用状态与危险样式呈现出来，点击副作用由调用方处理。
 export component MenuItem inherits Rectangle {
+    // 菜单中显示的操作名称。
     in property <string> label: "";
+    // 禁用时不接收触摸点击，并降低不透明度。
     in property <bool> enabled: true;
+    // 危险操作使用错误色文字。
     in property <bool> danger: false;
+    // 启用状态下点击时通知菜单宿主。
     callback clicked();
-
     height: 30px;
     border-radius: 0px;
     opacity: root.enabled ? 1.0 : 0.45;
@@ -20,12 +24,14 @@ export component MenuItem inherits Rectangle {
         font-size: 13px;
         vertical-alignment: TextVerticalAlignment.center;
     }
+    // 覆盖整行的命中区保证菜单项的文字和空白区域行为一致。
 
     area := TouchArea {
         enabled: root.enabled;
         mouse-cursor: pointer;
         clicked => { root.clicked(); }
     }
+    // 菜单项的悬停/按下反馈只影响外观，实际操作由 clicked 回调处理。
 
     states [
         hovered when area.has-hover && root.enabled: {

@@ -2,24 +2,18 @@
 
 import { Theme } from "../theme.slint";
 
-// 严重级别圆点：0 灰、1 黄、2 红。
+// 严重级别圆点：severity 由诊断数据提供，0 灰、1 黄、2 红。
 export component SeverityDot inherits Rectangle {
+    // 诊断级别枚举值。
     in property <int> severity: 0;
-    width: 8px;
-    height: 8px;
-    border-radius: 4px;
-    background: root.severity == 2
-        ? Theme.danger
-        : (root.severity == 1 ? Theme.warn : Theme.text3);
+    // 圆点本身没有交互，只把级别映射交给组件外观实现。
 }
 
-// 未读数徽标。
+// 未读数徽标：显示问题中心当前累计的未读条数。
 export component UnseenBadge inherits Rectangle {
+    // 未读数量，由诊断状态聚合提供。
     in property <int> count: 0;
-    height: 18px;
-    min-width: 18px;
-    border-radius: 9px;
-    background: Theme.danger;
+    // 徽标宽度随数字变化，避免未读数变化挤压标题栏布局。
     HorizontalLayout {
         padding-left: 5px; padding-right: 5px;
         alignment: center;
@@ -32,15 +26,20 @@ export component UnseenBadge inherits Rectangle {
     }
 }
 
-// 单条问题行：级别圆点 + 标题 + 来源与时间。
+// 单条问题行：展示来源数据并把选择动作交由问题中心处理。
 export component DiagRow inherits Rectangle {
+    // 当前记录的严重级别。
     in property <int> severity: 0;
+    // 诊断标题。
     in property <string> title: "";
+    // 产生日志/问题的组件或来源。
     in property <string> source: "";
+    // 记录发生时间的展示文本。
     in property <string> time: "";
+    // 与问题中心选中索引同步的视觉状态。
     in property <bool> selected: false;
+    // 点击该行时通知父级更新当前选择项。
     callback picked();
-
     height: 52px;
     background: root.selected ? Theme.accentSoft : Theme.card;
     Rectangle { y: parent.height - 1px; width: 100%; height: 1px; background: Theme.border; }
@@ -62,6 +61,7 @@ export component DiagRow inherits Rectangle {
             }
         }
     }
+    // 行级命中区覆盖整行，点击只报告选择而不直接改诊断数据。
     ta := TouchArea { mouse-cursor: pointer; clicked => { root.picked(); } }
     states [
         hovered when ta.has-hover: { background: Theme.accentSoft; }

@@ -2,15 +2,21 @@
 
 import { Theme } from "../theme.slint";
 
+// 单个页签的内部实现；active 只控制视觉状态，实际切页通过 clicked 回调完成。
 component TabItem inherits Rectangle {
+    // 页签显示文案，由 TabBar 固定提供。
     in property <string> label: "";
+    // 当前页签是否激活；该状态来自父级 current 索引。
     in property <bool> active: false;
+    // TouchArea 命中后通知父级选择此项。
     callback clicked();
 
+    // 页签高度与 AppHeader 对齐，底部指示线占用其中 2px。
     height: 42px;
     min-width: 74px;
     background: transparent;
 
+    // 文字布局保持点击区域内居中，避免改变页签命中范围。
     HorizontalLayout {
         padding-left: 14px;
         padding-right: 14px;
@@ -23,6 +29,7 @@ component TabItem inherits Rectangle {
             vertical-alignment: TextVerticalAlignment.center;
         }
     }
+    // 激活页签使用底部指示线而非胶囊背景，减少布局跳动。
     if root.active: Rectangle {
         x: 8px;
         y: parent.height - 2px;
@@ -31,11 +38,13 @@ component TabItem inherits Rectangle {
         background: Theme.accent;
     }
 
+    // TouchArea 覆盖整个页签；点击只发出事件，不直接修改 current。
     ta := TouchArea {
         mouse-cursor: pointer;
         clicked => { root.clicked(); }
     }
 
+    // hover/pressed 是瞬时交互状态，不写回 Rust bridge。
     states [
         hovered when ta.has-hover: {
             background: Theme.accentSoft;
@@ -46,27 +55,35 @@ component TabItem inherits Rectangle {
     ]
 }
 
+// 导出的页签栏按固定顺序映射页面索引，picked 交由 AppHeader/主窗口处理。
 export component TabBar inherits HorizontalLayout {
+    // 当前页索引由父组件传入，确保视觉激活项与实际页面一致。
     in property <int> current: 0;
+    // 用户点击后将 0/1/2 页索引发送给父级。
     callback picked(int);
+    // 固定高度与 AppHeader 相同，避免页签栏改变顶栏布局。
     height: 42px;
+    // 三个页签之间仅保留 2px 间隔，不改变点击顺序。
     spacing: 2px;
+    // 从左到右排列路由、音频库、设置页面。
     alignment: start;
 
+    // 路由页索引 0，与 MainWindow.page 契约一致。
     TabItem {
         label: "路由";
         active: root.current == 0;
         clicked => { root.picked(0); }
     }
+    // 音频库页索引 1。
     TabItem {
         label: "音频库";
         active: root.current == 1;
         clicked => { root.picked(1); }
     }
+    // 设置页索引 2。
     TabItem {
         label: "设置";
         active: root.current == 2;
         clicked => { root.picked(2); }
     }
 }
-

@@ -3,10 +3,15 @@
 import { Theme } from "../theme.slint";
 import { PmButton } from "button.slint";
 
+// 空状态组件：统一展示无数据说明，并可选地向宿主请求一次行动。
 export component EmptyState inherits VerticalLayout {
+    // 空状态主标题，描述当前列表为何没有可展示内容。
     in property <string> title: "";
+    // 辅助说明，补充用户下一步可采取的操作。
     in property <string> hint: "";
+    // 可选操作按钮文案；为空时不创建按钮。
     in property <string> action-label: "";
+    // 用户点击可选操作按钮时通知宿主处理实际动作。
     callback acted();
 
     spacing: Theme.gap;
@@ -26,6 +31,8 @@ export component EmptyState inherits VerticalLayout {
         horizontal-alignment: TextHorizontalAlignment.center;
         wrap: word-wrap;
     }
+    // 只有提供动作文案时才显示按钮，避免空白操作区域占位。
+    // 动作按钮点击只通知宿主，由宿主决定实际导航或创建操作。
     if root.action-label != "": PmButton {
         label: root.action-label;
         clicked => { root.acted(); }

@@ -5,70 +5,134 @@ import { Theme } from "../theme.slint";
 import { PmButton } from "../components/button.slint";
 import { SourceRow } from "../components/source-row.slint";
 import { SourceActionsMenu } from "../components/source-actions-menu.slint";
+// 路由页把 Rust bridge 的源槽位数组映射为可独立操作的 SourceRow，并承载添加/替换入口。
 export component RoutePage inherits Rectangle {
+    // 进程名称数组；每个下标对应一个可添加或已路由的进程槽位。
     in-out property <[string]> processes: [];
+    // PID 数组用于显示和防止重复进程。
     in-out property <[string]> process-pids: [];
+    // bridge 提供的进程图标资源，按进程下标对齐。
     in-out property <[image]> process-icon-images: [];
+    // 文件源默认音量百分比，作为添加文件时的初始值。
     in-out property <float> audio-file-volume: 100;
+    // 麦克风输入音量百分比，独立于文件源增益。
     in-out property <float> microphone-input-volume: 100;
+    // 添加源面板中的进程过滤草稿。
     in-out property <string> process-search: "";
+    // 音频库分类名称，供路由文件详情展示。
     in-out property <[string]> categories: [];
+    // 当前进程选择下标，传入添加/替换窗口。
     in-out property <int> process-index: 0;
+    // 每个路由槽位的类型：0 进程、1 文件、2 麦克风。
     in-out property <[int]> source-kinds: [];
+    // 字体图标回退字形，按源槽位对齐。
     in-out property <[string]> source-icons: [];
+    // 进程图标图像，文件/麦克风槽位可为空。
     in-out property <[image]> source-icon-images: [];
+    // 源标题数组，驱动列表 for 循环的槽位数量。
     in-out property <[string]> source-titles: [];
+    // 源副标题数组，展示文件名或设备名。
     in-out property <[string]> source-subtitles: [];
+    // 源详情数组，展示进程/设备补充信息。
     in-out property <[string]> source-details: [];
+    // 源播放状态文本，文件源用来区分播放/暂停。
     in-out property <[string]> source-statuses: [];
+    // 每槽位启用状态；开关事件带回同一槽位下标。
     in-out property <[bool]> source-active: [];
+    // 每槽位峰值 dBFS 数值，用于卡片和状态栏采样。
     in-out property <[string]> source-peak-dbs: [];
+    // 每槽位峰值数值，供电平表绘制。
     in-out property <[float]> source-peak-values: [];
+    // 每槽位音量格式化文本。
     in-out property <[string]> source-volume-dbs: [];
+    // 每槽位音量百分比，保持卡片状态互不共享。
     in-out property <[float]> source-volumes: [];
+    // 每槽位静音状态。
     in-out property <[bool]> source-muted: [];
+    // 每槽位输出设备下标，设备变更只影响指定槽位。
     in-out property <[int]> source-output-indices: [];
+    // 可选输出设备名称列表，由 bridge 设备枚举提供。
     in-out property <[string]> outputs: [];
+    // 每槽位文件暂停状态，独立于 active 和其他源。
     in-out property <[bool]> source-paused: [];
+    // 音频库文件名列表，供添加文件详情使用。
     in-out property <[string]> audio-entries: [];
+    // 音频库元数据文本数组。
     in-out property <[string]> audio-catalog-metadata: [];
+    // 音频库时长文本数组。
     in-out property <[string]> audio-catalog-durations: [];
+    // 音频库文件大小文本数组。
     in-out property <[string]> audio-catalog-sizes: [];
+    // 音频库分类数组。
     in-out property <[string]> audio-catalog-categories: [];
+    // 音频库快捷键数组。
     in-out property <[string]> audio-catalog-hotkeys: [];
+    // 音频库循环设置数组。
     in-out property <[bool]> audio-catalog-loops: [];
+    // 默认输出设备下标。
     in-out property <int> output-index: 0;
+    // 文件槽位输出设备下标。
     in-out property <int> file-output-index: 0;
+    // 麦克风设备名称列表。
     in-out property <[string]> mics: [];
+    // 当前麦克风下标。
     in-out property <int> mic-index: 0;
+    // 是否把麦克风加入当前混音。
     in-out property <bool> mix-mic: false;
+    // 替换目标槽位，-1 表示新增而非替换。
     in-out property <int> source-replace-index: -1;
+    // 添加源窗口当前页签，供宿主恢复用户选择。
     in-out property <int> source-add-tab: 0;
+    // 更多菜单当前槽位，-1 表示菜单关闭。
     in-out property <int> source-menu-index: -1;
+    // PopupWindow 的 X 坐标，单位为窗口 length。
     in-out property <length> source-menu-x: 0px;
+    // PopupWindow 的 Y 坐标，单位为窗口 length。
     in-out property <length> source-menu-y: 0px;
+    // 当前菜单源类型，用于选择动作项和高度。
     in-out property <int> source-menu-kind: 0;
+    // 菜单高度随源类型变化，避免超出页面底部。
     in-out property <length> source-menu-height: 96px;
+    // 转发运行态，控制刷新和设备编辑的可用性。
     in-out property <bool> running: false;
+    // 重新枚举进程/设备。
     callback refresh();
+    // 请求打开添加源窗口。
     callback source-add-requested();
+    // 请求添加进程源。
     callback process-add();
+    // 请求导入音频文件。
     callback add-files();
+    // 麦克风混音开关变更。
     callback mic-mix-changed(bool);
+    // 指定槽位启停变化。
     callback source-active-toggled(int, bool);
+    // 指定槽位音量变化，单位百分比。
     callback source-volume-edited(int, float);
+    // 指定槽位静音切换。
     callback source-mute-toggled(int);
+    // 指定槽位菜单动作码。
     callback source-action(int, int);
+    // 指定文件槽位暂停/继续。
     callback source-pause(int);
+    // 指定文件槽位停止。
     callback source-stop(int);
+    // 指定槽位输出设备变更。
     callback source-output-changed(int, int);
+    // 打开设置页，并由宿主选择默认分组。
     callback open-settings();
+    // 打开音频库页。
     callback open-library();
+    // 将音频库条目添加到路由，参数为条目下标。
     callback audio-entry-add-route(int);
+    // 编辑路由文件音量。
     callback audio-file-volume-edited(float);
+    // 编辑路由文件输出设备。
     callback audio-file-output-changed(int);
+    // 编辑麦克风输入增益。
     callback microphone-input-volume-edited(float);
 
+    // 没有源时显示空态；有源时由 ScrollView 承载可滚动槽位列表。
     background: transparent;
 
     VerticalLayout {
@@ -89,11 +153,13 @@ export component RoutePage inherits Rectangle {
                 vertical-alignment: TextVerticalAlignment.center;
             }
             Rectangle { horizontal-stretch: 1; background: transparent; }
+            // 添加按钮只发出打开面板请求，具体页签和校验由宿主决定。
             PmButton {
                 label: "＋  添加音频源";
                 filled: true;
                 clicked => { root.source-add-requested(); }
             }
+            // 刷新按钮在运行态禁用，避免枚举期间改变源槽位数组。
             PmButton {
                 label: "刷新进程";
                 enabled: !root.running;
@@ -105,6 +171,7 @@ export component RoutePage inherits Rectangle {
             vertical-stretch: 1;
             min-height: 0px;
             spacing: 8px;
+            // 空态只在标题数组为空时创建，避免与真实列表重叠。
             if root.source-titles.length == 0: Rectangle {
                 height: 104px;
                 width: 100%;
@@ -130,6 +197,7 @@ export component RoutePage inherits Rectangle {
                     }
                 }
             }
+                // 每个 SourceRow 绑定同一槽位下标，缺失的并行数组使用安全默认值。
             ScrollView {
                 width: 100%;
                 vertical-stretch: 1;
@@ -166,8 +234,10 @@ export component RoutePage inherits Rectangle {
                         paused: index < root.source-paused.length
                             ? root.source-paused[index]
                             : false;
+                        // 仅当前槽位打开 PopupWindow；其他卡片不受菜单生命周期影响。
                         actions-open: source-menu-popup.is-open
                             && root.source-menu-index == index;
+                        // 计算菜单高度和窗口坐标，边界裁剪保证菜单留在页面内。
                         actions-requested(x, y) => {
                             root.source-menu-index = index;
                             root.source-menu-kind = index < root.source-kinds.length
@@ -184,6 +254,7 @@ export component RoutePage inherits Rectangle {
                                 max(0px, y - root.absolute-position.y),
                                 max(0px, root.height - root.source-menu-height)
                             );
+                            // show 会创建/显示临时弹层，关闭时由 actions-closed 清理索引。
                             source-menu-popup.show();
                         }
                         actions-closed => {
@@ -199,19 +270,24 @@ export component RoutePage inherits Rectangle {
                         volume: index < root.source-volumes.length
                             ? root.source-volumes[index]
                             : 100;
+                        // 启停状态按稳定槽位下标回传，避免列表刷新时误改相邻源。
                         active-toggled(value) => {
                             root.source-active-toggled(index, value);
                         }
+                        // 音量编辑只提交当前槽位，避免共享增益状态。
                         volume-edited(value) => {
                             root.source-volume-edited(index, value);
                         }
+                        // 静音、菜单和播放控制均按同一槽位转发。
                         mute-toggled => { root.source-mute-toggled(index); }
                         action(code) => {
                             root.source-action(index, code);
                         }
+                        // 输出设备由宿主按槽位重新绑定，组件不直接操作设备。
                         output-changed(target) => {
                             root.source-output-changed(index, target);
                         }
+                        // 文件播放控制仅作用于当前文件槽位。
                         pause => { root.source-pause(index); }
                         stop => { root.source-stop(index); }
                     }
@@ -219,16 +295,19 @@ export component RoutePage inherits Rectangle {
             }
         }
     }
+    // PopupWindow 与列表解耦；菜单关闭策略保证点击外部可恢复列表操作。
     source-menu-popup := PopupWindow {
         x: root.source-menu-x;
         y: root.source-menu-y;
         width: 230px;
         height: root.source-menu-height;
+        // 点击外部关闭，动作码仍由菜单项回调交给 bridge。
         close-policy: close-on-click-outside;
         SourceActionsMenu {
             width: 100%;
             height: 100%;
             kind: root.source-menu-kind;
+            // 菜单动作先关闭弹层再通知宿主，避免替换流程期间残留旧菜单。
             action(code) => {
                 let index = root.source-menu-index;
                 source-menu-popup.close();

@@ -2,6 +2,7 @@
 
 import { Theme } from "../theme.slint";
 
+// 内容分组容器：统一卡片外观和子项间距，不保存业务状态。
 export component Card inherits Rectangle {
     background: Theme.card;
     border-radius: Theme.radiusCard;
@@ -13,6 +14,7 @@ export component Card inherits Rectangle {
         padding: Theme.padCard;
         spacing: Theme.gap;
         alignment: LayoutAlignment.start;
+        // 子内容通过插槽放入统一内边距和间距的纵向容器。
         @children
     }
 }

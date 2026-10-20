@@ -16,7 +16,9 @@
 - Rust 类型使用 `UpperCamelCase`；函数、字段、模块使用 `snake_case`。
 - Slint 属性/回调使用 `kebab-case`；Rust 回调注册按领域放在 `ui_bridge/callbacks/`。
 - 模块内部优先 `pub(super)` / `pub(crate)`；仅跨 crate API 才使用 `pub`。
-- 模块顶层写一行 `//!`；对外结构、枚举变体、函数和字段用中文 `///` 说明用途或不变量。
+- 所有 `.rs` 与 `.slint` 文件必须有中文职责注释：Rust 文件顶层 `//!`；每个结构、枚举变体、实现块、字段、函数/方法和关键内部机制都必须有注释。Slint 的导出组件、property、callback、function，以及 Timer/TouchArea/PopupWindow 的关键事件和条件分支同样必须注释。
+- 注释写用途、不变量、单位、生命周期、数据来源、线程/所有权/FFI 前提或交互副作用；关键代码注释解释原因，不复述代码。私有成员也必须覆盖；旧代码未覆盖时必须在阶段文档列出，不能宣称全仓完成。
+- 注释用中文；标识符英文。WASAPI 设备 ID 当不透明字符串，不当 MME 下标。
 - 状态只由权威对象持有：`AudioEngine` 管音频运行态，`AppConfig` 管持久化；UI 缓存仅放显示/交互派生态。
 
 ## 3. 文件规模与排版

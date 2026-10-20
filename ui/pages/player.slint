@@ -10,89 +10,171 @@ import { AudioDetail } from "../components/audio-detail.slint";
 import { AudioTransport } from "../components/audio-transport.slint";
 import { LibrarySplitter } from "../components/library-splitter.slint";
 
+// 音频库页组合分类、条目和播放传输控件；数据由 Rust bridge 分页/筛选后提供。
 export component PlayerPage inherits Rectangle {
+    // 分类名称按树序排列，首项通常是“全部”。
     in-out property <[string]> categories: ["全部", "未分类"];
+    // 分类树深度，供侧栏计算缩进。
     in-out property <[int]> category-depths: [];
+    // 分类图标图像数组。
     in-out property <[image]> category-icon-images: [];
+    // 分类图标字形回退数组。
     in-out property <[string]> category-icon-glyphs: [];
+    // 每分类条目数量，和 categories 下标对齐。
     in-out property <[int]> category-counts: [];
+    // 全局快捷键显示文本，供分类侧栏和详情使用。
     in-out property <[string]> audio-hotkeys: [];
+    // 侧栏宽度，由拖拽分隔条在 180–360px 内更新。
     in-out property <length> sidebar-width: 230px;
+    // 详情栏宽度，由反向分隔条在 280–460px 内更新。
     in-out property <length> detail-width: 340px;
+    // 当前分类下标。
     in-out property <int> category-index: 0;
+    // 拖放目标分类下标，-1 表示没有命中目标。
     in-out property <int> category-drop-target: -1;
+    // 拖放插入位置，供 bridge 校验移动操作。
     in-out property <int> category-drop-position: -1;
+    // 条目图标图像数组。
     in-out property <[image]> entry-icon-images: [];
+    // 条目图标字形回退数组。
     in-out property <[string]> entry-icon-glyphs: [];
+    // 编辑窗口是否打开；生命周期由主窗口 overlay 管理。
     in-out property <bool> edit-dialog-open: false;
+    // 自定义图标图像，由 Rust 文件选择器异步回传。
     in-out property <image> edit-custom-icon-image;
+    // true 编辑分类，false 编辑音频条目。
     in-out property <bool> edit-category-mode: false;
+    // 编辑对象名称草稿。
     in-out property <string> edit-name: "";
+    // 预设图标索引。
     in-out property <int> edit-icon-index: 0;
+    // 自定义图标路径，提交时传给 bridge 持久化。
     in-out property <string> edit-custom-icon-path: "";
+    // 当前页的音频文件名称。
     in-out property <[string]> entries: [];
+    // 条目时长文本。
     in-out property <[string]> entry-durations: [];
+    // 条目元数据文本。
     in-out property <[string]> entry-metadata: [];
+    // 条目分类数组。
     in-out property <[string]> entry-categories: [];
+    // 条目播放状态文本。
     in-out property <[string]> entry-statuses: [];
+    // 条目文件路径数组，仅详情区使用。
     in-out property <[string]> entry-paths: [];
+    // 条目文件大小文本。
     in-out property <[string]> entry-sizes: [];
+    // 条目快捷键文本。
     in-out property <[string]> entry-hotkeys: [];
+    // 搜索草稿，编辑后通知 bridge 重新查询。
     in-out property <string> search: "";
+    // 当前条目下标，-1 表示未选中。
     in-out property <int> entry-index: -1;
+    // 是否处于快捷键捕获生命周期。
     in-out property <bool> listening-entry-hotkey: false;
+    // 当前条目所属分类下标。
     in-out property <int> entry-category-index: 0;
+    // 分页页码，从 0 开始。
     in-out property <int> page: 0;
+    // bridge 计算的总页数。
     in-out property <int> page-count: 1;
+    // 当前筛选条件下的总条目数。
     in-out property <int> total-count: 0;
+    // 名称排序方向。
     in-out property <bool> sort-ascending: true;
+    // 当前播放条目下标，和选中条目可不同。
     in-out property <int> playing-entry-index: -1;
+    // 播放进度比例，通常为 0–1。
     in-out property <float> progress: 0;
+    // 用户拖拽进度条期间的保护标记，避免播放回调覆盖草稿。
     in-out property <bool> seeking-progress: false;
+    // 当前播放名称。
     in-out property <string> current-name: "";
+    // 当前播放位置格式化文本。
     in-out property <string> current-position: "";
+    // 当前音频总时长，单位秒。
     in-out property <float> duration-seconds: 0;
+    // 播放器暂停态。
     in-out property <bool> paused: false;
+    // 预览开关，控制条目详情的预览播放。
     in-out property <bool> preview-enabled: false;
+    // 当前播放条目的循环开关。
     in-out property <bool> loop: false;
+    // 当前是否正在播放。
     in-out property <bool> playing: false;
+    // 分类上下文菜单可见状态。
     in-out property <bool> category-menu-open: false;
+    // 条目上下文菜单可见状态。
     in-out property <bool> entry-menu-open: false;
+    // 分类菜单 X 坐标，单位 length。
     in-out property <length> category-menu-x: 0px;
+    // 分类菜单 Y 坐标，单位 length。
     in-out property <length> category-menu-y: 0px;
+    // 条目菜单 X 坐标，单位 length。
     in-out property <length> entry-menu-x: 0px;
+    // 条目菜单 Y 坐标，单位 length。
     in-out property <length> entry-menu-y: 0px;
+    // 主窗口提供的全局快捷键标签，只读展示。
     in property <string> hotkey-label: "";
 
+    // 分类选择后请求 bridge 切换过滤条件。
     callback category-changed(int);
+    // 请求分类上下文菜单。
     callback category-context(int);
+    // 拖拽分类数据交给 bridge 序列化，保持跨组件数据契约。
     pure callback category-to-transfer(int) -> data-transfer;
+    // bridge 判断拖放是否合法。
     callback category-can-drop(data-transfer, int, int) -> bool;
+    // 提交已验证的分类拖放。
     callback category-drop(data-transfer, int, int);
+    // 请求条目上下文菜单。
     callback entry-context(int);
+    // 单击选择条目并更新详情区。
     callback entry-selected(int);
+    // 双击条目触发播放或路由动作。
     callback entry-double-clicked(int);
+    // 直接播放指定条目。
     callback entry-play(int);
+    // 用户拖动播放进度，参数为比例。
     callback progress-seek(float);
+    // 请求添加音频文件。
     callback add-files();
+    // 停止当前播放流。
     callback stop();
+    // 切换暂停状态。
     callback pause-toggle();
+    // 播放上一条可用音频。
     callback previous();
+    // 播放下一条可用音频。
     callback next();
+    // 预览开关变更。
     callback preview-enabled-toggled(bool);
+    // 搜索框编辑通知。
     callback search-edited(string);
+    // 切换排序方向。
     callback sort-toggled();
+    // 请求页码变更。
     callback page-changed(int);
+    // 修改循环状态。
     callback loop-changed(bool);
+    // 修改条目分类。
     callback entry-category-changed(int);
+    // 请求绑定条目快捷键。
     callback entry-hotkey-bind();
+    // 清除条目快捷键。
     callback entry-hotkey-clear();
+    // 打开设置页快捷键分组。
     callback hotkey-settings();
+    // 提交编辑表单，参数为名称、图标索引和自定义路径。
     callback edit-accepted(string, int, string);
+    // 取消编辑，不写回 bridge。
     callback edit-cancelled();
+    // 请求自定义图标文件选择器。
     callback edit-custom-icon-requested();
+    // 页面本身透明，由主窗口卡片和布局提供底色。
     background: transparent;
 
+    // 主布局保持三栏伸缩；播放中或暂停时底部才创建 AudioTransport。
     VerticalLayout {
         padding-left: 22px;
         padding-right: 22px;
@@ -103,6 +185,7 @@ export component PlayerPage inherits Rectangle {
             vertical-stretch: 1;
             min-height: 0px;
             spacing: 14px;
+            // 分类侧栏拥有独立拖放/上下文菜单生命周期，并把事件上送 bridge。
             CategorySidebar {
                 width: root.sidebar-width;
                 category-depths <=> root.category-depths;
@@ -130,6 +213,7 @@ export component PlayerPage inherits Rectangle {
                 }
                 hotkey-settings => { root.hotkey-settings(); }
             }
+            // 分隔条只修改本地宽度属性，限制范围避免侧栏遮挡内容。
             LibrarySplitter {
                 width: 8px;
                 value: root.sidebar-width;
@@ -152,22 +236,26 @@ export component PlayerPage inherits Rectangle {
                         width: 20px;
                         vertical-alignment: TextVerticalAlignment.center;
                     }
+                    // 搜索输入双向绑定草稿，edited 事件触发 bridge 查询。
                     LineEdit {
                         horizontal-stretch: 1;
                         text <=> root.search;
                         placeholder-text: "搜索音频文件…";
                         edited(text) => { root.search-edited(text); }
                     }
+                    // 添加按钮只请求宿主打开文件选择流程，导入结果异步回填列表。
                     PmButton {
                         label: "添加音频";
                         filled: true;
                         clicked => { root.add-files(); }
                     }
+                    // 排序按钮只切换方向，实际查询由 bridge 重新执行。
                     PmButton {
                         label: root.sort-ascending ? "↑ 按名称" : "↓ 按名称";
                         clicked => { root.sort-toggled(); }
                     }
                 }
+                // 列表只展示当前分页数据，选中/播放状态由 bridge 镜像。
                 AudioList {
                     vertical-stretch: 1;
                     min-height: 0px;
@@ -197,6 +285,7 @@ export component PlayerPage inherits Rectangle {
                     height: 1px;
                     background: Theme.border;
                 }
+                // 分页控件按 page-count 禁用越界方向，页码从 0 开始传给宿主。
                 HorizontalLayout {
                     height: 36px;
                     Text {
@@ -235,6 +324,7 @@ export component PlayerPage inherits Rectangle {
                     }
                 }
             }
+            // 详情栏共享条目索引，分类/快捷键变更通过回调回到宿主。
             LibrarySplitter {
                 bar-width: 8px;
                 value: root.detail-width;
@@ -262,6 +352,7 @@ export component PlayerPage inherits Rectangle {
                 category-index <=> root.entry-category-index;
                 preview-enabled <=> root.preview-enabled;
                 loop <=> root.loop;
+                // 详情区事件只转发给宿主，持久化和播放副作用不在页面执行。
                 hotkey-clear => { root.entry-hotkey-clear(); }
                 category-changed(value) => {
                     root.entry-category-changed(value);
@@ -272,6 +363,7 @@ export component PlayerPage inherits Rectangle {
                 loop-toggled(value) => { root.loop-changed(value); }
             }
         }
+        // 播放器仅在 playing 或 paused 时挂载，停止后释放底部布局和相关命中区。
         if root.playing || root.paused: AudioTransport {
             entry-index: root.entry-index;
             entry-count: root.entries.length;
@@ -282,6 +374,7 @@ export component PlayerPage inherits Rectangle {
             current-name: root.current-name;
             current-position: root.current-position;
             duration-seconds: root.duration-seconds;
+            // 传输条回调沿用页面播放状态，避免组件直接依赖引擎实现。
             previous => { root.previous(); }
             pause-toggle => { root.pause-toggle(); }
             stop => { root.stop(); }

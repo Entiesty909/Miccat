@@ -3,17 +3,24 @@
 import { Theme } from "../theme.slint";
 import { MenuItem } from "menu-item.slint";
 
+// 菜单按源类型筛选可用动作；action code 由 Rust bridge 解释，组件不执行副作用。
 export component SourceActionsMenu inherits Rectangle {
+    // 0 进程、1 音频文件、2 麦克风，与 SourceRow.kind 保持一致。
     in property <int> kind: 0;
+    // 菜单项点击后把动作码交给路由页，由宿主完成替换/删除等操作。
     callback action(int);
+    // 点击菜单背景表示取消当前菜单，不会改变源配置。
     callback closed();
 
+    // 音频源菜单比进程/麦克风多出定位和快捷键动作，因此高度随 kind 改变。
     height: root.kind == 1 ? 188px : 126px;
     background: Theme.card;
     border-width: 1px;
     border-color: Theme.borderStrong;
     border-radius: Theme.radiusControl;
 
+    // 背景触摸区用于捕获空白点击；具体 MenuItem 的点击事件会优先处理动作。
+    // 空白点击只关闭当前弹层；菜单项自身的点击会向上提交动作码。
     TouchArea {
         clicked => { root.closed(); }
     }
@@ -27,30 +34,37 @@ export component SourceActionsMenu inherits Rectangle {
             font-size: 11px;
             vertical-alignment: TextVerticalAlignment.center;
         }
+        // 进程源只能替换进程，动作码 5 由 bridge 进入替换流程。
         if root.kind == 0: MenuItem {
             label: "替换进程";
             clicked => { root.action(5); }
         }
+        // 文件源替换仍使用同一菜单，但替换目标由 bridge 按槽位保存。
         if root.kind == 1: MenuItem {
             label: "替换音频";
             clicked => { root.action(6); }
         }
+        // 麦克风源替换动作码 7，菜单不直接打开设备选择器。
         if root.kind == 2: MenuItem {
             label: "替换麦克风";
             clicked => { root.action(7); }
         }
+        // 单独转发只改变该源的运行策略，实际状态由宿主校验后应用。
         MenuItem {
             label: "单独转发此源";
             clicked => { root.action(2); }
         }
+        // 文件源可跳转音频库定位当前条目。
         if root.kind == 1: MenuItem {
             label: "在音频库中定位";
             clicked => { root.action(3); }
         }
+        // 文件源快捷键配置交由 Rust 捕获全局键盘组合。
         if root.kind == 1: MenuItem {
             label: "设置快捷键";
             clicked => { root.action(1); }
         }
+        // 删除动作码 4 由 bridge 负责停止并移除对应路由槽位。
         MenuItem {
             label: "删除此源";
             danger: true;

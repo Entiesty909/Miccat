@@ -8,6 +8,7 @@ use std::cell::Cell;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
+/// 创建 50 ms 周期的 UI 定时器；所有引擎状态读取和模型更新都回到 Slint 线程。
 pub(super) fn start_status_timer(ui: &MainWindow, state: &AppState) -> Timer {
     let ui_weak = ui.as_weak();
     let state = state.clone();
@@ -15,9 +16,12 @@ pub(super) fn start_status_timer(ui: &MainWindow, state: &AppState) -> Timer {
     let last_diag_unseen = Cell::new(0usize);
     let mut source_meter_history = SourceMeterHistory::default();
     let timer = Timer::default();
+    // 轮询固定在 UI 线程执行：后台只准备列表结果，Slint 模型和窗口属性在此处批量提交。
     timer.start(TimerMode::Repeated, Duration::from_millis(50), move || {
         let Some(ui) = ui_weak.upgrade() else { return };
+        // 窗口关闭后弱引用升级失败，定时器保持安全空操作而不延长窗口生命周期。
         apply_list_refresh(&ui, &state);
+        // 先应用枚举结果，再读取引擎状态，避免同一 tick 使用已过期的设备或进程模型。
         update_engine_status(&ui, &state);
         super::sources::update_dynamic(&ui, &state);
         update_source_meter(&ui, &state, &mut source_meter_history);
@@ -28,16 +32,23 @@ pub(super) fn start_status_timer(ui: &MainWindow, state: &AppState) -> Timer {
     });
     timer
 }
+/// 电平历史保留的采样点数，供 UI 绘制最近一段时间的峰值轨迹。
 const PEAK_HISTORY_LENGTH: usize = 32;
 
+/// 按当前源行结构保存峰值历史；行结构变化时历史必须整体重置。
 #[derive(Default)]
 struct SourceMeterHistory {
+    /// 源行的种类，0/1/2 分别对应进程、文件混音和麦克风。
     kinds: Vec<i32>,
+    /// 源行标题快照，用于发现卡片重排而不是沿用旧电平。
     titles: Vec<slint::SharedString>,
+    /// 所有源行串联的峰值历史，按行再按时间点排列。
     samples: Vec<f32>,
+    /// 主路由的独立峰值历史。
     master_samples: Vec<f32>,
 }
 
+/// 把引擎峰值映射到当前 UI 源行，并只在数据或历史发生变化时更新模型。
 fn update_source_meter(ui: &MainWindow, state: &AppState, history: &mut SourceMeterHistory) {
     let kinds = ui.get_source_kinds();
     let titles = ui.get_source_titles();
@@ -48,6 +59,7 @@ fn update_source_meter(ui: &MainWindow, state: &AppState, history: &mut SourceMe
             history.kinds[index] != kinds.row_data(index).unwrap_or_default()
                 || history.titles[index] != titles.row_data(index).unwrap_or_default()
         });
+    // 行类型或标题改变意味着槽位映射可能改变，旧峰值不能归到新的卡片上。
     if rows_changed {
         history.kinds = (0..row_count)
             .map(|index| kinds.row_data(index).unwrap_or_default())
@@ -68,6 +80,7 @@ fn update_source_meter(ui: &MainWindow, state: &AppState, history: &mut SourceMe
             0 => {
                 let mut value = 0.0;
                 while process_slot < cache.selected_pids.len() {
+                    // process_slot 是源行到引擎进程槽位的映射；失效 PID 不应推进引擎槽位。
                     let slot = process_slot;
                     let pid = cache.selected_pids[slot];
                     process_slot += 1;
@@ -83,7 +96,9 @@ fn update_source_meter(ui: &MainWindow, state: &AppState, history: &mut SourceMe
             _ => 0.0,
         };
         peak_dbs.push(format_peak_db(peak).into());
+        // 每行历史固定占 PEAK_HISTORY_LENGTH 个元素，模型长度稳定才能让 Slint 绘图复用。
         let offset = index * PEAK_HISTORY_LENGTH;
+        // 固定长度历史按行宽平移，尾部写入本次峰值以保持时间方向一致。
         let segment_was_nonzero = history.samples[offset..offset + PEAK_HISTORY_LENGTH]
             .iter()
             .any(|sample| *sample != 0.0);
@@ -94,6 +109,7 @@ fn update_source_meter(ui: &MainWindow, state: &AppState, history: &mut SourceMe
         history.samples[offset + PEAK_HISTORY_LENGTH - 1] = peak;
     }
     drop(cache);
+    // 释放缓存借用后再写 UI，避免模型回调期间持有缓存借用造成重入冲突。
     if source_history_changed {
         ui.set_source_meter_history(ModelRc::new(VecModel::from(history.samples.clone())));
         ui.set_source_meter_dbs(ModelRc::new(VecModel::from(peak_dbs)));
@@ -114,18 +130,21 @@ fn update_source_meter(ui: &MainWindow, state: &AppState, history: &mut SourceMe
         ui.set_master_meter_history(ModelRc::new(VecModel::from(history.master_samples.clone())));
     }
 }
+/// 将线性增益（0..1）转换为显示用分贝值。
 fn format_gain_db(value: f32) -> String {
     if value <= 0.001 {
         return "-∞ dB".into();
     }
     format!("{:.1} dB", 20.0 * value.log10())
 }
+/// 将线性峰值转换为显示用分贝值；极低值显示为静音符号。
 fn format_peak_db(value: f32) -> String {
     if value <= 0.0001 {
         return "-∞ dB".into();
     }
     format!("{:.1} dB", 20.0 * value.log10())
 }
+/// 消费后台枚举结果，并在 UI 线程一次性替换进程、麦克风和输出模型。
 fn apply_list_refresh(ui: &MainWindow, state: &AppState) {
     let result = state
         .list_refresh
@@ -137,6 +156,8 @@ fn apply_list_refresh(ui: &MainWindow, state: &AppState) {
         return;
     };
     state.list_refresh.pending.store(false, Ordering::Release);
+    // pending 是唤醒标记而非数据本身，消费结果后清零才能允许下一轮枚举再次入队。
+    // pending 只表示有结果可消费；取出结果后释放锁，再在 UI 线程更新模型。
     match result {
         Ok(lists) => {
             super::lists::apply_process_list(ui, &state.cache, lists.processes);
@@ -146,7 +167,7 @@ fn apply_list_refresh(ui: &MainWindow, state: &AppState) {
                 ui.invoke_mic_mix_changed(false);
             }
             if state.windows.add_source.window().is_visible() {
-                super::sync_add_source_window(
+                super::window_lifecycle::sync_add_source_window(
                     ui,
                     state.windows.add_source.as_ref(),
                     &state.cache,
@@ -158,9 +179,11 @@ fn apply_list_refresh(ui: &MainWindow, state: &AppState) {
     }
 }
 
+/// 把 AudioEngine 的生命周期状态投影到状态文案，并在结束态恢复系统默认麦克风。
 fn update_engine_status(ui: &MainWindow, state: &AppState) {
     match state.engine.status() {
         EngineStatus::Running => {
+            // 只有状态真的跨过边界才改写文案，避免 50ms 轮询反复触发同一批 UI 更新。
             if !ui.get_running() {
                 ui.set_running(true);
                 ui.set_status_text("运行中".into());
@@ -168,6 +191,7 @@ fn update_engine_status(ui: &MainWindow, state: &AppState) {
             }
         }
         EngineStatus::Idle => {
+            // 引擎回到空闲态时恢复启动前的系统麦克风，避免路由退出后遗留占用。
             if ui.get_running() {
                 restore_default_mics(&state.saved_mics);
                 ui.set_running(false);
@@ -201,6 +225,7 @@ fn update_engine_status(ui: &MainWindow, state: &AppState) {
     }
 }
 
+/// 同步试听文件的播放、时长和拖动进度；用户拖动时不覆盖其临时位置。
 fn update_player_progress(ui: &MainWindow, state: &AppState) {
     if ui.get_audio_entry_index() >= 0
         && let Some(actual) = visible_entry(&state.cache, ui.get_audio_entry_index() as usize)
@@ -208,6 +233,7 @@ fn update_player_progress(ui: &MainWindow, state: &AppState) {
     {
         ui.set_player_loop(entry.loop_playback);
     }
+    // 拖动或暂停期间 UI 是临时编辑态，不能被引擎的异步位置覆盖。
     if ui.get_player_paused() {
         return;
     }
@@ -217,6 +243,7 @@ fn update_player_progress(ui: &MainWindow, state: &AppState) {
         super::diagnostics::report_warning(ui, &error);
         return;
     }
+    // 文件状态是试听进度的权威来源；错误和自然结束都先同步播放按钮，再处理位置。
     if !file.playing && ui.get_player_playing() {
         ui.set_player_playing(false);
     }
@@ -230,8 +257,10 @@ fn update_player_progress(ui: &MainWindow, state: &AppState) {
     ui.set_audio_current_position(format_hns_position(file.position_hns, file.duration_hns).into());
 }
 
+/// 仅在主输出下标变化时刷新设备说明，避免每个定时 tick 重写文案。
 fn update_device_label(ui: &MainWindow, state: &AppState, last_dest_idx: &Cell<i32>) {
     let device_index = ui.get_device_index();
+    // 设备索引不变时说明文案无需重算，减少定时器对 Slint 属性的重复写入。
     if device_index != last_dest_idx.get() {
         last_dest_idx.set(device_index);
         update_output_text(ui, &state.cache);

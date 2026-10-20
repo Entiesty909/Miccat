@@ -154,11 +154,12 @@ pub(super) fn update_audio_catalog(ui: &MainWindow, cache: &Rc<RefCell<UiCache>>
 /// 条目快捷键文本：优先全局组合键，其次旧的前台单键。
 pub(super) fn entry_shortcut(entry: &config::AudioEntry) -> Option<String> {
     if let Some(binding) = entry.hotkey_binding {
-        return Some(binding.label());
+        return Some(crate::presentation::hotkey_label(binding));
     }
     entry.hotkey.clone()
 }
 
+/// 构造带快捷键的音频条目显示文本，顺序与配置条目保持一致。
 pub(super) fn audio_hotkey_labels(cache: &Rc<RefCell<UiCache>>) -> Vec<slint::SharedString> {
     cache
         .borrow()
@@ -179,6 +180,7 @@ pub(super) fn visible_entry(cache: &RefCell<UiCache>, visible_index: usize) -> O
         .nth(visible_index)
 }
 
+/// 按分类、搜索词和排序规则返回配置条目下标，不改变配置数组顺序。
 fn filtered_entry_indices(cache: &UiCache) -> Vec<usize> {
     let search = cache.audio_search.to_lowercase();
     let mut indices = cache
@@ -210,11 +212,13 @@ pub(super) fn visible_rank(cache: &RefCell<UiCache>, actual_index: usize) -> Opt
         .position(|index| *index == actual_index)
 }
 
+/// 返回当前缓存中展开后的分类路径列表，供下拉和树视图共用。
 pub(super) fn category_paths(cache: &Rc<RefCell<UiCache>>) -> Vec<String> {
     let cache = cache.borrow();
     crate::library::category_paths(&cache.audio_categories, &cache.audio_entries)
 }
 
+/// 返回分类路径最后一级名称，空路径由领域层规则处理。
 pub(super) fn category_leaf(path: &str) -> &str {
     crate::library::category_leaf(path)
 }
@@ -319,6 +323,7 @@ pub(super) fn update_audio_list(ui: &MainWindow, cache: &Rc<RefCell<UiCache>>) {
     }
 }
 
+/// 依据字节数和 100 ns 时长估算码率；任一元数据缺失时返回未知。
 fn estimated_bitrate(file_size_bytes: u64, duration_hns: u64) -> String {
     if file_size_bytes == 0 || duration_hns == 0 {
         return "码率未知".to_string();
@@ -328,6 +333,7 @@ fn estimated_bitrate(file_size_bytes: u64, duration_hns: u64) -> String {
     format!("≈{kilobits} kbps")
 }
 
+/// 将字节数转换为用户可读的 KB/MB 文案，零值表示元数据未知。
 fn format_file_size(bytes: u64) -> String {
     if bytes == 0 {
         return "大小未知".to_string();
@@ -344,16 +350,19 @@ mod tests {
     use super::{AUDIO_ICON_GLYPHS, audio_icon_index, category_path_conflicts};
 
     #[test]
+    /// 默认音符 glyph 必须映射到编辑器的默认图标选项。
     fn default_music_note_maps_to_default_icon_option() {
         assert_eq!(audio_icon_index(AUDIO_ICON_GLYPHS[0]), 0);
     }
 
     #[test]
+    /// 非默认 glyph 使用首字图标选项。
     fn non_default_glyph_maps_to_first_letter_option() {
         assert_eq!(audio_icon_index("A"), 5);
     }
 
     #[test]
+    /// 原路径不冲突，允许只修改图标而不重命名分类。
     fn unchanged_category_name_allows_icon_edit() {
         let paths = vec!["效果音".to_string(), "系统/提示".to_string()];
 
@@ -361,6 +370,7 @@ mod tests {
     }
 
     #[test]
+    /// 已存在的同级目标路径必须拒绝重命名。
     fn category_rename_still_rejects_existing_sibling_path() {
         let paths = vec!["效果音".to_string(), "提示音".to_string()];
 

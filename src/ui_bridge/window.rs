@@ -9,10 +9,11 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 /// 首选主窗口尺寸（逻辑像素）。
 const WINDOW_W: f32 = 1080.0;
+/// 首选主窗口高度（逻辑像素）。
 const WINDOW_H: f32 = 560.0;
-
 /// 把主窗口尺寸收窄到显示器工作区内。
 pub(super) fn fit_window_to_screen(ui: &MainWindow) {
+    // Slint 的尺寸是逻辑像素，Win32 工作区是物理像素，因此先按当前 DPI 换算再设置窗口。
     let scale = ui.window().scale_factor().max(1.0);
     let area = primary_work_area().unwrap_or(RECT {
         left: 0,
@@ -20,6 +21,7 @@ pub(super) fn fit_window_to_screen(ui: &MainWindow) {
         right: (WINDOW_W * scale) as i32,
         bottom: (WINDOW_H * scale) as i32,
     });
+    // 留出边缘余量且不低于可用的最小尺寸，避免窗口首次启动超出工作区。
     let available_w = (area.right - area.left) as f32 / scale;
     let available_h = (area.bottom - area.top) as f32 / scale;
     let width = WINDOW_W.min(available_w - 12.0).max(900.0);
@@ -57,6 +59,7 @@ pub(super) fn saved_position(window: &slint::Window) -> WindowPosition {
 
 /// 返回主显示器工作区的物理坐标。
 fn primary_work_area() -> Option<RECT> {
+    // SPI_GETWORKAREA 不含任务栏；返回值在 FFI 失败或坐标退化时交给调用方兜底。
     let mut area = RECT::default();
     let result = unsafe {
         // SAFETY: area 是可写RECT，系统调用在返回前填充该结构。

@@ -2,28 +2,38 @@
 
 import { Theme } from "../theme.slint";
 
+// 三栏布局分隔条：把拖动后的目标宽度交给页面进行范围约束。
 export component LibrarySplitter inherits Rectangle {
+    // 分隔条命中区域宽度，单位为 length。
     in property <length> bar-width: 8px;
+    // 拖动开始时的外部宽度值，作为本次拖动的基准。
     in property <length> value: 0px;
+    // 详情栏反向拖动时取负的指针位移。
     in property <bool> reverse-delta: false;
+    // 用户拖动后提交新的目标宽度，宿主负责裁剪并保存。
     callback resized(length);
     width: root.bar-width;
     height: 100%;
     background: transparent;
     // 拖动用屏幕坐标差，避免宽度更新移动分隔条后改变局部坐标。
+    // 拖动开始时记录的宽度基准，贯穿本次手势生命周期。
     in-out property <length> drag-start: 0px;
+    // 按下时的屏幕横坐标，用于计算不受分隔条移动影响的位移。
     in-out property <length> drag-pointer-start: 0px;
 
+    // 独立命中区承载拖动手势，视觉状态由 states 根据其状态派生。
     area := TouchArea {
         width: 100%;
         height: 100%;
         mouse-cursor: ew-resize;
+        // 只在按下瞬间锁定基准，后续 moved 事件都复用同一基准计算。
         pointer-event(event) => {
             if event.kind == PointerEventKind.down {
                 root.drag-start = root.value;
                 root.drag-pointer-start = self.absolute-position.x + self.mouse-x;
             }
         }
+        // 每次移动都按屏幕坐标计算增量，再交给宿主做范围裁剪。
         moved => {
             let pointer-x = self.absolute-position.x + self.mouse-x;
             let delta = pointer-x - root.drag-pointer-start;
@@ -31,6 +41,7 @@ export component LibrarySplitter inherits Rectangle {
         }
     }
 
+    // 悬停和按住时提供视觉反馈，不改变拖动数值协议。
     states [
         hovered when area.has-hover: {
             background: Theme.borderStrong;

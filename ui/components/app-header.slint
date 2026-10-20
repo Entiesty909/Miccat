@@ -3,15 +3,21 @@
 import { Theme } from "../theme.slint";
 import { TabBar } from "tab-bar.slint";
 
+// 主窗口顶部的页签容器；current 与 MainWindow.page 双向保持当前页面一致。
 export component AppHeader inherits Rectangle {
+    // 当前页索引由 Rust bridge 状态驱动，0 路由、1 音频库、2 设置。
     in-out property <int> current: 0;
+    // 用户点击页签后通知宿主切页，并由宿主关闭相关上下文菜单。
     callback picked(int);
 
+    // 固定顶栏高度，需与 Theme.topBarHeight/页签高度的布局契约保持一致。
     height: 42px;
     background: Theme.card;
     border-width: 1px;
+        // TabBar 只负责视觉和点击命中，页面状态仍由父组件保存。
     TabBar {
         current: root.current;
+        // 点击结果向上冒泡，避免页签组件直接修改全局页面。
         picked(i) => { root.picked(i); }
     }
 }

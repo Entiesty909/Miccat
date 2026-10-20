@@ -19,12 +19,14 @@ use windows::Win32::UI::Shell::{
 use windows::Win32::UI::WindowsAndMessaging::{DI_NORMAL, DestroyIcon, DrawIconEx, HICON};
 use windows::core::{PCWSTR, PWSTR};
 
+/// Windows 图标栅格边长，render_icon 与 Slint 缓冲区必须保持一致。
 const ICON_SIZE: i32 = 32;
 
 /// 提取进程 exe 图标；进程路径或图标不可读时返回空图片。
 #[allow(unsafe_code)]
 #[allow(clippy::too_many_lines)]
 pub(crate) fn process_icon(pid: u32) -> Image {
+    // 进程路径查询失败时返回空图，调用方仍可渲染没有图标的进程卡片。
     let Some(path) = process_path(pid) else {
         return Image::default();
     };
@@ -43,6 +45,7 @@ pub(crate) fn file_icon(path: &str) -> Image {
         .any(|candidate| extension.eq_ignore_ascii_case(candidate))
     }) && let Ok(image) = Image::load_from_path(path)
     {
+        // 常见图片直接交给 Slint 解码，避免无意义的 Shell 图标往返。
         return image;
     }
     let path = path.to_string_lossy();
@@ -51,6 +54,7 @@ pub(crate) fn file_icon(path: &str) -> Image {
         .chain(std::iter::once(0))
         .collect::<Vec<_>>();
     if let Some(icon) = extract_icon(PCWSTR(wide.as_ptr())) {
+        // ExtractIconExW 返回的句柄由 take_icon 统一销毁，避免成功路径泄漏。
         return take_icon(icon);
     }
 
@@ -68,9 +72,11 @@ pub(crate) fn file_icon(path: &str) -> Image {
     if result == 0 || info.hIcon.is_invalid() {
         return Image::default();
     }
+    // SHGetFileInfoW 的 hIcon 同样是本次取得的资源，转换后必须调用 DestroyIcon。
     take_icon(info.hIcon)
 }
 
+/// 从文件路径请求大图标句柄；调用方取得句柄后必须负责 DestroyIcon。
 fn extract_icon(path: PCWSTR) -> Option<HICON> {
     let mut large = HICON::default();
     let count = unsafe {
@@ -80,6 +86,7 @@ fn extract_icon(path: PCWSTR) -> Option<HICON> {
     (count != 0 && !large.is_invalid()).then_some(large)
 }
 
+/// 将拥有的图标句柄转换为 Slint 图片，并在转换后释放句柄。
 fn take_icon(icon: HICON) -> Image {
     let image = icon_to_image(icon);
     unsafe {
@@ -89,11 +96,13 @@ fn take_icon(icon: HICON) -> Image {
     image
 }
 
+/// 查询进程的 Win32 可执行文件路径；返回字符串前关闭临时进程句柄。
 fn process_path(pid: u32) -> Option<String> {
     let process = unsafe {
         // SAFETY: 只请求受限查询权限，不读取进程内存；句柄由本函数关闭。
         OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?
     };
+    // 预留固定 UTF-16 缓冲区，QueryFullProcessImageNameW 通过 length 返回实际字符数。
     let mut buffer = vec![0u16; 1024];
     let mut length = buffer.len() as u32;
     let result = unsafe {
@@ -114,23 +123,29 @@ fn process_path(pid: u32) -> Option<String> {
     (!buffer.is_empty()).then(|| String::from_utf16_lossy(&buffer))
 }
 
+/// 把渲染得到的 BGRA 像素整理成 Slint 所需的 RGBA 图片。
 fn icon_to_image(icon: HICON) -> Image {
+    // GDI 创建或绘制失败时返回空图，避免把无效句柄传给 Slint。
     let Some(mut pixels) = render_icon(icon) else {
         return Image::default();
     };
     let (chunks, _) = pixels.as_chunks_mut::<4>();
     for pixel in chunks {
+        // GDI DIB 按 BGR 排列，而 Slint 的 Rgba8Pixel 需要 RGBA；无 alpha 的图标补不透明度。
         pixel.swap(0, 2);
         if pixel[3] == 0 && (pixel[0] != 0 || pixel[1] != 0 || pixel[2] != 0) {
             pixel[3] = 255;
         }
     }
     let mut buffer = SharedPixelBuffer::<Rgba8Pixel>::new(ICON_SIZE as u32, ICON_SIZE as u32);
+    // render_icon 已复制出独立 Vec，拷贝后 Slint 缓冲区不再依赖 GDI 内存。
     buffer.make_mut_bytes().copy_from_slice(&pixels);
     Image::from_rgba8(buffer)
 }
 
+/// 使用临时 GDI 位图绘制图标，成功时复制像素后释放全部 GDI 对象。
 fn render_icon(icon: HICON) -> Option<Vec<u8>> {
+    // hdc 与后续 DIB 只在本函数内使用，统一在所有返回路径释放。
     let hdc = unsafe {
         // SAFETY: 传入 None 创建独立的内存 DC，不借用外部 DC。
         CreateCompatibleDC(None)
@@ -139,6 +154,7 @@ fn render_icon(icon: HICON) -> Option<Vec<u8>> {
         return None;
     }
     let mut bits: *mut c_void = null_mut();
+    // 负高度创建顶向下 DIB，使内存首行对应图像顶部，省去行序翻转。
     let info = BITMAPINFO {
         bmiHeader: BITMAPINFOHEADER {
             biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
@@ -162,10 +178,12 @@ fn render_icon(icon: HICON) -> Option<Vec<u8>> {
         }
         return None;
     };
+    // bitmap 选入 DC 后，DrawIconEx 才能直接写入这块像素；退出前必须恢复 old。
     let old = unsafe {
         // SAFETY: bitmap 是当前 DC 可选择的 DIB，句柄类型由 windows-rs 保证匹配。
         SelectObject(hdc, bitmap.into())
     };
+    // 仅在 bitmap 已选入 DC 时构造切片，长度固定为 32×32×4 字节。
     let bytes = unsafe {
         // SAFETY: bits 指向 ICON_SIZE² 个 32 位像素，DrawIconEx 只写入已选中的 DIB。
         std::slice::from_raw_parts_mut(bits.cast::<u8>(), (ICON_SIZE * ICON_SIZE * 4) as usize)
@@ -175,6 +193,7 @@ fn render_icon(icon: HICON) -> Option<Vec<u8>> {
         // SAFETY: hdc 和 icon 均在本函数调用期间有效，绘制区域与 DIB 尺寸一致。
         DrawIconEx(hdc, 0, 0, icon, ICON_SIZE, ICON_SIZE, 0, None, DI_NORMAL).is_ok()
     };
+    // 先复制像素再恢复并删除 GDI 对象，确保返回 Vec 不再依赖 DIB 内存。
     let output = drawn.then(|| bytes.to_vec());
     unsafe {
         // SAFETY: 恢复原对象后删除 DIB 和内存 DC，避免 GDI 句柄泄漏。

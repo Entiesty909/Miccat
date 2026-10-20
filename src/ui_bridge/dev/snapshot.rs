@@ -1,4 +1,4 @@
-//! 使用 Slint 软件渲染器输出音频库 UI 快照。
+//! 构造开发期 UI 场景，模拟交互并写出 Slint 软件渲染快照。
 
 use super::super::*;
 use slint::Model;
@@ -40,6 +40,7 @@ pub(crate) struct SnapshotOptions<'a> {
 
 /// 把主窗口按指定页面渲染成原始 RGBA，用于核对布局与交互状态。
 pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error> {
+    // 先解构选项，把命令行场景转换成一次性的内存 fixture；快照流程不会把模拟交互写回运行态。
     let SnapshotOptions {
         path,
         page,
@@ -57,6 +58,7 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
         diagnostics_live,
         settings_section,
     } = options;
+    // 这些别名保留场景语义，后面的校验和事件模拟可读且不会混淆真实配置字段。
     let with_entry_menu = entry_menu;
     let simulate_empty_category_right_click = empty_category_menu;
     let simulate_category_row_right_click = category_row_menu;
@@ -108,14 +110,21 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
             "source dialog reopen snapshots require a route page and source tab".into(),
         ));
     }
+    // 每次快照都创建独立窗口，避免复用主窗口导致上一次场景的 Slint 属性或模型残留。
     let ui = MainWindow::new().map_err(|e| Error::InvalidArgs(e.to_string()))?;
+    // 配置只作为 fixture 的数据来源；Rc/RefCell 让后续桥接初始化共享同一份临时状态。
     let persisted_state = Rc::new(RefCell::new(config::load()));
-    if hydrate_audio_durations(&persisted_state) {
-        config::save(&persisted_state.borrow());
-    }
+    // 快照只构造内存 fixture，不把旧媒体时长补全写回用户配置。
+    let _ = hydrate_audio_durations(&persisted_state);
     let persisted = persisted_state.borrow().clone();
+    ui.set_all_devices(persisted.output.all_devices);
+    ui.set_set_default_mic(persisted.output.set_default_mic);
+    ui.set_set_default_render(persisted.output.set_default_render);
+    ui.set_set_default_communications(persisted.output.set_default_communications);
+    // 空白分类场景必须使用空模型，不能从真实库借一条数据，否则右键命中测试会失真。
     let (categories, audio_entries, audio_category) = if simulate_empty_category_right_click {
         (Vec::new(), Vec::new(), String::new())
+    // 分类行场景使用固定层级数据，保证分页和右键坐标在不同用户配置下仍可复现。
     } else if simulate_category_row_right_click {
         let categories = vec![
             "分类1".into(),
@@ -125,6 +134,7 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
         ];
         let category = crate::library::category_paths(&categories, &[])[0].clone();
         (categories, Vec::new(), category)
+    // 普通快照沿用持久化库的副本；副本随后只被 UI 读取，不改变磁盘配置。
     } else {
         let categories = persisted.audio_categories.clone();
         let entries = persisted.audio_entries.clone();
@@ -134,8 +144,8 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
             .unwrap_or_default();
         (categories, entries, category)
     };
+    // 仅把场景所需的库数据装入 UiCache，保持快照与真实运行缓存的生命周期隔离。
     let cache = Rc::new(RefCell::new(UiCache {
-        all_devices: persisted.output.all_devices,
         audio_categories: categories,
         audio_entries,
         audio_category,
@@ -148,6 +158,7 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
     ui.set_audio_categories(ModelRc::new(VecModel::from(
         super::super::library::audio_categories(&cache),
     )));
+    // 播放页需要设备下标和预览状态，先补设备模型再把持久化设备 ID 映射成当前列表下标。
     if page_index == 1 {
         refill_devices(&ui, &cache, false);
         let cache_state = cache.borrow();
@@ -187,6 +198,7 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
         ui.set_player_playing(false);
         ui.set_player_entry_index(-1);
         ui.set_audio_progress(0.0);
+    // 路由/设置页共享真实选择恢复逻辑，随后只在路由页构造最小源行 fixture。
     } else {
         refill(&ui, &cache, true);
         restore_saved_selection(&ui, &cache, &persisted);
@@ -194,61 +206,59 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
         ui.set_master_volume(persisted.mix.master * 100.0);
         ui.set_preview_enabled(persisted.preview_enabled);
         ui.set_preview_volume(persisted.preview_volume * 100.0);
+        // 快照只放入第一条进程、文件和可用麦克风，足以覆盖布局而不依赖完整设备枚举。
         if page_index == 0 {
             let cache = cache.borrow();
             let mut rows = super::super::sources::SourceRows::default();
             if let Some(process) = cache.processes.first() {
-                rows.kinds.push(0);
-                rows.icons.push("\u{E7F4}".into());
-                rows.icon_images
-                    .push(crate::platform::icon::process_icon(process.pid));
-                rows.titles.push(process.name.clone().into());
-                rows.subtitles.push("进程音频".into());
-                rows.details.push(format!("PID: {}", process.pid).into());
-                rows.statuses.push("可添加".into());
-                rows.active.push(false);
-                rows.volumes.push(persisted.mix.process * 100.0);
-                rows.muted.push(false);
+                rows.push_process(super::super::sources::ProcessRowInput {
+                    name: process.name.clone(),
+                    pid: process.pid,
+                    status: "可添加".into(),
+                    icon_image: crate::platform::icon::process_icon(process.pid),
+                    active: false,
+                    volume: persisted.mix.process,
+                    peak: 0.0,
+                    output_index: 0,
+                });
             }
             if let Some(entry) = cache.audio_entries.first() {
-                super::super::sources::add_file_row(
-                    &mut rows,
-                    &entry.name,
-                    &entry.path,
-                    "待播放",
-                    (false, false),
-                    (persisted.mix.sfx, 0.0),
-                    0,
-                );
                 let detail = format!(
                     "{} · {}",
                     crate::library::category_leaf(&entry.category),
                     super::super::format::format_duration_hns(entry.duration_hns)
                 );
-                if let Some(slot) = rows.details.last_mut() {
-                    *slot = detail.into();
-                }
+                rows.push_file(super::super::sources::FileRowInput {
+                    name: entry.name.clone(),
+                    path: entry.path.clone(),
+                    detail,
+                    status: "待播放".into(),
+                    active: false,
+                    paused: false,
+                    volume: persisted.mix.sfx,
+                    peak: 0.0,
+                    output_index: 0,
+                });
             }
             if let Some(mic_id) = persisted.output.mic_id.as_deref()
                 && let Some(index) = cache.mic_ids.iter().position(|id| id == mic_id)
                 && let Some(name) = cache.mic_names.get(index)
             {
-                rows.kinds.push(2);
-                rows.icons.push("\u{E720}".into());
-                rows.icon_images.push(slint::Image::default());
-                rows.titles.push("麦克风".into());
-                rows.subtitles.push(name.clone().into());
-                rows.details.push("".into());
-                rows.statuses.push(if persisted.route.mix_mic {
-                    "已启用".into()
-                } else {
-                    "未启用".into()
+                rows.push_microphone(super::super::sources::MicrophoneRowInput {
+                    name: name.clone(),
+                    status: if persisted.route.mix_mic {
+                        "已启用".into()
+                    } else {
+                        "未启用".into()
+                    },
+                    active: persisted.route.mix_mic,
+                    volume: persisted.mix.mic,
+                    peak: 0.0,
+                    output_index: 0,
                 });
-                rows.active.push(persisted.route.mix_mic);
-                rows.volumes.push(persisted.mix.mic * 100.0);
-                rows.muted.push(false);
             }
             rows.apply(&ui);
+            // 电平表模型按“每行 32 个采样点”展开；这里填零表示 fixture 没有实时音频线程。
             if source_meter {
                 let source_count = ui.get_source_titles().row_count();
                 let source_history = vec![0.0; source_count * 32];
@@ -274,6 +284,7 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
     if simulate_category_row_right_click {
         ui.set_audio_category_index(2);
     }
+    // 诊断示例与实时诊断互斥：前者验证展示状态，后者验证同步真实 Hub 快照。
     if diagnostics || diagnostics_log || diagnostics_badge {
         seed_diagnostics(&ui, &persisted, diagnostics_log, diagnostics_badge);
     }
@@ -283,6 +294,7 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
     }
     ui.window().set_size(slint::LogicalSize::new(1280.0, 800.0));
     let source_dialog =
+        // 对话框窗口单独同步生命周期和缓存，避免把子窗口的模型绑定到主窗口句柄。
         if source_dialog_tab >= 0 || source_dialog_click_tab >= 0 || source_dialog_reopen {
             super::super::library::update_audio_catalog(&ui, &cache);
             let initial_tab = if source_dialog_click_tab >= 0 {
@@ -292,7 +304,12 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
             };
             let dialog =
                 AddSourceWindow::new().map_err(|error| Error::InvalidArgs(error.to_string()))?;
-            super::super::sync_add_source_window(&ui, &dialog, &cache, &persisted_state);
+            super::super::window_lifecycle::sync_add_source_window(
+                &ui,
+                &dialog,
+                &cache,
+                &persisted_state,
+            );
             dialog.set_selected_tab(initial_tab);
             Some(dialog)
         } else {
@@ -306,6 +323,7 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
             .show()
             .map_err(|error| Error::InvalidArgs(error.to_string()))?;
     }
+    // 隐藏后重开并比较完整像素，验证窗口表面刷新而不是只验证可见属性。
     if source_dialog_reopen {
         let dialog = source_dialog
             .as_ref()
@@ -335,6 +353,7 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
             ));
         }
     }
+    // 先取一帧再派发点击，确保目标卡片已布局；选中下标是点击副作用的验收信号。
     if source_dialog_click_tab >= 0 {
         let dialog = source_dialog
             .as_ref()
@@ -354,6 +373,7 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
             ));
         }
     }
+    // 通过真实窗口事件验证 PopupWindow 的命中区域，而不是直接设置其 open 属性。
     if source_menu_click {
         let _ = ui
             .window()
@@ -365,6 +385,7 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
             .take_snapshot()
             .map_err(|error| Error::InvalidArgs(error.to_string()))?;
     }
+    // 右键模拟必须经过事件分发，才能覆盖空白区域与分类行各自的命中逻辑。
     if simulate_empty_category_right_click {
         let _ = ui
             .window()
@@ -377,6 +398,7 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
             ));
         }
     }
+    // 分类行右键还校验行下标，防止菜单虽然打开却绑定到上一条分类。
     if simulate_category_row_right_click {
         let _ = ui
             .window()
@@ -391,16 +413,28 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
     }
     // 软件渲染器按需渲染：先压一次事件循环，再取快照。
     let _ = slint::invoke_from_event_loop(|| {});
+    // 子窗口优先取快照；没有子窗口时才保存主窗口，保证输出对应用户请求的场景。
     let snapshot = if let Some(dialog) = source_dialog.as_ref() {
         dialog.window().take_snapshot()
     } else {
         ui.window().take_snapshot()
     }
     .map_err(|error| Error::InvalidArgs(error.to_string()))?;
+    write_snapshot(path, &snapshot)?;
+    Ok(())
+}
+
+/// 将 Slint 快照写成宽度、高度和 RGBA 三段连续数据。
+fn write_snapshot(
+    path: &str,
+    snapshot: &slint::SharedPixelBuffer<slint::Rgba8Pixel>,
+) -> Result<(), Error> {
+    // 文件格式固定为 little-endian 宽度、高度和紧随其后的 RGBA 像素，供外部脚本无需图像库读取。
     let mut bytes = Vec::with_capacity(8 + snapshot.as_bytes().len());
     bytes.extend_from_slice(&snapshot.width().to_le_bytes());
     bytes.extend_from_slice(&snapshot.height().to_le_bytes());
     bytes.extend_from_slice(snapshot.as_bytes());
+    // 一次性写入完整缓冲区，避免输出半张快照让像素回归工具误判。
     std::fs::write(path, &bytes)?;
     println!(
         "snapshot {}x{} -> {path}",
@@ -417,6 +451,7 @@ fn seed_diagnostics(
     log_tab: bool,
     badge_only: bool,
 ) {
+    // 示例数据先清空全局 Hub，确保快照不叠加上一次运行残留的诊断条目。
     let hub = crate::diagnostics::hub();
     hub.clear();
     hub.report(
@@ -440,17 +475,22 @@ fn seed_diagnostics(
         "",
         "",
     );
+    // 先按正常桥接路径同步模型，再覆盖面板开关/选中项，保证徽标和列表来自同一份快照。
     diagnostics::init(ui, persisted);
+    // 新 Cell 代表本次渲染的同步游标；不能复用长期 UI 状态，否则首帧可能被跳过。
     let last = std::cell::Cell::new(usize::MAX);
     diagnostics::sync(ui, &last);
+    // 这些属性只控制展示场景：badge_only 保留徽标，log_tab 切换日志页，不改变 Hub 数据。
     let state = ui.global::<DiagState>();
     state.set_open(!badge_only);
     state.set_selected(2);
     state.set_tab(log_tab as i32);
 }
 
+/// 向主窗口派发完整右键序列，使 Slint 的命中测试和菜单副作用按真实交互执行。
 fn dispatch_right_click(ui: &MainWindow, position: slint::LogicalPosition) {
     let window = ui.window();
+    // Slint 需要移动、按下、释放完整序列才能触发右键回调；只发按下会留下悬挂指针状态。
     window.dispatch_event(slint::platform::WindowEvent::PointerMoved { position });
     window.dispatch_event(slint::platform::WindowEvent::PointerPressed {
         position,
@@ -462,8 +502,10 @@ fn dispatch_right_click(ui: &MainWindow, position: slint::LogicalPosition) {
     });
 }
 
+/// 向任意 Slint 组件窗口派发完整左键序列，用于测试卡片点击后的状态切换。
 fn dispatch_left_click<T: ComponentHandle>(ui: &T, position: slint::LogicalPosition) {
     let window = ui.window();
+    // 左键同样发送完整生命周期，组件才能执行点击回调而不是仅改变 hover 状态。
     window.dispatch_event(slint::platform::WindowEvent::PointerMoved { position });
     window.dispatch_event(slint::platform::WindowEvent::PointerPressed {
         position,

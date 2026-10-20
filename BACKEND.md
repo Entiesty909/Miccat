@@ -99,8 +99,10 @@ UI 修改经 `ui_bridge/persist.rs::SaveQueue` 防抖 300 ms，再由 FIFO 单�
 ## 当前边界与待收口点
 
 - `ui_bridge/` 不直接调用 `audio::decode`、`audio::sfx`、`audio::preview`；播放走 AudioEngine。
-- `ui_bridge/lists.rs` 和路由回调仍直接访问 `audio::device` / `audio::policy`。
-- `process.rs::label()`、`config::Hotkey::label()`、`config::slint_key_to_vk()` 仍含 UI 文案/映射职责。
+- `ui_bridge/lists.rs` 和路由回调仍直接访问 `audio::device` / `audio::policy`，这是后续基础设施收口点。
+- `src/presentation.rs` 承担 CLI 与桥接共用的进程/热键展示格式；`config/` 与 `process.rs` 只保存数据和枚举逻辑。
+- `src/audio/errors.rs` 统一 capture/render 设备失效 HRESULT 的领域映射。
+- `UiCache` 已移除设备筛选和默认设备配置镜像；设备配置从 Slint 投影或 AppConfig 读取，卡片级派生态仍由桥接缓存持有。
 - 真实设备 route/capture 听感必须实机验收；`cargo test` 不能替代。
 
 ## UI 线程响应性注意

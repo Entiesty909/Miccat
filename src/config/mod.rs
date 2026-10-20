@@ -3,45 +3,32 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+// 配置子模块分别负责单实例句柄和 JSON 文件的生命周期，根模块只暴露稳定入口。
 mod single_instance;
 mod store;
 
+// 仅向上层导出读写配置和获取单实例所需的最小接口。
 pub(crate) use single_instance::acquire_single_instance;
 pub(crate) use store::{load, save};
 
 /// 全局开始/停止热键。
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct Hotkey {
-    /// RegisterHotKey 修饰符：1 alt, 2 ctrl, 4 shift。
+    /// RegisterHotKey 修饰符位掩码：1=Alt、2=Ctrl、4=Shift，可按位组合。
     pub mods: u32,
-    /// 虚拟键码。
+    /// Windows 虚拟键码；与 `mods` 一起构成全局热键注册值。
     pub vk: u32,
 }
 
+/// 提供兼容旧配置的全局热键默认值。
 impl Default for Hotkey {
+    /// 返回 Ctrl+Shift+F8，作为首次启动的安全默认切换键。
     fn default() -> Self {
+        // Ctrl+Shift+F8 避开常见媒体键，首次启动即可安全切换路由。
         Self {
             mods: 0x0002 | 0x0004,
             vk: 0x77,
         }
-    }
-}
-
-impl Hotkey {
-    /// 给 UI 看的标签。
-    pub fn label(self) -> String {
-        let mut parts = Vec::new();
-        if self.mods & 2 != 0 {
-            parts.push("Ctrl");
-        }
-        if self.mods & 4 != 0 {
-            parts.push("Shift");
-        }
-        if self.mods & 1 != 0 {
-            parts.push("Alt");
-        }
-        parts.push(vk_name(self.vk));
-        parts.join("+")
     }
 }
 
@@ -64,7 +51,7 @@ pub struct Hotkeys {
 /// 输出设备与目标麦配置。
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct OutputConfig {
-    /// WASAPI render ID，设备变更后用 name 兜底。
+    /// WASAPI render endpoint 的不透明 ID；设备变更后由 `device_name` 兜底匹配。
     pub device_id: Option<String>,
     /// 上次显示名。
     pub device_name: Option<String>,
@@ -102,6 +89,7 @@ pub struct OutputConfig {
     pub mic_output_id: Option<String>,
 }
 
+/// 路由来源、麦克风混入和启动恢复状态的持久化配置。
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct RouteConfig {
     /// 上次选中的可执行文件名，用名字找新 PID。
@@ -145,7 +133,9 @@ pub struct MixConfig {
     pub master: f32,
 }
 
+/// 保证新配置拥有各混音通道的中性增益和空的独立音量表。
 impl Default for MixConfig {
+    /// 以单位增益启动各来源，避免首次播放被静音。
     fn default() -> Self {
         Self {
             process: 1.0,
@@ -197,13 +187,16 @@ pub struct AudioEntry {
     pub hotkey_binding: Option<Hotkey>,
 }
 
+/// 为缺失图标字段提供稳定的字体图标默认值。
 fn default_audio_icon_glyph() -> String {
     "\u{EC4F}".into()
 }
 
+/// 为缺失分类字段提供统一的未分类根路径。
 fn default_category() -> String {
     "未分类".into()
 }
+/// 为首次启用本机预览提供 0..=1 范围内的中等音量。
 fn default_preview_volume() -> f32 {
     0.5
 }
@@ -219,11 +212,14 @@ pub struct DebugConfig {
     pub categories: BTreeMap<String, i32>,
 }
 
+/// 为缺失日志级别字段提供默认编码。
 fn default_debug_level() -> i32 {
     3
 }
 
+/// 以默认日志级别和空覆盖表初始化调试配置。
 impl Default for DebugConfig {
+    /// 使用默认级别并清空分类覆盖，确保日志可见且可预测。
     fn default() -> Self {
         Self {
             master: default_debug_level(),
@@ -232,6 +228,7 @@ impl Default for DebugConfig {
     }
 }
 
+/// 保存各独立窗口下次启动时可恢复的位置。
 /// 保存三个独立顶层窗口关闭时的物理屏幕坐标。
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct WindowConfig {
@@ -246,6 +243,7 @@ pub struct WindowConfig {
     pub audio_edit: Option<WindowPosition>,
 }
 
+/// 以物理像素记录窗口左上角，避免 DPI 缩放造成歧义。
 /// 窗口左上角的物理屏幕坐标。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WindowPosition {
@@ -291,68 +289,25 @@ pub struct AppConfig {
     pub debug: DebugConfig,
 }
 
+/// 建立当前配置版本的完整默认树；新字段通过各自默认值保持旧 JSON 可读。
 impl Default for AppConfig {
+    /// 组合所有子配置的默认值，并写入当前 JSON 版本号。
     fn default() -> Self {
         Self {
             version: 3,
+            // 版本号与根分类一起建立当前 schema 的最低不变量；迁移逻辑保持幂等。
             output: OutputConfig::default(),
             route: RouteConfig::default(),
             mix: MixConfig::default(),
             hotkeys: Hotkeys::default(),
             preview_enabled: false,
             preview_volume: 0.5,
+            // 两个根项供分类树和音频库筛选使用，新配置始终从它们开始。
             audio_categories: vec!["全部".into(), "未分类".into()],
             audio_category_icons: BTreeMap::new(),
             audio_entries: Vec::new(),
             windows: WindowConfig::default(),
             debug: DebugConfig::default(),
         }
-    }
-}
-
-fn vk_name(vk: u32) -> &'static str {
-    match vk {
-        0x20 => "Space",
-        0x70 => "F1",
-        0x71 => "F2",
-        0x72 => "F3",
-        0x73 => "F4",
-        0x74 => "F5",
-        0x75 => "F6",
-        0x76 => "F7",
-        0x77 => "F8",
-        0x78 => "F9",
-        0x79 => "F10",
-        0x7A => "F11",
-        0x7B => "F12",
-        _ => "Key",
-    }
-}
-
-/// Slint 按键文本 → VK。
-pub fn slint_key_to_vk(text: &str) -> Option<u32> {
-    if text == " " || text.eq_ignore_ascii_case("space") {
-        return Some(0x20);
-    }
-    if let Some(number) = text.strip_prefix('F').or_else(|| text.strip_prefix('f'))
-        && let Ok(number) = number.parse::<u32>()
-        && (1..=12).contains(&number)
-    {
-        return Some(0x70 + number - 1);
-    }
-    let mut characters = text.chars();
-    let key = characters.next()?;
-    if characters.next().is_some() {
-        return None;
-    }
-    let value = key as u32;
-    if (0xF001..=0xF00C).contains(&value) {
-        return Some(0x70 + value - 0xF001);
-    }
-    let value = key.to_ascii_uppercase() as u32;
-    if (0x30..=0x39).contains(&value) || (0x41..=0x5A).contains(&value) {
-        Some(value)
-    } else {
-        None
     }
 }

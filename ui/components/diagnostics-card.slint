@@ -6,8 +6,8 @@ import { Card } from "card.slint";
 import { SectionTitle } from "section-title.slint";
 import { PmButton } from "button.slint";
 
+// 诊断与日志设置卡片：提供打开全局问题中心及日志文件的入口。
 export component DiagnosticsCard inherits Card {
-    SectionTitle { label: "诊断与日志"; }
     Text {
         text: "问题中心汇总运行期的警告与错误，可查看详情、复制并打开日志文件。";
         color: Theme.text2;
@@ -17,11 +17,14 @@ export component DiagnosticsCard inherits Card {
     HorizontalLayout {
         height: 42px;
         spacing: 10px;
+        // 按钮只发起全局状态操作，抽屉/文件处理由共享桥接层完成。
+        // 打开问题中心只切换全局抽屉状态，列表数据由 DiagState 提供。
         PmButton {
             label: "打开问题中心";
             filled: true;
             clicked => { DiagState.toggle(); }
         }
+        // 日志文件操作同样交由全局诊断状态执行，组件不直接访问文件系统。
         PmButton {
             label: "打开日志文件";
             clicked => { DiagState.open-log(); }

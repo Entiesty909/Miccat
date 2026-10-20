@@ -11,7 +11,9 @@ mod settings;
 use super::{AppState, MainWindow};
 pub(super) use settings::refresh_row_labels;
 
+/// 将各业务域的 Slint 回调一次性绑定到主窗口；闭包捕获的状态句柄决定后续配置与引擎更新落点。
 pub(super) fn register(ui: &MainWindow, state: &AppState) {
+    // 先绑定路由启停，再绑定播放器与设置入口；所有域共享同一 AppState 快照。
     route::register(ui, state);
     route_start::register(ui, state);
     library::register(ui, state);

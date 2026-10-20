@@ -2,6 +2,7 @@
 
 use super::super::*;
 
+/// 绑定音频库分类、拖放、循环和编辑对话框事件；修改先落缓存，再排队保存配置。
 pub(super) fn register(ui: &MainWindow, state: &AppState) {
     register_1(ui, state);
     register_2(ui, state);
@@ -11,12 +12,14 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
     register_edit_dialogs(ui, state);
 }
 
+/// 处理分类选择、新建分类，并将当前分类分页重置到第一页。
 fn register_1(ui: &MainWindow, state: &AppState) {
     let cache = state.cache.clone();
     let app_config = state.app_config.clone();
     {
         let ui_weak = ui.as_weak();
         let cache = cache.clone();
+        // 分类索引来自 Slint 模型，路径列表是缓存分类与特殊分类组合后的可见顺序。
         ui.on_audio_category_changed(move |index| {
             let category = category_paths(&cache).get(index as usize).cloned();
             let mut view = cache.borrow_mut();
@@ -30,6 +33,7 @@ fn register_1(ui: &MainWindow, state: &AppState) {
             }
         });
     }
+    // 右键入口的负索引表示空白区域，用于新建顶层分类；非负索引才对应已有路径。
     {
         let ui_weak = ui.as_weak();
         let cache = cache.clone();
@@ -59,6 +63,7 @@ fn register_1(ui: &MainWindow, state: &AppState) {
         let ui_weak = ui.as_weak();
         let cache = cache.clone();
         let app_config = app_config.clone();
+        // 新分类继承当前选择的父路径，配置与缓存同时更新后刷新分类模型。
         ui.on_audio_category_new(move || {
             let Some(ui) = ui_weak.upgrade() else {
                 return;
@@ -99,6 +104,7 @@ fn register_1(ui: &MainWindow, state: &AppState) {
     }
 }
 
+/// 处理分类重命名；保留父路径并拒绝保留字或同名路径冲突。
 fn register_2(ui: &MainWindow, state: &AppState) {
     let cache = state.cache.clone();
     let app_config = state.app_config.clone();
@@ -107,6 +113,7 @@ fn register_2(ui: &MainWindow, state: &AppState) {
         let ui_weak = ui.as_weak();
         let cache = cache.clone();
         let app_config = app_config.clone();
+        // 重命名必须同时迁移条目路径和图标映射，否则 UI 与持久化分类会分叉。
         ui.on_category_rename(move || {
             let Some(ui) = ui_weak.upgrade() else {
                 return;
@@ -163,6 +170,7 @@ fn register_2(ui: &MainWindow, state: &AppState) {
     }
 }
 
+/// 删除当前分类及其条目，并清理分类图标路径。
 fn register_3(ui: &MainWindow, state: &AppState) {
     let cache = state.cache.clone();
     let app_config = state.app_config.clone();
@@ -171,6 +179,7 @@ fn register_3(ui: &MainWindow, state: &AppState) {
         let ui_weak = ui.as_weak();
         let cache = cache.clone();
         let app_config = app_config.clone();
+        // 删除后选择第一个可见分类，保证分类下拉框不残留已删除路径。
         ui.on_category_delete(move || {
             let Some(ui) = ui_weak.upgrade() else {
                 return;
@@ -209,17 +218,22 @@ fn register_3(ui: &MainWindow, state: &AppState) {
     }
 }
 
+/// 绑定分类拖放事件；DataTransfer 只携带分类索引，实际路径从缓存解析。
 fn register_drag(ui: &MainWindow, state: &AppState) {
     let state_for_drop = state.clone();
     let ui_weak = ui.as_weak();
+    // 拖放载荷只传递稳定的分类行索引，避免把缓存路径直接暴露给 Slint 数据传输。
+    // 生成阶段不读取分类名称，真正的路径解析延迟到 can_drop/commit 阶段完成。
     ui.on_audio_category_to_transfer(|index| {
         let payload = slint::SharedString::from(format!("miccat-category:{index}"));
         slint::DataTransfer::from(payload)
     });
+    // 预检查与提交共用同一套位置枚举，UI 拒绝态不会改变缓存。
     ui.on_audio_category_can_drop({
         let cache = state.cache.clone();
         move |data, target_index, position| can_drop_category(&data, target_index, position, &cache)
     });
+    // 提交时再次从载荷解析并校验，不能依赖 can_drop 回调之前的结果。
     ui.on_audio_category_drop(move |data, target_index, position| {
         let Some(ui) = ui_weak.upgrade() else {
             return;
@@ -228,6 +242,7 @@ fn register_drag(ui: &MainWindow, state: &AppState) {
     });
 }
 
+/// 校验分类拖放目标，禁止无效索引和库层判定的循环/非法移动。
 fn can_drop_category(
     data: &slint::DataTransfer,
     target_index: i32,
@@ -240,6 +255,7 @@ fn can_drop_category(
     let Some(position) = category_drop_position(position) else {
         return false;
     };
+    // 可见路径列表包含特殊分类，因此拖放索引必须按当前模型顺序映射。
     let paths = category_paths(cache);
     let Some(source) = paths.get(source_index) else {
         return false;
@@ -257,6 +273,7 @@ fn can_drop_category(
     )
 }
 
+/// 提交分类拖放，更新子树路径、当前选择、缓存以及配置保存队列。
 fn commit_category_drop(
     data: slint::DataTransfer,
     target_index: i32,
@@ -297,6 +314,7 @@ fn commit_category_drop(
         ) else {
             return;
         };
+        // 被移动分类及其后代都要同步改写当前选择，防止选择指向旧路径。
         let prefix = format!("{source}/");
         let selected = if audio_category.as_str() == source {
             destination.clone()
@@ -332,20 +350,28 @@ fn commit_category_drop(
     update_audio_list(ui, &state.cache);
 }
 
+/// 载荷只接受本应用前缀，防止外部拖放数据被误解释为分类索引。
+/// 从拖放载荷读取分类索引；非本应用前缀的数据必须拒绝。
 fn category_drag_index(data: &slint::DataTransfer) -> Option<usize> {
     let payload = data.plain_text().ok()?;
     payload.strip_prefix("miccat-category:")?.parse().ok()
 }
 
+/// 位置值由 Slint 的拖放区域约定产生，未知值必须返回 None 而不是猜测语义。
+/// 将 Slint 的 0/1/2 位置值转换为前置、移入、后置语义。
 fn category_drop_position(value: i32) -> Option<crate::library::CategoryDropPosition> {
     match value {
+        // 0 表示插入目标分类之前，保持同级路径。
         0 => Some(crate::library::CategoryDropPosition::Before),
+        // 1 表示移入目标分类，源分类成为其子分类。
         1 => Some(crate::library::CategoryDropPosition::Into),
+        // 2 表示插入目标分类之后，仍保持同级路径。
         2 => Some(crate::library::CategoryDropPosition::After),
         _ => None,
     }
 }
 
+/// 绑定条目循环播放开关，并在当前试听条目上即时重启以应用新循环状态。
 fn register_loop(ui: &MainWindow, state: &AppState) {
     {
         let engine = state.engine.clone();
@@ -353,6 +379,7 @@ fn register_loop(ui: &MainWindow, state: &AppState) {
         let app_config = state.app_config.clone();
         let save_queue = state.save_queue.clone();
         let ui_weak = ui.as_weak();
+        // 循环状态属于当前音频条目；更新后仅重启正在试听同一路径的条目。
         ui.on_audio_loop_changed(move |looped| {
             let Some(ui) = ui_weak.upgrade() else {
                 return;
@@ -383,6 +410,7 @@ fn register_loop(ui: &MainWindow, state: &AppState) {
     }
 }
 
+/// 绑定分类/音频编辑窗口的打开、取消、自定义图标与提交回调。
 fn register_edit_dialogs(ui: &MainWindow, state: &AppState) {
     let cache = state.cache.clone();
     let app_config = state.app_config.clone();
@@ -393,6 +421,7 @@ fn register_edit_dialogs(ui: &MainWindow, state: &AppState) {
     let edit_for_category = edit_window.clone();
     let state_for_category = state.clone();
     let ui_weak = ui.as_weak();
+    // 特殊分类不可编辑；普通分类读取其持久化图标并同步两个窗口实例。
     ui.on_audio_category_edit_requested(move || {
         let Some(ui) = ui_weak.upgrade() else { return };
         let cache_state = cache_for_category.borrow();
@@ -437,12 +466,13 @@ fn register_edit_dialogs(ui: &MainWindow, state: &AppState) {
                 .into(),
         );
         ui.set_audio_edit_dialog_open(true);
-        super::super::show_audio_edit_window(&state_for_category);
+        super::super::window_lifecycle::show_audio_edit_window(&state_for_category);
     });
     let cache_for_entry = state.cache.clone();
     let edit_for_entry = edit_window.clone();
     let state_for_entry = state.clone();
     let ui_weak_entry = ui.as_weak();
+    // 音频编辑使用可见索引转实际索引，避免分页/搜索后修改错误条目。
     ui.on_audio_entry_edit_requested(move || {
         let Some(ui) = ui_weak_entry.upgrade() else {
             return;
@@ -474,8 +504,9 @@ fn register_edit_dialogs(ui: &MainWindow, state: &AppState) {
         edit_for_entry.set_custom_icon_path(path.into());
         edit_for_entry.set_custom_icon_image(image);
         ui.set_audio_edit_dialog_open(true);
-        super::super::show_audio_edit_window(&state_for_entry);
+        super::super::window_lifecycle::show_audio_edit_window(&state_for_entry);
     });
+    // 取消只关闭对话框，不触碰缓存；未提交的编辑值因此不会泄漏到列表。
     let ui_weak_cancel = ui.as_weak();
     ui.on_audio_edit_cancelled(move || {
         if let Some(ui) = ui_weak_cancel.upgrade() {
@@ -484,6 +515,7 @@ fn register_edit_dialogs(ui: &MainWindow, state: &AppState) {
     });
     let edit_for_icon = edit_window.clone();
     let ui_weak_icon = ui.as_weak();
+    // 文件选择器返回的路径同时更新预览图和编辑窗口状态，提交时再持久化。
     ui.on_audio_edit_custom_icon_requested(move || {
         if let Some(ui) = ui_weak_icon.upgrade()
             && let Some(path) = select_icon_file()
@@ -496,7 +528,9 @@ fn register_edit_dialogs(ui: &MainWindow, state: &AppState) {
             edit_for_icon.set_custom_icon_path(custom_path.into());
         }
     });
+    // 提交分类时迁移图标键；提交条目时只改名称、字形和可选自定义图标路径。
     let ui_weak_accept = ui.as_weak();
+    // 接受回调根据对话框模式分流：分类迁移路径，条目只更新自身元数据。
     ui.on_audio_edit_accepted(move |name, icon_index, custom_path| {
         let Some(ui) = ui_weak_accept.upgrade() else {
             return;

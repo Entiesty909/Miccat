@@ -10,38 +10,70 @@ import { PmButton } from "../components/button.slint";
 import { HotkeyField } from "../components/hotkey-field.slint";
 import { HotkeyCard } from "../components/hotkey-card.slint";
 
+// 设置页展示由 Rust bridge 提供的设备、快捷键、线缆和诊断状态；控件事件只通过回调提交。
 export component SettingsPage inherits Rectangle {
+    // 输出设备名称列表，来源于 bridge 的设备枚举。
     in-out property <[string]> devices: [];
+    // 当前默认输出设备下标。
     in-out property <int> device-index: 0;
+    // 每个设备是否被选中，和 devices 下标对齐。
     in-out property <[bool]> device-selected: [];
+    // 是否显示包含物理扬声器的完整设备列表。
     in-out property <bool> all-devices: false;
+    // 是否允许设置系统默认麦克风。
     in-out property <bool> show-set-default-mic: false;
+    // 系统默认麦克风开关，停止转发后由宿主恢复。
     in-out property <bool> set-default-mic: false;
+    // 系统默认播放设备开关。
     in-out property <bool> set-default-render: false;
+    // 默认通信播放设备开关。
     in-out property <bool> set-default-communications: false;
+    // bridge 格式化的默认目标设备提示。
     in-out property <string> dest-hint: "";
+    // 转发运行态；运行时锁定设备相关控件。
     in-out property <bool> running: false;
+    // VB-CABLE 是否已安装。
     in-out property <bool> cable-installed: false;
+    // 线缆安装/卸载任务是否忙碌。
     in-out property <bool> cable-busy: false;
+    // 线缆状态或错误提示文本。
     in-out property <string> cable-text: "";
+    // 全局快捷键当前显示文本。
     in-out property <string> hotkey-label: "";
+    // 全局快捷键捕获生命周期标记。
     in-out property <bool> listening-hotkey: false;
+    // 关于卡片的版本/构建说明，由 Rust 组装。
     in-out property <string> about-text: "";
+    // 请求刷新设备和运行状态。
     callback refresh();
+    // 请求安装或升级 VB-CABLE。
     callback install-cable();
+    // 请求卸载 VB-CABLE。
     callback uninstall-cable();
+    // 开始捕获全局快捷键。
     callback begin-hotkey-capture();
+    // 重置全局快捷键。
     callback reset-hotkey();
+    // 开始捕获指定快捷键行。
     callback begin-hotkey-row(int);
+    // 重置指定快捷键行。
     callback reset-hotkey-row(int);
+    // 将捕获的按键及修饰键回传 bridge。
     callback hotkey-row-captured(int, string, bool, bool, bool);
+    // 切换显示全部设备。
     callback all-devices-toggled(bool);
+    // 切换单个输出设备选择。
     callback device-toggled(int, bool);
+    // 切换默认麦克风设置。
     callback set-default-mic-toggled(bool);
+    // 切换系统默认播放设备设置。
     callback set-default-render-toggled(bool);
+    // 切换默认通信播放设备设置。
     callback set-default-communications-toggled(bool);
+    // 左侧设置分组索引：0 常规、1 音频设备、2 快捷键、3 线缆、4 关于、5 诊断。
     in-out property <int> section-index: 0;
 
+    // ScrollView 保留窄窗口下的完整设置内容，横向布局由分组索引决定。
     ScrollView {
         width: 100%;
         height: 100%;
@@ -63,6 +95,7 @@ export component SettingsPage inherits Rectangle {
                         font-size: 12px;
                     }
                     Rectangle { height: 1px; width: 100%; background: Theme.border; }
+                    // 每个按钮只改变本地分组索引，内容分支随后重建对应卡片。
                     PmButton {
                         label: "常规";
                         selected: root.section-index == 0;
@@ -150,6 +183,7 @@ export component SettingsPage inherits Rectangle {
                         vertical-alignment: TextVerticalAlignment.center;
                     }
                 }
+                // 常规分组总是提供运行状态；默认音频卡片在常规/设备两组复用。
                 if root.section-index == 0: Card {
                     SectionTitle { label: "常规"; }
                     HorizontalLayout {
@@ -172,6 +206,7 @@ export component SettingsPage inherits Rectangle {
                         font-size: 12px;
                     }
                 }
+                // 默认音频卡片在常规和音频设备分组可见，运行时禁用设备变更。
                 if root.section-index == 0 || root.section-index == 1: Card {
                     SectionTitle { label: "默认音频"; }
                     HorizontalLayout {
@@ -191,6 +226,7 @@ export component SettingsPage inherits Rectangle {
                         }
                         PmButton {
                             label: "刷新设备";
+                            // 刷新按钮只请求宿主重新枚举设备，运行中保持禁用。
                             enabled: !root.running;
                             clicked => { root.refresh(); }
                         }
@@ -202,6 +238,7 @@ export component SettingsPage inherits Rectangle {
                             checked: index < root.device-selected.length
                                 ? root.device-selected[index]
                                 : false;
+                            // 每个设备复选框按索引回传选择变化，保持并行数组对齐。
                             enabled: !root.running;
                             toggled => { root.device-toggled(index, self.checked); }
                         }
@@ -209,28 +246,33 @@ export component SettingsPage inherits Rectangle {
                     CheckBox {
                         text: "显示全部播放设备（含物理扬声器）";
                         checked <=> root.all-devices;
+                        // 显示全部设备开关改变设备列表筛选范围。
                         enabled: !root.running;
                         toggled => { root.all-devices-toggled(self.checked); }
                     }
                     CheckBox {
                         text: "设为系统默认播放设备";
                         checked <=> root.set-default-render;
+                        // 系统默认播放设备开关交由宿主执行平台设置。
                         enabled: !root.running;
                         toggled => { root.set-default-render-toggled(self.checked); }
                     }
                     CheckBox {
                         text: "设为默认通信播放设备";
                         checked <=> root.set-default-communications;
+                        // 默认通信播放设备开关交由宿主执行平台设置。
                         enabled: !root.running;
                         toggled => { root.set-default-communications-toggled(self.checked); }
                     }
                     if root.show-set-default-mic: CheckBox {
                         text: "设为默认麦克风（停止转发后还原）";
                         checked <=> root.set-default-mic;
+                        // 默认麦克风开关只提交用户意图，恢复时机由宿主管理。
                         enabled: !root.running;
                         toggled => { root.set-default-mic-toggled(self.checked); }
                     }
                 }
+                // 快捷键卡片复用于常规和快捷键分组，捕获态由 bridge 驱动。
                 if root.section-index == 0 || root.section-index == 2: HotkeyCard {
                     toggle-label: root.hotkey-label;
                     toggle-listening: root.listening-hotkey;
@@ -240,6 +282,7 @@ export component SettingsPage inherits Rectangle {
                     begin-row(row) => { root.begin-hotkey-row(row); }
                     reset-row(row) => { root.reset-hotkey-row(row); }
                 }
+                // 线缆/关于横排只在相关分组显示，条件保证卡片不会占用隐藏分组空间。
                 if root.section-index == 0
                     || root.section-index == 3
                     || root.section-index == 4: HorizontalLayout {
@@ -255,23 +298,28 @@ export component SettingsPage inherits Rectangle {
                             font-size: 13px;
                             vertical-alignment: TextVerticalAlignment.center;
                         }
+                            // 已安装时提供升级和卸载；按钮 enabled 受后台任务生命周期保护。
                         if root.cable-installed: HorizontalLayout {
                             spacing: 8px;
                             PmButton {
                                 label: root.cable-busy ? "处理中…" : "升级到最新版";
+                                // 安装/升级按钮请求后台线缆任务，忙碌态由 bridge 回写。
                                 enabled: !root.cable-busy;
                                 clicked => { root.install-cable(); }
                             }
                             PmButton {
                                 label: "卸载";
                                 danger: true;
+                                // 卸载按钮请求后台线缆任务，避免在 UI 回调内执行同步操作。
                                 enabled: !root.cable-busy;
                                 clicked => { root.uninstall-cable(); }
                             }
                             Rectangle { horizontal-stretch: 1; background: transparent; }
                         }
+                        // 未安装时只显示安装入口，避免对不存在的设备发送卸载请求。
                         if !root.cable-installed: PmButton {
                             label: root.cable-busy ? "处理中…" : "安装 VB-CABLE";
+                            // 未安装时只提交安装请求，不创建卸载入口。
                             enabled: !root.cable-busy;
                             clicked => { root.install-cable(); }
                         }
@@ -287,6 +335,7 @@ export component SettingsPage inherits Rectangle {
                         }
                     }
                 }
+                // 诊断卡片由全局诊断状态驱动，常规页也保留摘要入口。
                 if root.section-index == 0 || root.section-index == 5: DiagnosticsCard { }
                 Rectangle { vertical-stretch: 1; background: transparent; }
             }

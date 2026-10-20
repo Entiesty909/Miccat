@@ -89,7 +89,7 @@ Live Preview 只保留属性、模型和回调；改变 Rust 代码直接使用�
 - 页面渲染：`--snapshot-ui --page route|player|settings --out <file>`；音源选择器使用独立 `AddSourceWindow`，通过 `--page route --source-dialog-tab process|audio|microphone` 快照。
 - 状态栏声纹弹层使用 `--snapshot-ui --page route --source-meter --out <file>` 快照；示例峰值为静音值，仅核对布局，不替代实时音频验证。
 - `--source-menu-click` 向路由第一条源的 `...` 按钮发送左键并生成菜单快照，用于核对菜单在独立 PopupWindow 中显示。
-- 快照始终使用真实配置和设备模型，不注入案例音频、进程、麦克风或快捷键；进程行图标使用 `platform::icon::process_icon`。
+- 快照默认读取真实配置和设备模型；路由源行由 `SourceRows` 统一构造。诊断参数会显式注入示例诊断条目，音频时长补全只留在内存中，不写回配置。
 - `--source-dialog-click-tab process|audio|microphone` 从另一类型开始向独立窗口发送 Slint 左键事件并断言 `selected-tab` 改变；`scripts\smoke.cmd` 覆盖三种目标。
 - 跑马灯下拉：主页源卡片与添加进程对话框使用 `MarqueeComboBox`；检查 `ListView` 选项上的 `TouchArea.has-hover`、`Text.preferred-width` 和 `MarqueeText` Timer。关闭弹窗后选项子树应销毁，计时器停止。
 - 长文本不滚动：先确认实测显示宽度大于选项视口，且鼠标确实悬停在该选项；短文本保持静止。
@@ -110,5 +110,5 @@ Live Preview 只保留属性、模型和回调；改变 Rust 代码直接使用�
 - 原生 Slint 窗口不能用浏览器工具驱动；渲染可自动化，`--source-dialog-click-tab` 可向三种类型卡发送真实 Slint 左键事件并断言切换。其它鼠标拖动、原生文件选择和 PopupWindow 外部点击仍需 Windows 桌面手工验收。
 - 需要真实声卡/虚拟线缆的判断（听感、Discord 侧是否听到）无法自动化，必须人工确认。
 - 工具与游戏权限不一致时热键收不到：与游戏同权限运行（都提权或都不提权）。
-- S1–S6 已按职责拆分桥接、引擎、音频、CLI、platform、config 与 Slint 菜单；
+- S1–S6 已按职责拆分桥接、引擎、音频、CLI、platform、config 与 Slint 菜单；Step 84 继续收口源行、窗口生命周期、配置镜像、展示格式和错误分类。
   当前实现目录见根目录 `ARCHITECTURE.md`，旧单体路径不再存在。

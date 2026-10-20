@@ -1,4 +1,4 @@
-//! Win32 剪贴板文本写入。
+//! Win32 剪贴板文本写入；成功交给系统的 HGLOBAL 不再由本模块释放。
 
 use std::mem::size_of;
 use std::time::Duration;
@@ -50,6 +50,7 @@ fn open_with_retry() -> bool {
 /// 在已打开的剪贴板上写入 UTF-16 文本。
 fn write_locked(text: &str) -> Result<(), String> {
     // SAFETY: 剪贴板已由调用方打开并持有所有权；清空后即可放置新数据。
+    // EmptyClipboard 会释放旧格式数据，之后本函数只需管理即将移交的新 HGLOBAL。
     if unsafe { EmptyClipboard() }.is_err() {
         return Err(WRITE_FAILED.into());
     }
@@ -71,6 +72,7 @@ fn write_locked(text: &str) -> Result<(), String> {
     // 内存所有权移交系统，此后不得再 GlobalFree。
     let set = unsafe { SetClipboardData(CF_UNICODETEXT.0 as u32, Some(HANDLE(hmem.0))) };
     if set.is_err() {
+        // 只有移交失败时仍由本函数拥有 hmem，成功路径绝不能重复释放。
         release(hmem);
         return Err(WRITE_FAILED.into());
     }

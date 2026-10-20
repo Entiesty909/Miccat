@@ -10,21 +10,26 @@ use crate::{audio, process, ui_bridge};
 
 /// 解析 argv。无参数启动 Slint。
 pub(crate) fn run() -> Result<(), Error> {
+    // 统一收集参数，后续各子命令复用同一份 argv，避免重复读取进程参数。
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.is_empty() {
         return ui_bridge::run_ui();
     }
+    // 只检查第一个位置参数作为命令名；其余参数由对应分支按 flag 解析。
     match args[0].as_str() {
+        // 设备与进程列表只输出当前系统快照，不启动 UI 或持久化状态。
         "--list-processes" => {
             for p in process::list_processes()? {
-                println!("{}", p.label());
+                println!("{}", crate::presentation::process_label(&p));
             }
         }
+        // 设备列表沿用系统渲染 ID，调用方可直接把第一列传回 --device。
         "--list-devices" => {
             for d in audio::device::list_destinations(true)? {
                 println!("{}\t{}", d.render_id, d.label);
             }
         }
+        // 捕获命令把进程音频写入 WAV；未显式指定输出和时长时使用便于脚本调用的默认值。
         "--capture" => {
             let pid = parse_flag_u32(&args, "--capture")?;
             let wav = parse_flag_str(&args, "--wav").unwrap_or("capture.wav");
@@ -33,6 +38,7 @@ pub(crate) fn run() -> Result<(), Error> {
             audio::dump::capture_process_to_wav(pid, &PathBuf::from(wav), seconds)?;
             println!("wrote {wav}");
         }
+        // 路由命令保持引擎存活到等待结束，再显式停止，确保 CLI 退出前释放音频资源。
         "--route" => {
             let pid = parse_flag_u32(&args, "--route")?;
             let device = parse_flag_str(&args, "--device")
@@ -47,6 +53,7 @@ pub(crate) fn run() -> Result<(), Error> {
             println!("stopped ({:?})", engine.status());
         }
         "--help" | "-h" => print_help(),
+        // 快照参数全部转换为 SnapshotOptions；未提供的选项保留哨兵值或关闭状态。
         "--snapshot-ui" => {
             let out = parse_flag_str(&args, "--out")
                 .unwrap_or("snap.raw")
@@ -54,6 +61,7 @@ pub(crate) fn run() -> Result<(), Error> {
             let menu = args_has(&args, "--menu");
             let category_menu = args_has(&args, "--category-menu");
             let category_row_menu = args_has(&args, "--category-row-menu");
+            // 标签页使用稳定的整数编号传给 Slint，未知名称立即报错而不是静默回退。
             let source_dialog_tab = match parse_flag_str(&args, "--source-dialog-tab") {
                 Some("process") => 0,
                 Some("audio") => 1,
@@ -63,6 +71,7 @@ pub(crate) fn run() -> Result<(), Error> {
                 }
                 None => -1,
             };
+            // 点击目标与当前标签页使用同一编号约定，但单独保留以覆盖自动化点击场景。
             let source_dialog_click_tab = match parse_flag_str(&args, "--source-dialog-click-tab") {
                 Some("process") => 0,
                 Some("audio") => 1,
@@ -77,14 +86,17 @@ pub(crate) fn run() -> Result<(), Error> {
             let source_dialog_reopen = args_has(&args, "--source-dialog-reopen");
             let source_menu_click = args_has(&args, "--source-menu-click");
             let source_meter = args_has(&args, "--source-meter");
+            // 诊断相关开关彼此独立，便于脚本只打开所需的面板、日志或实时状态。
             let page = parse_flag_str(&args, "--page").unwrap_or("player");
             let diagnostics = args_has(&args, "--diagnostics");
             let diagnostics_log = args_has(&args, "--diagnostics-log");
             let diagnostics_badge = args_has(&args, "--diagnostics-badge");
             let diagnostics_live = args_has(&args, "--diagnostics-live");
+            // 设置分区缺省为 -1，表示快照时不强制切换到某个分区。
             let settings_section = parse_flag_u32(&args, "--section")
                 .map(|value| value as i32)
                 .unwrap_or(-1);
+            // 快照写文件由 UI bridge 统一执行，CLI 这里只负责组装一次性选项。
             ui_bridge::snapshot_to_file(ui_bridge::SnapshotOptions {
                 path: &out,
                 page,
@@ -103,6 +115,7 @@ pub(crate) fn run() -> Result<(), Error> {
                 settings_section,
             })?;
         }
+        // 播放探针复用同一套时长、起点和输出参数，分别覆盖预览流与 SFX 流。
         "--probe-playback" => {
             let file = parse_flag_str(&args, "--probe-playback")
                 .ok_or_else(|| Error::InvalidArgs("missing audio file".into()))?;
@@ -136,6 +149,7 @@ fn probe_playback(
     out: &str,
     use_sfx: bool,
 ) -> Result<(), Error> {
+    // 探针同时保留原始解码数据和实时消费结果，用于定位设备时钟或混音造成的偏差。
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32};
     use std::time::Instant;
@@ -143,6 +157,7 @@ fn probe_playback(
     use audio::buffer::SpscRing;
     use audio::format::{AudioFormat, SampleKind};
 
+    // 原文件作为比对基准；目标格式固定为交给播放链路的交错 F32 样本。
     let reference = audio::decode::open(path)?.read_all()?;
     let rate = reference.sample_rate;
     let channels = reference.channels;
@@ -151,6 +166,7 @@ fn probe_playback(
         channels,
         kind: SampleKind::F32,
     };
+    // Windows 音频时间以 100 纳秒为单位，先换算 seek 起点再交给解码线程。
     let start_hns = (start_secs.max(0.0) as f64 * 10_000_000.0) as u64;
     let cancel = Arc::new(AtomicBool::new(false));
     let stop = Arc::new(AtomicBool::new(false));
@@ -158,6 +174,7 @@ fn probe_playback(
     let ring = Arc::new(SpscRing::with_capacity_samples(capacity));
     let (info, rx) =
         audio::decode::stream_to_channel(path.to_path_buf(), start_hns, false, cancel)?;
+    // --raw 绕过设备消费，仅验证解码器输出与完整参考样本的逐样本一致性。
     if args_has(&std::env::args().collect::<Vec<_>>(), "--raw") {
         let mut got: Vec<f32> = Vec::new();
         while let Ok(chunk) = rx.recv_timeout(Duration::from_millis(500)) {
@@ -186,6 +203,7 @@ fn probe_playback(
         );
         return Ok(());
     }
+    // SFX 与预览使用不同的生产循环，但都把样本写入同一个环形缓冲供探针消费。
     let mut keep_tx = None;
     let source = if use_sfx {
         let (tx, commands) = audio::sfx::channel();
@@ -214,7 +232,7 @@ fn probe_playback(
         }))
     };
 
-    // 设备时钟：每 10 ms 取一块，余量不足的记录为空取次数。
+    // 设备时钟每 10 ms 取一块；固定周期模拟设备拉取，避免生产线程“有多少取多少”掩盖欠载。
     let frames = (rate as usize / 100).max(64);
     let block_samples = frames * channels as usize;
     let mut block = vec![0.0f32; block_samples];
@@ -236,6 +254,7 @@ fn probe_playback(
             next = now;
         }
     }
+    // 停止标志只负责通知后台生产循环；后面仍需回收线程句柄，保证资源对称释放。
     stop.store(true, std::sync::atomic::Ordering::Release);
 
     // 丢弃生产线程启动时写入的静音，再按 seek 附近的样本对齐。
@@ -246,6 +265,7 @@ fn probe_playback(
     let captured = &got[leading_silence..];
     let skip_frames = (start_hns as u128 * rate as u128 / 10_000_000) as usize;
     let skip = skip_frames * channels as usize;
+    // 在预期 seek 点附近搜索最低误差，吸收线程启动延迟和设备时钟带来的少量漂移。
     let probe_len = (channels as usize * 2000).min(captured.len());
     let search_samples = (rate as usize * channels as usize).max(channels as usize * 4096);
     let mut offset = skip;
@@ -326,14 +346,14 @@ fn print_help() {
     );
 }
 
-/// 取 `--flag value` 的 value。
+/// 取紧随 `--flag` 的一个参数；缺少 value 或 flag 时返回 `None`。
 fn parse_flag_str<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
     args.windows(2)
         .find(|w| w[0] == flag)
         .map(|w| w[1].as_str())
 }
 
-/// 解析 PID。
+/// 解析必须存在且为无符号 32 位整数的 flag（当前用于 PID 和快照分区编号）。
 fn parse_flag_u32(args: &[String], flag: &str) -> Result<u32, Error> {
     parse_flag_str(args, flag)
         .ok_or_else(|| Error::InvalidArgs("missing pid".into()))?
@@ -341,7 +361,7 @@ fn parse_flag_u32(args: &[String], flag: &str) -> Result<u32, Error> {
         .map_err(|_| Error::InvalidArgs("pid must be u32".into()))
 }
 
-/// 可选浮点 flag，解析失败当没传。
+/// 读取可选浮点 flag；格式错误按未传处理，让调用方继续使用默认值。
 fn parse_flag_f32(args: &[String], flag: &str) -> Option<f32> {
     parse_flag_str(args, flag)?.parse().ok()
 }

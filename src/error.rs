@@ -3,35 +3,37 @@
 use std::fmt;
 use std::io;
 
-/// 应用层错误。音频热路径禁止 unwrap。
+/// 应用层错误；音频热路径只返回错误，不通过 unwrap/expect 终止线程。
 #[derive(Debug)]
 pub enum Error {
-    /// windows-rs / WASAPI HRESULT。
+    /// Windows COM/WASAPI 调用返回的原始 HRESULT 与系统消息。
     Com(windows::core::Error),
-    /// 目标进程不存在或音频会话已结束。
+    /// 目标进程的 PID；进程退出或会话不再可访问时携带该值。
     ProcessNotFound(u32),
-    /// 输出设备 ID 无效或设备已拔出。
+    /// 输出设备不可用；具体设备标识可能已失效或未能解析。
     DeviceNotFound,
-    /// Process Loopback 初始化失败。
+    /// 进程环回捕获初始化阶段的静态失败原因。
     CaptureInit(&'static str),
-    /// 渲染端 Initialize / 打开设备失败。
+    /// WASAPI 渲染端初始化阶段的静态失败原因。
     RenderInit(&'static str),
-    /// 同一驱动的多个端点不能同时打开（如 VB-Cable 的扬声器与 In 16ch）。
+    /// 同一驱动的多个端点不能同时打开（如 VB-CABLE 的扬声器与 In 16ch）。
+    /// 字符串字段保留可展示的冲突详情。
     DeviceBusy(String),
-    /// mix 格式无法解析或无法转换。
+    /// 混音格式解析或转换失败的静态原因，避免在实时路径分配错误文本。
     Format(&'static str),
-    /// WAV 等文件 IO。
+    /// WAV 等文件操作的原始 IO 错误，保留 source 链供诊断。
     Io(io::Error),
-    /// 激活或等待超时。
+    /// 激活设备或等待系统状态变化超时的静态原因。
     TimedOut(&'static str),
-    /// CLI / UI 参数。
+    /// CLI/UI 参数校验失败的可展示说明。
     InvalidArgs(String),
-    /// VB-CABLE 下载或安装失败。
+    /// VB-CABLE 下载、解压、提权安装或卸载失败的可展示说明。
     Cable(String),
 }
 
+/// 在用户短句、稳定代码和技术详情之间提供统一的错误映射。
 impl Error {
-    /// 给用户看的短句，不含 HRESULT。
+    /// UI 只调用这里，刻意隐藏 HRESULT 和内部路径，避免泄露难懂细节。
     pub fn user_message(&self) -> String {
         match self {
             Self::DeviceNotFound | Self::RenderInit(_) => {
@@ -49,7 +51,7 @@ impl Error {
         }
     }
 
-    /// 稳定的诊断代码，用于归类与复制。
+    /// 将错误分类为可复制、可聚合的稳定诊断码，不随具体文本变化。
     pub fn code(&self) -> &'static str {
         match self {
             Self::Com(_) => "E-COM",
@@ -66,7 +68,7 @@ impl Error {
         }
     }
 
-    /// 建议用户采取的动作；无建议时返回空串。
+    /// 根据错误类别提供下一步操作建议；空字符串表示参数错误无需额外动作。
     pub fn hint(&self) -> &'static str {
         match self {
             Self::Com(_) => "确认系统音频服务已启动；若刚插拔设备，请在设置页点「刷新设备」。",
@@ -86,13 +88,15 @@ impl Error {
         }
     }
 
-    /// 技术细节（含 HRESULT），供问题中心详情展示。
+    /// 返回完整 Display 文本，保留 HRESULT/系统错误供问题中心排查。
     pub fn detail(&self) -> String {
         self.to_string()
     }
 }
 
+/// 把内部错误转换为稳定的技术字符串，便于日志和问题中心复用。
 impl fmt::Display for Error {
+    /// 按错误来源保留上下文；用户短句不应替代这层诊断信息。
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Com(e) => write!(f, "COM/WASAPI: {e}"),
@@ -110,7 +114,9 @@ impl fmt::Display for Error {
     }
 }
 
+/// 暴露可递归追踪的底层错误，仅 COM 和 IO 拥有 source。
 impl std::error::Error for Error {
+    /// 返回 Windows 或文件系统原始错误，其他变体没有可追踪子错误。
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Com(e) => Some(e),
@@ -120,13 +126,17 @@ impl std::error::Error for Error {
     }
 }
 
+/// 将 windows-rs 错误归入统一 COM/WASAPI 变体，保留原始 HRESULT。
 impl From<windows::core::Error> for Error {
+    /// 保留调用方提供的 HRESULT 和系统消息，不在转换时丢失诊断信息。
     fn from(value: windows::core::Error) -> Self {
         Self::Com(value)
     }
 }
 
+/// 将标准 IO 错误归入统一文件错误，供用户短句和 source 链使用。
 impl From<io::Error> for Error {
+    /// 转移 IO 错误所有权，避免格式化前复制底层错误。
     fn from(value: io::Error) -> Self {
         Self::Io(value)
     }

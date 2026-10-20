@@ -1,19 +1,31 @@
 //! 仅在文字溢出且宿主报告悬停时缓慢滚动的可复用文字视口。
 
 import { Theme } from "../theme.slint";
+// 可复用的单行滚动文本：只有悬停且文字超出视口时推进偏移量。
 
 export component MarqueeText inherits Rectangle {
+    // 要显示的单行文本，变化时会重置滚动位置。
     in property <string> text: "";
+    // 文本颜色，由调用方决定以适配不同背景。
     in property <color> text-color: Theme.text;
+    // 字体大小，作为长度单位传递给内部 Text。
     in property <length> font-size: 12px;
+    // 字体粗细，保持与普通文本控件一致的渲染契约。
     in property <int> font-weight: 400;
+    // 字体名称，默认使用应用正文所用的 Segoe UI。
     in property <string> font-family: "Segoe UI";
+    // 宿主报告的悬停状态；为假时定时器停止推进。
     in property <bool> hovered: false;
 
+    // 当前水平滚动偏移，范围由 0 到 maximum-offset 约束。
     property <length> offset: 0px;
+    // 每次定时器触发时移动的像素步长。
     property <length> step: 1.2px;
+    // 当前移动方向；到达边界后反向并停留片刻。
     property <bool> moving-forward: true;
+    // 边界停留计数，避免文字抵达边缘后立即折返。
     property <int> pause-ticks: 0;
+    // 文本宽度超过视口时允许移动的最大偏移量。
     property <length> maximum-offset: max(
         0px,
         label.preferred-width - root.width
@@ -24,6 +36,7 @@ export component MarqueeText inherits Rectangle {
     background: transparent;
     clip: true;
 
+    // 文本或视口变化后回到开头，并保留短暂的起始停顿。
     function reset-scroll() {
         root.offset = 0px;
         root.moving-forward = true;
@@ -46,10 +59,12 @@ export component MarqueeText inherits Rectangle {
         wrap: no-wrap;
     }
 
+    // 仅在悬停且确有溢出时运行，避免空闲状态持续刷新。
     Timer {
         interval: 33ms;
         running: root.hovered && root.maximum-offset > 0px;
 
+        // 每次触发按方向推进，并在两端停顿后反向循环。
         triggered() => {
             if root.pause-ticks > 0 {
                 root.pause-ticks -= 1;
@@ -71,12 +86,15 @@ export component MarqueeText inherits Rectangle {
         }
     }
 
+    // 离开或重新进入时重置，保证下一次悬停从文本开头开始。
     changed hovered => {
         root.reset-scroll();
     }
+    // 文案变化会改变 preferred-width，因此必须重新计算滚动起点。
     changed text => {
         root.reset-scroll();
     }
+    // 视口宽度变化后重新计算最大偏移，避免沿用过期位置。
     changed width => {
         root.reset-scroll();
     }

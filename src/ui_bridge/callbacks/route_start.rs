@@ -3,23 +3,37 @@
 use super::super::*;
 use crate::audio::device::{self, DestDevice};
 use crate::audio::policy;
+/// 提供源卡片菜单触发的单源路由启动路径。
 mod source_only;
 pub(super) use source_only::start_source_only;
 
+/// 启动一次路由所需的快照；构建完成后后台/引擎操作不再依赖易变的 UI 列表。
 struct RouteSelection {
+    /// 主进程源的 PID；它占用进程槽 0。
     pid: Option<u32>,
+    /// 其余进程源的 PID，按顺序占用槽 1 起的槽位。
     extra_pids: Vec<u32>,
+    /// UI 选中的目标设备，负责默认设备策略和提示文案。
     dest: DestDevice,
+    /// 去重后的输出设备 ID 列表，供引擎创建共享输出。
     output_ids: Vec<String>,
+    /// 每类源到输出 ID 列表的索引映射；存在时启用按槽路由。
     source_routes: Option<crate::engine::SourceOutputRoutes>,
+    /// 路由中混入的物理麦克风 ID；没有混音时为空。
     mic_id: Option<String>,
+    /// 是否把虚拟麦克风设为系统默认采集设备。
     set_default_mic: bool,
+    /// 主进程名称，用于回写配置和显示状态。
     process_name: Option<String>,
+    /// 所有已选进程名称，保持与 PID 选择顺序一致。
     process_names: Vec<String>,
+    /// 是否实际启用麦克风混音；无有效设备时会被强制关闭。
     mix_mic: bool,
+    /// 启用的文件条目及其 SFX 槽位，停止/重启时按原槽位恢复。
     file_entries: Vec<(usize, config::AudioEntry)>,
 }
 
+/// 绑定底部开始/停止回调；使用弱 UI 引用避免窗口销毁后闭包持有界面。
 pub(super) fn register(ui: &MainWindow, state: &AppState) {
     let ui_weak = ui.as_weak();
     let state = state.clone();
@@ -31,7 +45,9 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
     });
 }
 
+/// 根据引擎运行状态选择停止或快照并启动一条路由。
 fn handle_start_stop(ui: &MainWindow, state: &AppState) {
+    // 运行中点击同一按钮只走停止分支；未运行时先冻结选择，再把配置增益应用到本次启动。
     if state.engine.is_running() {
         stop_route(ui, state);
         return;
@@ -42,6 +58,7 @@ fn handle_start_stop(ui: &MainWindow, state: &AppState) {
         return;
     };
     let mix = state.app_config.borrow().mix.clone();
+    // 三类增益在创建源之前统一设置，保证本次路由的进程、麦克风和主输出使用同一快照。
     state.engine.set_volume(mix.process);
     state.engine.set_mic_volume(mix.mic);
     state.engine.set_master_volume(mix.master);
@@ -52,7 +69,9 @@ fn handle_start_stop(ui: &MainWindow, state: &AppState) {
     }
 }
 
+/// 停止所有路由源，并恢复启动前保存的系统默认麦克风。
 fn stop_route(ui: &MainWindow, state: &AppState) {
+    // 引擎停止后再恢复系统默认麦克风，避免恢复动作与正在退出的采集源竞争。
     state.engine.stop();
     restore_default_mics(&state.saved_mics);
     ui.set_running(false);
@@ -61,8 +80,11 @@ fn stop_route(ui: &MainWindow, state: &AppState) {
     ui.set_error_text("".into());
 }
 
+/// 从缓存、UI 选择和配置中组装稳定的启动快照；返回空表示没有可转发源或输出。
 fn selected_route(ui: &MainWindow, state: &AppState) -> Option<RouteSelection> {
+    let output_preferences = state.app_config.borrow().output.clone();
     let cache = state.cache.borrow();
+    // selected_pids 是多进程选择结果；没有显式选择时才回退到主进程卡片。
     let pid = cache
         .pids
         .get(ui.get_process_index() as usize)
@@ -80,6 +102,7 @@ fn selected_route(ui: &MainWindow, state: &AppState) -> Option<RouteSelection> {
         selected.push(pid);
     }
     let primary_pid = selected.first().copied().or(pid);
+    // 第一个 PID 固定占用主槽，其余 PID 保持选择顺序，便于 UI 与每槽输出映射对应。
     let extra_pids = selected.iter().skip(1).copied().collect();
     let file_entries = if cache.route_audio_entries.is_empty() {
         cache
@@ -110,8 +133,10 @@ fn selected_route(ui: &MainWindow, state: &AppState) -> Option<RouteSelection> {
             })
             .collect::<Vec<_>>()
     };
+    // 目标设备是启动快照的必要条件，索引失效时不应启动半成品路由。
     let dest = cache.dests.get(ui.get_device_index() as usize).cloned()?;
     let output_config = state.app_config.borrow().output.clone();
+    // 只要任一源保存了独立输出，就使用 SourceOutputRoutes；否则沿用多设备广播模式。
     let custom_routes = !cache.process_output_ids.is_empty()
         || !cache.audio_output_ids.is_empty()
         || output_config.process_output_id.is_some()
@@ -127,6 +152,7 @@ fn selected_route(ui: &MainWindow, state: &AppState) -> Option<RouteSelection> {
                     output_ids.len() - 1
                 })
         };
+        // 每个进程槽独立解析输出 ID，再通过 route_index 去重成共享输出数组索引。
         let process_count = selected.len();
         let process = (0..process_count)
             .map(|slot| {
@@ -139,6 +165,7 @@ fn selected_route(ui: &MainWindow, state: &AppState) -> Option<RouteSelection> {
             })
             .map(&mut route_index)
             .collect::<Vec<_>>();
+        // 文件槽数量至少覆盖引擎预留的 SFX_SLOTS，保证未启用槽的映射也有确定值。
         let file_count = cache
             .route_audio_entries
             .len()
@@ -164,6 +191,7 @@ fn selected_route(ui: &MainWindow, state: &AppState) -> Option<RouteSelection> {
             Some(crate::engine::SourceOutputRoutes { process, file, mic }),
         )
     } else {
+        // 没有自定义槽路由时，设备勾选列表决定同一音频副本广播到哪些输出。
         let selected_outputs = cache
             .dests
             .iter()
@@ -202,6 +230,7 @@ fn selected_route(ui: &MainWindow, state: &AppState) -> Option<RouteSelection> {
                 .map(|process| process.name.clone())
         })
         .collect::<Vec<_>>();
+    // 进程名称只用于持久化和 UI 展示，真正启动依据始终是 PID。
     Some(RouteSelection {
         pid: primary_pid,
         extra_pids,
@@ -209,7 +238,7 @@ fn selected_route(ui: &MainWindow, state: &AppState) -> Option<RouteSelection> {
         output_ids,
         source_routes,
         mic_id,
-        set_default_mic: cache.set_default_mic,
+        set_default_mic: output_preferences.set_default_mic,
         process_name: process_names.first().cloned(),
         process_names,
         mix_mic,
@@ -217,35 +246,42 @@ fn selected_route(ui: &MainWindow, state: &AppState) -> Option<RouteSelection> {
     })
 }
 
+/// 按快照打开输出，再按固定槽位安装进程、麦克风和文件源。
 fn start_route(engine: &AudioEngine, selection: &RouteSelection) -> Result<(), Error> {
+    // 先打开全部输出，再安装源；这样每个源创建时都能拿到已准备好的目标槽位。
     if let Some(routes) = selection.source_routes.clone() {
         engine.open_routed_outputs(&selection.output_ids, routes)?;
     } else {
         engine.open_outputs(&selection.output_ids)?;
     }
     if let Some(pid) = selection.pid {
+        // 进程槽 0 由主源占用，附加进程从槽 1 开始，避免覆盖主源状态。
         engine.set_process_source(pid)?;
         for (slot, pid) in selection.extra_pids.iter().enumerate() {
             engine.add_process_source(*pid, slot + 1)?;
         }
     }
     engine.set_mic_source(selection.mic_id.as_deref())?;
+    // 麦克风和文件源按快照槽位安装，未启用的槽不会被隐式清空或重排。
     for (slot, entry) in &selection.file_entries {
         engine.play_file_source(entry, *slot)?;
     }
     Ok(())
 }
+/// 启动成功后回写配置/UI，并按用户选项应用系统默认设备策略。
 fn finish_route_start(ui: &MainWindow, state: &AppState, selection: RouteSelection) {
     {
-        let cache = state.cache.borrow();
-        if cache.set_default_render {
+        // 系统默认设备策略属于启动后的副作用，失败不回滚已经建立的转发流。
+        let output_preferences = state.app_config.borrow().output.clone();
+        if output_preferences.set_default_render {
             let _ = policy::set_default_render(&selection.dest.render_id);
         }
-        if cache.set_default_communications {
+        if output_preferences.set_default_communications {
             let _ = policy::set_default_communications(&selection.dest.render_id);
         }
     }
     {
+        // 成功启动后保存实际输出映射，下一次启动才能复用每张卡片的目标设备。
         let mut config = state.app_config.borrow_mut();
         config.route.process_name = selection.process_name;
         config.route.process_names = selection.process_names;
@@ -272,6 +308,7 @@ fn finish_route_start(ui: &MainWindow, state: &AppState, selection: RouteSelecti
         config.route.mic_id = selection.mic_id.clone();
         config.output.set_default_mic = selection.set_default_mic;
         state.save_queue.schedule();
+        // 配置写入由 SaveQueue 合并落盘，避免每个 UI 字段更新都同步阻塞磁盘。
     }
     ui.set_mix_mic(selection.mix_mic);
     ui.set_running(true);
@@ -286,7 +323,9 @@ fn finish_route_start(ui: &MainWindow, state: &AppState, selection: RouteSelecti
     );
 }
 
+/// 启动任一阶段失败时停止引擎并把底层错误转换为 UI 可见诊断。
 fn fail_route_start(ui: &MainWindow, state: &AppState, error: Error) {
+    // 任一阶段失败都要停掉已打开的部分输出，防止 UI 显示错误但后台仍在转发。
     state.engine.stop();
     tracing::warn!("start failed: {error}");
     ui.set_running(false);
@@ -302,6 +341,7 @@ fn apply_virtual_mic_route(
     set_default: bool,
     saved_mics: &Rc<RefCell<Vec<(u32, String)>>>,
 ) {
+    // 虚拟输出可能没有可设为默认麦克风的 capture ID，但仍可正常播放转发音频。
     let Some(cap_id) = dest.capture_id.as_deref() else {
         ui.set_dest_hint("当前输出是虚拟扬声器，声音播到这只设备。".into());
         return;
@@ -312,6 +352,7 @@ fn apply_virtual_mic_route(
         return;
     }
     *saved_mics.borrow_mut() = device::default_capture_ids();
+    // 记录原默认采集设备，停止路由时才能恢复用户启动前的系统状态。
     if let Err(e) = policy::set_default_capture(cap_id) {
         tracing::warn!("set default mic: {e}");
         ui.set_error_text(format!("已开始转发，但没能改系统默认麦。请手动选择「{name}」。").into());

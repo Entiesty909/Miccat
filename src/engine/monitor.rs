@@ -9,18 +9,19 @@ use crate::audio::preview::PreviewEngine;
 use crate::audio::sfx::StreamChunk;
 use crate::error::Error;
 
-/// 试听输出的当前状态：引擎与它占用的设备 ID。
+// 试听输出的当前状态由下方共享结构保存。
 #[derive(Default)]
+/// 试听设备的唯一所有权容器；引擎对象只通过此锁访问 PreviewEngine。
 pub(crate) struct MonitorState {
     /// 已打开的试听引擎；`None` 表示试听关闭。
     engine: Option<PreviewEngine>,
-    /// `engine` 对应的播放设备 ID，用于判断是否需要重开。
+    /// `engine` 对应的播放设备 ID；引擎释放时清空，用于判断是否需要重开。
     device_id: Option<String>,
 }
 
 /// 引擎内部共享的试听输出句柄。
+/// 试听状态的共享句柄；所有设备打开、流投递和停止操作都经此锁串行化。
 pub(crate) type SharedMonitor = Arc<Mutex<MonitorState>>;
-
 /// 创建空的试听输出句柄。
 pub(crate) fn shared() -> SharedMonitor {
     Arc::new(Mutex::new(MonitorState::default()))
@@ -35,6 +36,8 @@ pub(crate) fn set_default_monitor(monitor: &SharedMonitor, enabled: bool) {
         close(monitor);
         return;
     }
+    // 打开设备放到后台线程，避免 Slint 回调被 WASAPI 初始化阻塞。
+    // 线程只持有共享句柄；设备打开完成后写回引擎，函数结束即释放临时资源。
     let monitor = monitor.clone();
     thread::spawn(move || {
         let Ok(id) = device::default_render_id() else {
@@ -44,6 +47,7 @@ pub(crate) fn set_default_monitor(monitor: &SharedMonitor, enabled: bool) {
         if already_open(&monitor, &id) {
             return;
         }
+        // 设备打开完成后再次确认，防止并发异步请求覆盖刚落位的同设备引擎。
         let next = match PreviewEngine::open(&id) {
             Ok(engine) => Some(engine),
             Err(error) => {
@@ -51,6 +55,7 @@ pub(crate) fn set_default_monitor(monitor: &SharedMonitor, enabled: bool) {
                 None
             }
         };
+        // 写回共享状态失败时，临时 PreviewEngine 随线程退出释放；未就绪状态可由后续播放重试。
         let Ok(mut state) = monitor.lock() else {
             return;
         };
@@ -65,9 +70,10 @@ pub(crate) fn set_default_monitor(monitor: &SharedMonitor, enabled: bool) {
 
 /// 关闭试听输出并释放设备。
 fn close(monitor: &SharedMonitor) {
+    // 丢弃 PreviewEngine 会释放 WASAPI 播放占用；同时清除匹配 ID。
     if let Ok(mut state) = monitor.lock() {
         state.engine = None;
-        state.device_id = None;
+        // 试听对象在锁保护下清空；Drop 会释放 WASAPI 播放占用。
     }
 }
 
@@ -94,6 +100,7 @@ fn already_open(monitor: &SharedMonitor, id: &str) -> bool {
 /// 「显示播放中但没有声音」。这里在投递前把设备准备好。
 ///
 /// 只在真正需要打开时才会阻塞（通常是首次播放），已打开时是纯读锁。
+/// 同步打开完成后才写入共享状态，调用方随后投递的流不会落到尚未初始化的引擎。
 pub(crate) fn ensure_default_monitor(monitor: &SharedMonitor, enabled: bool) {
     if !enabled {
         return;
@@ -105,6 +112,7 @@ pub(crate) fn ensure_default_monitor(monitor: &SharedMonitor, enabled: bool) {
     if already_open(monitor, &id) {
         return;
     }
+    // 同步打开只在首次使用时阻塞；后续播放复用已有设备避免丢流。
     let next = match PreviewEngine::open(&id) {
         Ok(engine) => Some(engine),
         Err(error) => {
@@ -112,6 +120,7 @@ pub(crate) fn ensure_default_monitor(monitor: &SharedMonitor, enabled: bool) {
             None
         }
     };
+    // 只有成功拿到锁才发布结果；失败时保留 None，使后续调用仍可重试。
     if let Ok(mut state) = monitor.lock() {
         state.device_id = Some(id);
         state.engine = next;
@@ -143,6 +152,9 @@ pub(crate) fn play_stream(
     rx: std::sync::mpsc::Receiver<StreamChunk>,
     looped: bool,
 ) -> Result<(), Error> {
+    // receiver 的所有权在调用成功后移交给 PreviewEngine；试听线程随后独立消费它。
+    // 此处只持有状态锁完成一次性查找，避免把播放等待带入 UI 调用线程。
+    // 持锁期间仅提交流，不等待播放线程；PreviewEngine 接管 receiver 的消费。
     let state = monitor
         .lock()
         .map_err(|_| Error::RenderInit("monitor lock poisoned"))?;
@@ -154,6 +166,7 @@ pub(crate) fn play_stream(
 }
 
 use super::AudioEngine;
+/// AudioEngine 的本机试听配置入口。
 impl AudioEngine {
     /// 异步切换系统默认播放设备试听。
     pub fn set_monitor_default(&self, enabled: bool) {

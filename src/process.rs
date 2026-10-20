@@ -35,23 +35,14 @@ pub struct ProcessInfo {
     pub sounding: bool,
 }
 
-impl ProcessInfo {
-    /// ComboBox 显示进程名、PID 和可选窗口标题。
-    pub fn label(&self) -> String {
-        match &self.title {
-            Some(title) if !title.is_empty() => {
-                format!("{}  [{}]  {}", self.name, self.pid, title)
-            }
-            _ => format!("{}  [{}]", self.name, self.pid),
-        }
-    }
-}
-
 /// 只保留：有可见窗口，或正在出声。排除自身和系统进程。
 pub fn list_processes() -> Result<Vec<ProcessInfo>, Error> {
+    // 仅返回用户可辨识且可捕获的来源，避免把系统服务噪声暴露给路由选择器。
     let self_pid = std::process::id();
     let titles = window_titles();
     let sounding = audio_session_pids();
+    // 快照句柄只在当前函数内使用；PROCESSENTRY32W 的大小字段是 Win32 枚举前提。
+    // SAFETY: 快照由本线程创建，后续仅由同一线程读取并在枚举结束后关闭。
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)? };
     if snapshot.is_invalid() {
         return Err(Error::CaptureInit("process snapshot failed"));
@@ -62,11 +53,15 @@ pub fn list_processes() -> Result<Vec<ProcessInfo>, Error> {
         ..Default::default()
     };
 
+    // 先按“正在出声”和窗口可见性排序，让当前有音频的来源优先出现；
+    // 这只影响列表顺序，不改变进程是否可被选中的判定。
     let mut list = Vec::new();
+    // ToolHelp 迭代器的首项和后续项都可能失败；失败时保留已收集的结果。
     unsafe {
         if Process32FirstW(snapshot, &mut entry).is_ok() {
             loop {
                 let pid = entry.th32ProcessID;
+                // 跳过系统保留 PID 与自身，避免把路由器或内核服务暴露为可选来源。
                 if pid > 4 && pid != self_pid {
                     let name = wchar_to_string(&entry.szExeFile);
                     if !name.is_empty() && !is_noise_process(&name) {
@@ -82,14 +77,17 @@ pub fn list_processes() -> Result<Vec<ProcessInfo>, Error> {
                         }
                     }
                 }
+                // 迭代结束和枚举错误都通过 Err 表示，这里安全地结束当前快照。
                 if Process32NextW(snapshot, &mut entry).is_err() {
                     break;
                 }
             }
         }
+        // 句柄不再使用后立即关闭，避免刷新进程列表时累积内核对象。
         let _ = CloseHandle(snapshot);
     }
 
+    // 排序只读已缓存字段，避免在返回前再次访问进程或窗口句柄。
     list.sort_by(|a, b| {
         b.sounding
             .cmp(&a.sounding)
@@ -101,6 +99,7 @@ pub fn list_processes() -> Result<Vec<ProcessInfo>, Error> {
 
 /// 服务/壳进程，几乎不会作为音频来源。
 fn is_noise_process(name: &str) -> bool {
+    // 名称匹配故意保持白名单式排除，避免把系统进程误当作用户音频源。
     let n = name.to_ascii_lowercase();
     matches!(
         n.as_str(),
@@ -156,11 +155,14 @@ fn is_noise_process(name: &str) -> bool {
 
 /// 所有活动渲染设备上的音频会话 PID。失败则空集，不挡窗口进程。
 fn audio_session_pids() -> HashSet<u32> {
+    // 任一 COM/设备枚举环节失败都只影响“正在出声”标记，窗口进程仍可用。
     let mut pids = HashSet::new();
+    // 保留 COM guard 到枚举结束，确保接口释放前当前线程仍处于 MTA apartment。
     let _com = match com::init_mta() {
         Ok(c) => c,
         Err(_) => return pids,
     };
+    // SAFETY: COM 对象仅在当前已初始化的 MTA 线程访问，接口引用由 windows-rs 管理。
     unsafe {
         let enumerator: IMMDeviceEnumerator =
             match CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL) {
@@ -171,6 +173,8 @@ fn audio_session_pids() -> HashSet<u32> {
             Ok(c) => c,
             Err(_) => return pids,
         };
+        // 每个活动 render endpoint 都可能有独立会话，必须合并所有 PID。
+        // 设备数量读取失败按零处理；窗口来源仍由外层快照正常返回。
         let count = collection.GetCount().unwrap_or(0);
         for i in 0..count {
             let Ok(device) = collection.Item(i) else {
@@ -185,6 +189,7 @@ fn audio_session_pids() -> HashSet<u32> {
             let Ok(n) = sessions.GetCount() else {
                 continue;
             };
+            // 会话 PID 可能重复，HashSet 同时去重并过滤系统保留 PID。
             for j in 0..n {
                 let Ok(ctl) = sessions.GetSession(j) else {
                     continue;
@@ -204,10 +209,13 @@ fn audio_session_pids() -> HashSet<u32> {
     pids
 }
 
+/// 枚举顶层窗口并按 PID 缓存第一个有标题的窗口，供列表展示而非音频判定。
 /// 可见、无 owner 的顶层窗口 → PID 标题。每个 PID 只留第一个。
 fn window_titles() -> HashMap<u32, String> {
     let mut titles = HashMap::new();
     unsafe {
+        // SAFETY: 回调只在同步 EnumWindows 期间使用栈上 titles，lparam 不跨调用保存。
+        // EnumWindows 同步调用回调；因此指针只在这次调用期间有效，不跨线程保存。
         let _ = EnumWindows(
             Some(enum_windows_proc),
             LPARAM(&mut titles as *mut HashMap<u32, String> as isize),
@@ -217,20 +225,25 @@ fn window_titles() -> HashMap<u32, String> {
 }
 
 /// EnumWindows 回调。过滤工具窗口和不可见窗口。
+// SAFETY: lparam 来自本次同步枚举的 HashMap 可变借用，回调期间未发生别名访问。
 unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
+    // SAFETY: window_titles 传入的 lparam 指向仍存活的 HashMap，EnumWindows 未返回前不会释放。
     let titles = unsafe { &mut *(lparam.0 as *mut HashMap<u32, String>) };
     unsafe {
         if !IsWindowVisible(hwnd).as_bool() {
             return true.into();
         }
+        // owner 窗口通常是对话框或子窗口，不作为独立的进程展示项。
         let owner = GetWindow(hwnd, GW_OWNER).unwrap_or_default();
         if owner != HWND::default() {
             return true.into();
         }
+        // 工具窗口多为托盘或辅助窗口，排除后可避免标题列表出现内部 UI。
         let ex = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
         if ex & WS_EX_TOOLWINDOW.0 != 0 {
             return true.into();
         }
+        // 一个 PID 只保留首个窗口，避免多窗口应用在 UI 中重复出现。
         let mut pid = 0u32;
         GetWindowThreadProcessId(hwnd, Some(&mut pid));
         if pid == 0 || titles.contains_key(&pid) {
@@ -248,37 +261,8 @@ unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL 
     true.into()
 }
 
-/// 截到第一个 NUL 的 UTF-16 → String。
+/// 截到第一个 NUL 的 UTF-16 → String；Win32 固定数组可能未填满整段缓冲区。
 fn wchar_to_string(buf: &[u16]) -> String {
     let end = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
     String::from_utf16_lossy(&buf[..end])
-}
-
-#[cfg(test)]
-mod tests {
-    use super::ProcessInfo;
-
-    #[test]
-    fn label_does_not_mark_sounding_processes() {
-        let process = ProcessInfo {
-            pid: 42,
-            name: "player.exe".into(),
-            title: Some("窗口标题".into()),
-            sounding: true,
-        };
-
-        assert_eq!(process.label(), "player.exe  [42]  窗口标题");
-    }
-
-    #[test]
-    fn label_shows_name_and_pid_without_a_window_title() {
-        let process = ProcessInfo {
-            pid: 42,
-            name: "player.exe".into(),
-            title: None,
-            sounding: false,
-        };
-
-        assert_eq!(process.label(), "player.exe  [42]");
-    }
 }

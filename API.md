@@ -21,6 +21,8 @@
 `--list-devices` 每行是 `<device-id>\t<friendly-name>`。
 `--snapshot-ui` 文件头是宽、高两个小端 u32，后接 RGBA；分类菜单模式分发右键事件并断言菜单已打开。
 
+`--snapshot-ui` 只在内存中补全快照 fixture，不因生成快照写回用户配置；输出仍为宽度、高度和 RGBA 数据。
+
 ## AudioEngine
 
 `src/engine.rs` 的 `AudioEngine` 是内部音频运行时 API：

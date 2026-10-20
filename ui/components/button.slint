@@ -2,15 +2,25 @@
 
 import { Theme } from "../theme.slint";
 
+// 扁平按钮：调用方提供文案、状态与尺寸，点击通过 clicked 向外通知。
 export component PmButton inherits Rectangle {
+    // 展示文案；icon-only 为真时按图标字体解释。
     in property <string> label: "";
+    // 禁用时同时阻止触摸输入并降低视觉强调。
     in property <bool> enabled: true;
+    // 使用强调色实心背景。
     in property <bool> filled: false;
+    // 表示当前选中态，使用柔和强调色。
     in property <bool> selected: false;
+    // 危险操作使用危险色，优先于常规填充状态。
     in property <bool> danger: false;
+    // 无边框透明样式，常用于工具栏按钮。
     in property <bool> flat: false;
+    // 用户点击且按钮启用时触发，不在组件内执行业务操作。
     callback clicked();
+    // 以 Segoe MDL2 Assets 字体显示图标而非普通文本。
     in property <bool> icon-only: false;
+    // 最小按钮宽度，也影响内部水平留白。
     in property <length> button-width: 76px;
 
     height: Theme.controlHeight;
@@ -45,11 +55,13 @@ export component PmButton inherits Rectangle {
         }
     }
 
+    // 透明命中区只负责把启用按钮的点击事件转发给调用方。
     ta := TouchArea {
         enabled: root.enabled;
         mouse-cursor: pointer;
         clicked => { root.clicked(); }
     }
+    // 悬停与按下只改变视觉反馈，不修改按钮属性或业务状态。
 
     states [
         hovered when ta.has-hover && root.enabled: {

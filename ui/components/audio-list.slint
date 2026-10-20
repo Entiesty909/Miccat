@@ -4,25 +4,45 @@ import { ScrollView } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
 import { PmButton } from "button.slint";
 
+// 音频库条目表格：并行数组共享行索引，行内操作回传给宿主处理。
 export component AudioList inherits Rectangle {
+    // 条目显示名称；index 是所有行元数据数组的主索引。
     in-out property <[string]> entries: [];
+    // 每个条目的格式化时长文本。
     in-out property <[string]> entry-durations: [];
+    // 可选的自定义图标图片，和 glyph 数组按行索引配对。
     in property <[image]> entry-icon-images: [];
+    // 空字符串表示优先使用对应图片，否则显示该行字形。
     in property <[string]> entry-icon-glyphs: [];
+    // 条目格式/码率等副标题。
     in-out property <[string]> entry-metadata: [];
+    // 条目分类名；缺失索引时显示未分类。
     in-out property <[string]> entry-categories: [];
+    // 条目导入状态，影响状态点颜色与文字。
     in-out property <[string]> entry-statuses: [];
+    // 条目快捷键文本，缺失或空值显示占位符。
     in-out property <[string]> entry-hotkeys: [];
+    // 当前选中行索引，-1 表示未选中。
     in-out property <int> entry-index: -1;
+    // 播放引擎当前行索引，仅用于高亮，不等同于选中状态。
     in property <int> playing-entry-index: -1;
+    // 当前播放是否处于活动状态。
     in property <bool> playing: false;
+    // 条目上下文菜单的可见状态，由行点击或右键操作维护。
     in-out property <bool> entry-menu-open: false;
+    // 分类菜单开关；打开条目菜单时必须关闭分类菜单。
     in-out property <bool> category-menu-open: false;
+    // 菜单锚点坐标，使用屏幕长度单位供宿主定位上下文菜单。
     in-out property <length> entry-menu-x: 0px;
+    // 菜单锚点的垂直坐标，与 entry-menu-x 配对使用。
     in-out property <length> entry-menu-y: 0px;
+    // 左键或右键选中行后请求宿主准备条目上下文操作。
     callback entry-context(int);
+    // 行选择通知，参数为 entries 的行索引。
     callback entry-selected(int);
+    // 行点击通知；由宿主决定是否按双击语义打开或编辑。
     callback entry-double-clicked(int);
+    // 请求播放指定行，宿主负责音频引擎副作用。
     callback entry-play(int);
 
     width: 100%;
@@ -88,12 +108,14 @@ export component AudioList inherits Rectangle {
             height: 100%;
             VerticalLayout {
                 height: 100%;
+                // 没有条目时保留列表区域，并提示当前筛选结果为空。
                 if root.entries.length == 0: Text {
                     text: "当前分类没有匹配的音频文件";
                     color: Theme.text3;
                     height: 52px;
                     vertical-alignment: TextVerticalAlignment.center;
                 }
+                // name/index 行映射是所有并行数组的共享协议，缺失元数据由各列回退。
                 for name[index] in root.entries: Rectangle {
                     height: 58px;
                     background: index == root.entry-index
@@ -103,6 +125,7 @@ export component AudioList inherits Rectangle {
                             : Theme.card);
                     // 整行命中区：声明在最前（命中栈底层），所以右侧的播放/更多
                     // 按钮等子控件仍优先拿到点击；其余任意列都落到这里。
+                    // 行级点击选择并按现有约定通知双击；菜单状态随选择关闭。
                     TouchArea {
                         width: parent.width;
                         height: parent.height;
@@ -112,6 +135,7 @@ export component AudioList inherits Rectangle {
                             root.entry-double-clicked(index);
                             root.entry-menu-open = false;
                         }
+                        // 右键使用控件绝对坐标定位菜单，并互斥关闭分类菜单。
                         pointer-event(event) => {
                             if event.button == PointerEventButton.right
                                 && event.kind == PointerEventKind.down {
@@ -231,6 +255,7 @@ export component AudioList inherits Rectangle {
                                 vertical-alignment: TextVerticalAlignment.center;
                             }
                         }
+                        // 播放按钮先选中行，再请求宿主启动该索引对应的音频。
                         PmButton {
                             label: "\u{E768}";
                             icon-only: true;
@@ -241,6 +266,7 @@ export component AudioList inherits Rectangle {
                                 root.entry-play(index);
                             }
                         }
+                        // 更多按钮记录按钮屏幕坐标，供宿主打开该行上下文菜单。
                         PmButton {
                             label: "\u{E712}";
                             icon-only: true;

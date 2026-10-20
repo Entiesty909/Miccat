@@ -26,6 +26,7 @@ pub(crate) enum DebugLevel {
     Trace,
 }
 
+/// 将诊断级别映射为持久化编码、过滤器文本，并提供反向解析。
 impl DebugLevel {
     /// 持久化与 UI 使用的整数编码。
     pub(crate) fn code(self) -> i32 {
@@ -151,7 +152,11 @@ pub(crate) struct Levels {
     pub(crate) overrides: BTreeMap<String, DebugLevel>,
 }
 
+// 使用信息级别作为默认值，启动时保留必要日志且不放大分类噪声。
+
+/// 为未单独设置分类的日志使用信息级别默认值。
 impl Default for Levels {
+    /// 创建使用 Info 级别且没有分类覆盖的初始日志配置。
     fn default() -> Self {
         Self {
             master: DebugLevel::Info,
@@ -159,6 +164,8 @@ impl Default for Levels {
         }
     }
 }
+
+/// 负责把持久化级别转换为 EnvFilter 指令，并维护分类覆盖的顺序。
 
 impl Levels {
     /// 从持久化的编码构建；未知分类键保留，未知级别回退 `Info`。
@@ -173,7 +180,11 @@ impl Levels {
     }
     /// 拼出 EnvFilter 指令串；master 在前，分类覆盖在后。
     pub(crate) fn filter_string(&self) -> String {
+        // 先放全局级别，再追加更具体的 target 覆盖，让 EnvFilter 按优先级解析。
+
         let mut parts = vec![self.master.as_str().to_string()];
+        // 每个分类可能覆盖多个模块，因此展开为一条条 target=level 指令。
+
         for category in CATEGORIES {
             if let Some(level) = self.overrides.get(category.key) {
                 for target in category.targets {
@@ -187,9 +198,13 @@ impl Levels {
 
 /// 运行时调试开关；重载底层 EnvFilter 不重启进程。
 pub(crate) struct Control {
+    /// 当前级别快照；读写锁让 UI 调整与日志线程读取互不破坏。
     levels: Arc<RwLock<Levels>>,
+    /// 由安装阶段注入的重载回调；返回值表示底层过滤器是否接受新配置。
     reload: Box<dyn Fn(EnvFilter) -> bool + Send + Sync>,
 }
+
+/// 通过共享级别快照协调 UI 更新与 tracing 过滤器重载。
 
 impl Control {
     /// 用初始级别与过滤器重载句柄创建。
@@ -220,14 +235,18 @@ impl Control {
         });
     }
 
+    /// 在锁内更新权威状态并生成过滤器；释放锁后再回调，避免重载路径重入锁。
+
     fn update(&self, change: impl FnOnce(&mut Levels)) {
         let filter = {
             let Ok(mut levels) = self.levels.write() else {
+                // 锁中毒时放弃本次调整，避免诊断设置路径再次触发 panic。
                 return;
             };
             change(&mut levels);
             EnvFilter::try_new(levels.filter_string()).ok()
         };
+        // 过滤器构建成功后才替换运行中的实例；失败时保留旧过滤器继续工作。
         if let Some(filter) = filter {
             (self.reload)(filter);
         }

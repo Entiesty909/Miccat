@@ -2,18 +2,30 @@
 
 import { HotkeyState } from "../overlays/global-overlays.slint";
 
+// 应用级键盘焦点区：优先捕获正在录制的热键，再处理 Escape 与普通播放热键。
 export component AppFocusScope inherits FocusScope {
+    // 转发热键录制状态，由页面状态驱动。
     in property <bool> listening-hotkey: false;
+    // 音频快捷键录制状态，捕获结果单独回调。
     in property <bool> listening-audio-hotkey: false;
+    // Escape 可关闭的分类菜单是否打开。
     in property <bool> category-menu-open: false;
+    // Escape 可关闭的音频条目菜单是否打开。
     in property <bool> entry-menu-open: false;
+    // 报告转发热键录制值及修饰键。
     callback hotkey-captured(string, bool, bool, bool);
+    // 报告音频热键录制文本。
     callback audio-hotkey-captured(string);
+    // 报告音频热键组合及修饰键。
     callback audio-hotkey-binding-captured(string, bool, bool, bool);
+    // 报告共享热键行号、录制值及修饰键。
     callback hotkey-row-captured(int, string, bool, bool, bool);
+    // 将未被录制流程消费的按键转给音频快捷键处理。
     callback audio-hotkey-pressed(string);
+    // 请求关闭当前菜单，不在焦点区内直接变更菜单状态。
     callback close-menus();
 
+    // 按录制优先级消费按键；accept 防止录制键继续触发普通快捷操作。
     key-pressed(event) => {
         if root.listening-hotkey {
             root.hotkey-captured(
@@ -49,5 +61,6 @@ export component AppFocusScope inherits FocusScope {
             reject
         }
     }
+    // 内容插槽交给宿主页面承载，焦点区只负责键盘优先级和事件转发。
     @children
 }

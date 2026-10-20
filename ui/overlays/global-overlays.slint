@@ -3,48 +3,80 @@
 import { DiagnosticPanel } from "diagnostic-panel.slint";
 
 /// 快捷键行的共享状态：设置页读写，AppFocusScope 读录制行号。
+// 设置页和焦点范围共享的快捷键行状态；写入后供全局键盘录制流程读取。
 export global HotkeyState {
+    // 上一首绑定文本，供设置卡片显示。
     in-out property <string> previous: "";
+    // 下一首绑定文本，供设置卡片显示。
     in-out property <string> next: "";
+    // 停止播放绑定文本，供设置卡片显示。
     in-out property <string> stop: "";
+    // 上一首行是否正在录制。
     in-out property <bool> listening-previous: false;
+    // 下一首行是否正在录制。
     in-out property <bool> listening-next: false;
+    // 停止播放行是否正在录制。
     in-out property <bool> listening-stop: false;
+    // 当前录制行索引；负值表示没有共享热键行处于录制状态。
     in-out property <int> listening-row: -1;
 }
-
-/// 跨页面共享的诊断与调试开关状态；由桥接层写入。
+/// 桥接层写入的问题中心共享数据及操作出口。
 export global DiagState {
+    // 问题抽屉是否可见。
     in-out property <bool> open: false;
+    // 当前问题中心标签页，0 为问题、1 为日志。
     in-out property <int> tab: 0;
+    // 当前未读问题数量。
     in-out property <int> unseen: 0;
+    // 当前问题列表总数量。
     in-out property <int> count: 0;
+    // 每条记录的严重级别，与其他诊断数组按索引对齐。
     in-out property <[int]> severities: [];
+    // 每条记录的标题，与 severities 按索引对齐。
     in-out property <[string]> titles: [];
+    // 每条记录的来源，与 severities 按索引对齐。
     in-out property <[string]> sources: [];
+    // 每条记录的时间文本，与 severities 按索引对齐。
     in-out property <[string]> times: [];
+    // 每条记录的详情文本，与 severities 按索引对齐。
     in-out property <[string]> details: [];
+    // 每条记录的提示文本，与 severities 按索引对齐。
     in-out property <[string]> hints: [];
+    // 当前选中列表索引；-1 表示无选中项。
     in-out property <int> selected: -1;
+    // 全局默认日志级别。
     in-out property <int> debug-master: 3;
+    // 日志分类显示名称，索引与 debug-category-levels 对齐。
     in-out property <[string]> debug-category-labels: [];
+    // 日志分类级别，索引与 debug-category-labels 对齐。
     in-out property <[int]> debug-category-levels: [];
+    // 请求打开或切换问题中心。
     callback toggle();
+    // 请求关闭问题中心。
     callback close();
+    // 请求选中指定诊断记录。
     callback select(int);
+    // 请求清空问题记录。
     callback clear();
+    // 请求移除当前选中的问题记录。
     callback remove();
+    // 请求复制当前问题详情。
     callback copy();
+    // 请求打开日志文件。
     callback open-log();
+    // 请求修改全局日志级别。
     callback debug-master-changed(int);
+    // 请求修改指定日志分类级别。
     callback debug-category-changed(int, int);
 }
 
 /// 顶层覆盖层：把问题中心接到全局状态。
+// 顶层透明宿主：诊断面板始终接入全局状态，由 open 决定可见性。
 export component GlobalOverlays inherits Rectangle {
     width: 100%;
     height: 100%;
     background: transparent;
+    // 诊断面板直接绑定全局状态，避免页面层重复维护同一份数据。
 
     DiagnosticPanel {
         open <=> DiagState.open;

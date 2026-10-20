@@ -16,12 +16,15 @@ Miccat 是 Windows 本地桌面程序：以 WASAPI Process Loopback 捕获指定
 | `src/main.rs` | DPI、日志初始化、CLI/UI 组合根 |
 | `src/cli/mod.rs` | argv 派发、设备/进程命令、capture/route 与播放探针 |
 | `src/ui_bridge/` | Slint 组装、AppState、回调、缓存、持久化、状态轮询、异步设备/进程刷新和独立窗口生命周期 |
-| `src/engine.rs` | AudioEngine 权威状态、进程/麦生命周期、多输出打开与停止 |
+| `src/ui_bridge/window_lifecycle.rs` | 独立窗口回调、显示/隐藏、物理位置保存、添加源窗口属性同步 |
+| `src/engine.rs` | AudioEngine 权威状态、进程/麦/输出生命周期、多输出打开与停止 |
 | `src/engine/{fanout,monitor,playback,volume,status,peaks}.rs` | 多输出转换、本机试听、文件播放、增益、状态与峰值 API |
-| `src/audio/` | WASAPI capture/render、ring、格式转换、MF/WAV 解码、SFX、试听、CLI dump |
+| `src/audio/` | WASAPI capture/render、COM façade、SPSC ring、格式转换、MF/WAV 解码、SFX、试听、CLI WAV 导出 |
+| `src/audio/errors.rs` | 统一分类 capture/render 设备失效 HRESULT |
 | `src/library.rs`、`src/library/tests.rs` | 音频库分类/索引/递归变更规则、分类图标路径迁移及私有逻辑单测 |
-| `src/config/` | AppConfig 模型、JSON 存储/迁移、窗口物理坐标和Windows单实例互斥 |
-| `src/platform/` | 跨层共享的 COM 初始化与独立Window前置/居中辅助 |
+| `src/config/` | AppConfig 模型、JSON 存储/迁移、窗口物理坐标和 Windows 单实例互斥 |
+| `src/presentation.rs` | CLI 与桥接共用的进程、热键展示格式；不持有配置或运行态 |
+| `src/platform/` | 跨层共享的 COM 初始化与独立 Window 前置/居中辅助 |
 | `src/process.rs`、`src/hotkey.rs`、`src/vbcable.rs`、`src/platform/icon.rs` | 进程枚举、RegisterHotKey、VB-CABLE 安装、Win32 exe/文件图标提取 |
 | `src/diagnostics/` | 运行时调试开关、tracing 捕获、日志落盘与全局问题中心 |
 | `src/platform/clipboard.rs` | Win32 剪贴板文本写入（问题中心复制详情） |

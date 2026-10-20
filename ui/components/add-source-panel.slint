@@ -8,48 +8,90 @@ import { AudioSourceDetails } from "audio-source-details.slint";
 import { AudioSourceList } from "audio-source-list.slint";
 import { MarqueeComboBox } from "marquee-combo-box.slint";
 
+// 添加源面板只编辑临时配置；提交按钮通过回调把选择和参数交给窗口/Rust bridge。
 export component AddSourcePanel inherits Rectangle {
+    // 可选进程名称列表，由 bridge 刷新。
     in-out property <[string]> processes: [];
+    // 当前进程选择下标，-1 表示搜索后无命中。
     in-out property <int> process-index: 0;
+    // 进程图标资源数组。
     in-out property <[image]> process-icon-images: [];
+    // 麦克风设备列表，首项通常为占位项。
     in-out property <[string]> mics: [];
+    // 当前麦克风下标。
     in-out property <int> mic-index: 0;
+    // 音频库文件名数组。
     in-out property <[string]> audio-entries: [];
+    // 进程 PID 文本，用于展示和重复进程校验。
     in-out property <[string]> process-pids: [];
+    // 音频条目元数据数组。
     in-out property <[string]> audio-entry-metadata: [];
+    // 音频条目时长文本数组。
     in-out property <[string]> audio-entry-durations: [];
+    // 音频条目大小文本数组。
     in-out property <[string]> audio-entry-sizes: [];
+    // 音频条目分类数组。
     in-out property <[string]> audio-entry-categories: [];
+    // 音频条目快捷键数组。
     in-out property <[string]> audio-entry-hotkeys: [];
+    // 音频条目循环设置数组。
     in-out property <[bool]> audio-entry-loops: [];
+    // 麦克风可选输出设备列表。
     in-out property <[string]> mic-output-options: [];
+    // 麦克风输出设备下标。
     in-out property <int> mic-output-index: 0;
+    // 文件可选输出设备列表。
     in-out property <[string]> output-options: [];
+    // 文件输出设备下标。
     in-out property <int> file-output-index: 0;
+    // 文件源音量百分比。
     in-out property <float> file-volume: 100;
+    // 当前音频库条目下标。
     in-out property <int> audio-selected-index: 0;
+    // 音频库搜索草稿。
     in-out property <string> audio-search: "";
+    // 麦克风输入音量百分比。
     in-out property <float> mic-volume: 100;
+    // 是否把所选麦克风加入混音。
     in-out property <bool> mix-mic: false;
+    // 转发运行态，运行时禁止进程/麦克风拓扑变更。
     in property <bool> running: false;
+    // 当前添加类型页签：0 进程、1 文件、2 麦克风。
     in-out property <int> selected-tab: 0;
+    // 替换流程设置时隐藏类型卡片，只保留对应页内容。
     in property <bool> single-tab: false;
+    // 进程搜索草稿，仅影响本地过滤。
     in-out property <string> process-search: "";
+    // 提交进程选择。
     callback process-add();
+    // 请求刷新进程/设备列表。
     callback refresh();
+    // 请求原生文件选择器导入音频。
     callback add-files();
+    // 将指定音频条目添加到路由。
     callback audio-entry-add-route(int);
+    // 文件音量变化，百分比单位。
     callback audio-file-volume-edited(float);
+    // 文件输出设备变化。
     callback audio-file-output-changed(int);
+    // 麦克风输出设备变化。
     callback mic-output-changed(int);
+    // 麦克风输入音量变化。
     callback mic-volume-edited(float);
+    // 麦克风混音开关变化。
     callback mic-mix-changed(bool);
+    // 提交麦克风路由槽位。
     callback mic-add();
+    // 打开音频库页查看完整条目。
     callback open-library();
+    // 取消并关闭面板，不产生添加副作用。
     callback dismiss();
+    // 音频库搜索条件改变，通知宿主刷新列表。
     callback audio-search-changed();
 
+    // 过滤函数只做大小写不敏感的包含判断，不修改 bridge 数据。
     function process-matches(name: string) -> bool {
+        // 过滤只影响可见行，保留原数组下标以继续对齐 PID 和图标。
         return root.process-search.is-empty
             || name.to-lowercase().replace-all(
                 root.process-search.to-lowercase(),
@@ -58,6 +100,7 @@ export component AddSourcePanel inherits Rectangle {
     }
 
 
+    // 面板占满窗口，底色和间距由 Theme token 统一提供。
     width: 100%;
     height: 100%;
     background: Theme.bg;
@@ -70,6 +113,7 @@ export component AddSourcePanel inherits Rectangle {
                 color: Theme.text2;
                 font-size: 12px;
             }
+            // 类型卡片在非 single-tab 模式显示；点击只切换临时 selected-tab。
             if !root.single-tab: HorizontalLayout {
                 height: 82px;
                 spacing: 12px;
@@ -106,6 +150,7 @@ export component AddSourcePanel inherits Rectangle {
                             overflow: elide;
                         }
                     }
+                        // 进程卡片 TouchArea 不直接提交，确认按钮才触发 process-add。
                     TouchArea {
                         width: 100%;
                         height: 100%;
@@ -113,6 +158,7 @@ export component AddSourcePanel inherits Rectangle {
                         clicked => { root.selected-tab = 0; }
                     }
                 }
+                // 文件卡片与进程卡片互斥显示，切换不会清除已加载的音频库。
                 Rectangle {
                     width: 210px;
                     height: 82px;
@@ -146,6 +192,7 @@ export component AddSourcePanel inherits Rectangle {
                             overflow: elide;
                         }
                     }
+                        // 文件类型卡片只更新页签，不会立即创建路由流。
                     TouchArea {
                         width: 100%;
                         height: 100%;
@@ -186,6 +233,7 @@ export component AddSourcePanel inherits Rectangle {
                             overflow: elide;
                         }
                     }
+                        // 麦克风卡片选择设备后仍需点击确认，避免误添加。
                     TouchArea {
                         width: 100%;
                         height: 100%;
@@ -194,6 +242,7 @@ export component AddSourcePanel inherits Rectangle {
                     }
                 }
             }
+            // 当前页签条件确保三种表单不会同时占用布局或接收事件。
             if root.selected-tab == 0: Rectangle {
                 vertical-stretch: 1;
                 border-radius: Theme.radiusCard;
@@ -206,21 +255,25 @@ export component AddSourcePanel inherits Rectangle {
                     Text { text: "进程"; color: Theme.text; font-size: 14px; font-weight: 600; }
                     HorizontalLayout {
                         height: 36px;
+                        // 搜索编辑将 process-index 置为 -1，要求用户重新确认过滤结果。
                         LineEdit {
                             horizontal-stretch: 1;
                             text <=> root.process-search;
                             placeholder-text: "搜索进程名称…";
                             edited(value) => { root.process-index = -1; }
                         }
+                        // 刷新仅重新请求进程列表，运行态禁用以保护当前拓扑。
                         PmButton {
                             label: "刷新";
                             enabled: !root.running;
                             clicked => { root.refresh(); }
                         }
                     }
+                    // ScrollView 保持原始数组下标，过滤项仅收缩高度而不改变 PID 对齐。
                     ScrollView {
                         vertical-stretch: 1;
                         VerticalLayout {
+                            // 过滤后的行高度为 0，ScrollView 仍按原数组索引匹配 PID/图标。
                             for process[index] in root.processes:
                                 Rectangle {
                                     visible: root.process-matches(process);
@@ -290,6 +343,7 @@ export component AddSourcePanel inherits Rectangle {
                                             vertical-alignment: center;
                                         }
                                     }
+                                    // 点击进程行只更新选择下标；提交仍受运行态和范围校验保护。
                                     TouchArea {
                                         clicked => { root.process-index = index; }
                                     }
@@ -298,6 +352,7 @@ export component AddSourcePanel inherits Rectangle {
                     }
                 }
             }
+            // 文件选择区左右分栏：列表选中项作为详情和添加按钮的数据源。
             if root.selected-tab == 1: Rectangle {
                 vertical-stretch: 1;
                 HorizontalLayout {
@@ -308,10 +363,12 @@ export component AddSourcePanel inherits Rectangle {
                         metadata <=> root.audio-entry-metadata;
                         selected-index <=> root.audio-selected-index;
                         search <=> root.audio-search;
+                        // 搜索变化由子列表转发，宿主负责更新库查询结果。
                         search-changed => {
                             root.audio-search-changed();
                         }
                     }
+                        // 详情字段均从 selected-index 对齐数组读取，越界时显示占位文本。
                     AudioSourceDetails {
                         vertical-stretch: 1;
                         entry-name: root.audio-selected-index >= 0
@@ -350,6 +407,7 @@ export component AddSourcePanel inherits Rectangle {
                         outputs <=> root.output-options;
                         output-index <=> root.file-output-index;
                         volume <=> root.file-volume;
+                        // 文件详情控件只提交当前选中条目的输出和音量设置。
                         output-changed(index) => {
                             root.audio-file-output-changed(index);
                         }
@@ -359,6 +417,7 @@ export component AddSourcePanel inherits Rectangle {
                     }
                 }
             }
+            // 麦克风区左侧选择设备，右侧编辑输入增益和输出目标。
             if root.selected-tab == 2: Rectangle {
                 vertical-stretch: 1;
                 HorizontalLayout {
@@ -385,6 +444,7 @@ export component AddSourcePanel inherits Rectangle {
                                 vertical-scrollbar-policy: always-off;
                                 VerticalLayout {
                                     alignment: LayoutAlignment.start;
+                                    // index 0 是占位项，不可作为真实麦克风提交。
                                     for microphone[index] in root.mics: Rectangle {
                                         visible: index > 0;
                                         height: index > 0 ? 44px : 0px;
@@ -415,6 +475,7 @@ export component AddSourcePanel inherits Rectangle {
                                                 vertical-alignment: center;
                                             }
                                         }
+                                        // 选择设备立即通知混音状态，便于 bridge 预览但不提交新槽位。
                                         TouchArea {
                                             enabled: index > 0;
                                             clicked => {
@@ -444,6 +505,7 @@ export component AddSourcePanel inherits Rectangle {
                                 font-size: 13px;
                                 font-weight: 600;
                             }
+                            // 输入音量通过 SliderRow 双向绑定，编辑值回传窗口。
                             SliderRow {
                                 label: "输入音量";
                                 value <=> root.mic-volume;
@@ -454,6 +516,7 @@ export component AddSourcePanel inherits Rectangle {
                                 color: Theme.text2;
                                 font-size: 11px;
                             }
+                            // 运行中锁定麦克风输出设备，避免重建正在使用的 render target。
                             MarqueeComboBox {
                                 model: root.mic-output-options;
                                 current-index <=> root.mic-output-index;
@@ -466,11 +529,14 @@ export component AddSourcePanel inherits Rectangle {
                     }
                 }
             }
+            // 底部按钮是唯一提交/取消入口；按钮 enabled 条件反映各类型最小有效选择。
             HorizontalLayout {
                 height: 40px;
                 Rectangle { horizontal-stretch: 1; background: transparent; }
+                // 取消只关闭窗口，不改动 bridge 的已存在路由。
                 PmButton { label: "取消"; clicked => { root.dismiss(); } }
                 PmButton {
+                // 文案随类型改变，实际动作在 clicked 分支按 selected-tab 分派。
                     label: root.selected-tab == 0
                         ? "添加进程"
                         : (root.selected-tab == 1 ? "添加到路由" : "添加麦克风");
@@ -485,6 +551,8 @@ export component AddSourcePanel inherits Rectangle {
                             : root.mics.length > 1
                                 && root.mic-index > 0
                                 && !root.running);
+                    // 分派提交回调，窗口负责关闭和重复源校验。
+                    // 提交回调按页签分派，避免切换页签时误触发其他类型的添加操作。
                     clicked => {
                         if root.selected-tab == 0 {
                             root.process-add();

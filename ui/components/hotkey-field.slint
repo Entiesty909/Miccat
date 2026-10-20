@@ -3,12 +3,19 @@
 import { Theme } from "../theme.slint";
 import { PmButton } from "button.slint";
 
+// 热键显示与录制入口：状态由父级提供，录制和重置请求向父级转发。
 export component HotkeyField inherits HorizontalLayout {
+    // 热键功能说明文本。
     in property <string> label: "";
+    // 当前已绑定组合键，由设置状态提供。
     in property <string> combo: "";
+    // 录制期间展示等待提示并高亮字段；生命周期由父级维护。
     in property <bool> listening: false;
+    // 控制更改与重置按钮是否可操作。
     in property <bool> enabled: true;
+    // 请求父级开始捕获后续键盘输入。
     callback begin();
+    // 请求父级清除当前热键绑定。
     callback reset();
 
     height: Theme.controlHeight;
@@ -40,11 +47,13 @@ export component HotkeyField inherits HorizontalLayout {
             overflow: elide;
         }
     }
+    // 更改按钮进入捕获流程，录制结果由父级回填 combo。
     PmButton {
         label: "更改";
         enabled: root.enabled;
         clicked => { root.begin(); }
     }
+    // 重置按钮请求父级清除绑定并刷新显示。
     PmButton {
         label: "重置";
         enabled: root.enabled;

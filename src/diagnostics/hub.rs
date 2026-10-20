@@ -25,6 +25,8 @@ pub(crate) enum Severity {
     Error,
 }
 
+/// 提供编码与展示文本转换；诊断中心只保存这一组有限级别。
+
 impl Severity {
     /// Slint 整数编码：0 信息、1 警告、2 错误。
     pub(crate) fn code(self) -> i32 {
@@ -76,9 +78,12 @@ pub(crate) struct DiagnosticHub {
     capacity: usize,
 }
 
+/// 在固定容量内串行维护诊断顺序，并用原子计数暴露未读状态。
+
 impl DiagnosticHub {
     /// 创建容量为 `capacity` 的中心；容量为 0 时按 1 处理，保证至少留一条。
     pub(crate) fn new(capacity: usize) -> Self {
+        // 零容量也按一处理，避免报告成功却无法保留任何诊断。
         Self {
             entries: Mutex::new(VecDeque::with_capacity(capacity.max(1))),
             unseen: AtomicU64::new(0),
@@ -99,20 +104,26 @@ impl DiagnosticHub {
         detail: &str,
         hint: &str,
     ) {
+        // 时间格式化放在加锁前，减少持锁时间；后续只在队列上做短操作。
         let time = local_time();
         let Ok(mut entries) = self.entries.lock() else {
+            // 诊断不能反过来影响业务线程，锁中毒时直接丢弃本条记录。
             return;
         };
         if let Some(latest) = entries.back_mut() {
             let same =
                 latest.severity == severity && latest.source == source && latest.title == title;
             if same {
+                // 相同问题只刷新时间，避免短时间内重复占满环形缓冲和未读计数。
                 latest.time = time;
                 return;
             }
         }
+        // 原子序列为每条新增诊断分配稳定 id，快照和删除可据此定位条目。
+
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         while entries.len() >= self.capacity {
+            // 满容量时淘汰最旧项，保持最新故障始终可见。
             entries.pop_front();
         }
         entries.push_back(Diagnostic {
@@ -124,28 +135,32 @@ impl DiagnosticHub {
             hint: hint.to_string(),
             time,
         });
+        // 只有真正新增条目才增加未读数；重复合并路径已提前返回。
         self.unseen.fetch_add(1, Ordering::Relaxed);
     }
-
-    /// 快照，最新在前。
+    /// 快照，最新在前；锁内只做克隆，避免把队列引用泄露到调用方。
     pub(crate) fn snapshot(&self) -> Vec<Diagnostic> {
         let Ok(entries) = self.entries.lock() else {
             return Vec::new();
         };
+        // 内部按时间正序保留，界面快照反转后可直接从最新问题开始展示。
         entries.iter().rev().cloned().collect()
     }
 
-    /// 未读计数。
+    /// 当前未读条数；原子读取不必阻塞诊断列表快照。
+
     pub(crate) fn unseen(&self) -> usize {
         self.unseen.load(Ordering::Relaxed) as usize
     }
 
-    /// 标记全部已读。
+    /// 把当前计数归零；已有条目仍保留供用户查看。
+
     pub(crate) fn mark_seen(&self) {
         self.unseen.store(0, Ordering::Relaxed);
     }
 
-    /// 清空；未读计数一并归零。
+    /// 清空所有条目并同步清除未读状态，保持列表与角标一致。
+
     pub(crate) fn clear(&self) {
         if let Ok(mut entries) = self.entries.lock() {
             entries.clear();
@@ -153,7 +168,7 @@ impl DiagnosticHub {
         self.unseen.store(0, Ordering::Relaxed);
     }
 
-    /// 按 id 删除；不存在时不做任何事。
+    /// 删除指定条目；未读计数不回退，因为它表示自上次标记以来发生过的新问题。
     pub(crate) fn dismiss(&self, id: u64) {
         if let Ok(mut entries) = self.entries.lock()
             && let Some(index) = entries.iter().position(|entry| entry.id == id)
@@ -165,6 +180,7 @@ impl DiagnosticHub {
 
 /// 全局单例；容量 200。
 pub(crate) fn shared() -> &'static Arc<DiagnosticHub> {
+    // LazyLock 只初始化一次；Arc 让 tracing layer 与 UI 共享同一个中心。
     static HUB: LazyLock<Arc<DiagnosticHub>> =
         LazyLock::new(|| Arc::new(DiagnosticHub::new(SHARED_CAPACITY)));
     &HUB
@@ -172,7 +188,8 @@ pub(crate) fn shared() -> &'static Arc<DiagnosticHub> {
 
 /// 取本地时间 "HH:MM:SS"。
 fn local_time() -> String {
-    // `GetLocalTime` 无失败路径，总是回填 SYSTEMTIME，因此这里不需要错误分支。
+    // SAFETY: `GetLocalTime` 只返回系统填充的 SYSTEMTIME 值，不接收指针；调用线程无需
+    // 额外的 COM apartment 或外部资源生命周期，返回值可立即读取。
     let time = unsafe { GetLocalTime() };
     format!("{:02}:{:02}:{:02}", time.wHour, time.wMinute, time.wSecond)
 }

@@ -5,26 +5,42 @@ import { Theme } from "../theme.slint";
 import { Card } from "card.slint";
 import { PmButton } from "button.slint";
 
+// 音频库底部传输控制栏，进度值固定为 0..1 的归一化比例。
 export component AudioTransport inherits Card {
+    // 当前播放条目索引；负值表示没有可导航的条目。
     in property <int> entry-index: -1;
+    // 当前列表条目总数，用于计算上一首/下一首可用性。
     in property <int> entry-count: 0;
+    // 播放流是否活动。
     in property <bool> playing: false;
+    // 播放流是否暂停；暂停时仍保留当前条目与进度。
     in property <bool> paused: false;
+    // 当前播放位置的归一化进度，0 表示开头、1 表示结尾。
     in-out property <float> progress: 0;
+    // 用户正在拖动进度条时抑制外部位置更新造成的跳动。
     in-out property <bool> seeking-progress: false;
+    // 当前条目名称，来自宿主的播放状态。
     in property <string> current-name: "";
+    // 已格式化的当前位置文本。
     in property <string> current-position: "";
+    // 当前媒体时长，单位为秒；非正值时禁止拖动。
     in property <float> duration-seconds: 0;
+    // 请求播放上一条可用条目。
     callback previous();
+    // 请求在播放与暂停之间切换。
     callback pause-toggle();
+    // 请求停止当前播放并清理播放状态。
     callback stop();
+    // 请求播放下一条可用条目。
     callback next();
+    // 用户释放滑块后提交归一化进度，宿主负责换算为秒并 seek。
     callback progress-seek(float);
 
     height: 58px;
 
     HorizontalLayout {
         spacing: 5px;
+        // entry-index 为首项时禁用上一首，点击只发导航请求。
         PmButton {
             label: "\u{E892}";
             icon-only: true;
@@ -32,6 +48,7 @@ export component AudioTransport inherits Card {
             enabled: root.entry-index > 0;
             clicked => { root.previous(); }
         }
+        // 暂停保留播放上下文，按钮只切换状态而不重置进度。
         PmButton {
             label: root.paused ? "\u{E768}" : "\u{E769}";
             icon-only: true;
@@ -39,6 +56,7 @@ export component AudioTransport inherits Card {
             enabled: root.playing || root.paused;
             clicked => { root.pause-toggle(); }
         }
+        // 停止按钮在播放或暂停态可用，宿主负责释放当前播放流。
         PmButton {
             label: "\u{E71A}";
             icon-only: true;
@@ -46,6 +64,7 @@ export component AudioTransport inherits Card {
             enabled: root.playing || root.paused;
             clicked => { root.stop(); }
         }
+        // entry-count 与索引共同限制下一首，避免越过列表末尾。
         PmButton {
             label: "\u{E893}";
             icon-only: true;
@@ -61,14 +80,19 @@ export component AudioTransport inherits Card {
             font-size: 10px;
             vertical-alignment: TextVerticalAlignment.center;
         }
+        // Slider 使用 0..1 进度协议；拖动期间先标记 seeking，释放时才提交 seek。
         Slider {
             horizontal-stretch: 1;
             minimum: 0;
             maximum: 1;
             value <=> root.progress;
             enabled: root.duration-seconds > 0;
-            changed(value) => { root.seeking-progress = true; }
+            changed(value) => {
+                // value 改变代表用户仍在拖动，暂不触发引擎 seek。
+                root.seeking-progress = true;
+            }
             released(value) => {
+                // 释放时提交最终归一化值，并恢复外部进度同步。
                 root.seeking-progress = false;
                 root.progress-seek(value);
             }

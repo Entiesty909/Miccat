@@ -3,34 +3,61 @@
 import { LineEdit } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
 import { MenuItem } from "../components/menu-item.slint";
+// 分类和音频条目的右键菜单覆盖层；状态由页面绑定，操作统一向外请求。
 export component ContextMenu inherits Rectangle {
+    // 两类菜单各自独立显隐，关闭由背景点击或菜单动作触发。
     in-out property <bool> category-open: false;
+// 条目菜单当前是否显示。
     in-out property <bool> entry-open: false;
+    // 分类菜单左上角的窗口坐标，渲染时会夹在可视区域内。
     in-out property <length> category-x: 0px;
+// 分类菜单 Y 坐标。
     in-out property <length> category-y: 0px;
+    // 音频条目菜单左上角的窗口坐标，同样受边界约束。
     in-out property <length> entry-x: 0px;
+// 条目菜单 Y 坐标。
     in-out property <length> entry-y: 0px;
+    // 当前分类索引；负值代表新建顶级分类场景。
     in-out property <int> category-index: 0;
+    // 分类重命名输入框的双向文本，在菜单关闭前由父级持有。
     in-out property <string> category-edit-name: "";
+    // 控制分类重命名输入框显示及相关操作可用状态。
     in-out property <bool> category-rename-open: false;
+    // 当前音频条目的快捷键文本，用于菜单标签和清除可用性。
     in property <string> entry-hotkey: "";
+    // 分类操作请求，由页面执行业务更新。
+    // 请求创建当前层级的新分类。
     callback category-new();
+    // 请求打开分类编辑流程，由宿主准备编辑数据。
     callback category-edit-requested();
+    // 提交分类重命名文本。
     callback category-rename();
+    // 请求删除当前分类。
     callback category-delete();
+    // 音频条目操作请求，参数选择播放路由或本机试听模式。
+    // 请求播放条目；参数区分路由播放与本机试听。
     callback entry-play(int);
+    // 请求把条目加入路由主页。
     callback entry-add-route();
+    // 请求进入条目快捷键捕获。
     callback entry-hotkey-bind();
+    // 请求清除条目快捷键。
     callback entry-hotkey-clear();
+    // 请求从音频库移除当前条目。
     callback entry-remove();
+    // 请求在资源管理器中定位条目文件。
     callback entry-explorer();
+    // 请求打开条目元数据编辑窗口。
     callback entry-edit-requested();
+    // 请求编辑条目的音频文件信息。
     callback entry-edit-file();
 
     width: 100%;
     height: 100%;
     background: transparent;
 
+    // 背景按下只关闭菜单，菜单项自身的点击由子控件消费。
+    // 背景按下时关闭两类菜单；打开状态回写父级以同步生命周期。
     TouchArea {
         pointer-event(event) => {
             if (event.kind == PointerEventKind.down) {
@@ -40,6 +67,7 @@ export component ContextMenu inherits Rectangle {
         }
     }
 
+    // 分类菜单仅在对应状态打开时创建，坐标夹制避免弹层越出窗口。
     if root.category-open: Rectangle {
         x: min(max(0px, root.category-x), root.width - 256px);
         y: min(
@@ -70,6 +98,7 @@ export component ContextMenu inherits Rectangle {
             }
             MenuItem {
                 label: root.category-index < 0 ? "新建分类" : "新建子分类";
+                // 新建操作根据 category-index 决定创建顶级分类或子分类。
                 clicked => { root.category-new(); root.category-open = false; }
             }
             if root.category-rename-open: LineEdit {
@@ -77,6 +106,7 @@ export component ContextMenu inherits Rectangle {
                 height: 30px;
             }
             MenuItem {
+                // 编辑入口只对已有分类开放，点击后关闭当前菜单。
                 label: "编辑";
                 enabled: root.category-index >= 0;
                 clicked => {
@@ -85,6 +115,7 @@ export component ContextMenu inherits Rectangle {
                 }
             }
             MenuItem {
+                // 删除入口在重命名编辑状态下禁用，避免同时提交两种操作。
                 label: "删除";
                 danger: true;
                 enabled: root.category-index >= 0 && !root.category-rename-open;
@@ -93,6 +124,7 @@ export component ContextMenu inherits Rectangle {
         }
     }
 
+    // 条目菜单独立显隐，动作回调执行后关闭本菜单以结束本次交互。
     if root.entry-open: Rectangle {
         x: min(max(0px, root.entry-x), root.width - 300px);
         y: min(max(0px, root.entry-y), root.height - 330px);
@@ -119,24 +151,29 @@ export component ContextMenu inherits Rectangle {
                 }
             }
             MenuItem {
+                // 播放入口通过参数选择是否同时送入路由和本机试听。
                 label: "播放（进路由 + 本机试听）";
                 clicked => { root.entry-play(0); root.entry-open = false; }
             }
+            // 仅试听模式不加入路由，播放完成后仍由宿主回收试听状态。
             MenuItem {
                 label: "仅本机试听";
                 clicked => { root.entry-play(1); root.entry-open = false; }
             }
+            // 将当前条目加入路由主页，由宿主检查重复条目。
             MenuItem {
                 label: "添加到路由主页";
                 clicked => { root.entry-add-route(); root.entry-open = false; }
             }
             Rectangle { height: 1px; width: 100%; background: #E4E4E4; }
             MenuItem {
+                // 快捷键设置与清除共享当前条目的菜单生命周期。
                 label: root.entry-hotkey == ""
                     ? "设置快捷键"
                     : "快捷键：\{root.entry-hotkey}";
                 clicked => { root.entry-hotkey-bind(); root.entry-open = false; }
             }
+            // 只有存在快捷键时才允许清除，并在请求后关闭菜单。
             MenuItem {
                 label: "清除快捷键";
                 enabled: root.entry-hotkey != "";
@@ -144,13 +181,16 @@ export component ContextMenu inherits Rectangle {
             }
             Rectangle { height: 1px; width: 100%; background: #E4E4E4; }
             MenuItem {
+                // 文件操作和编辑入口均在回调后关闭菜单，结束本次上下文交互。
                 label: "在资源管理器中显示";
                 clicked => { root.entry-explorer(); root.entry-open = false; }
             }
+            // 打开条目编辑窗口，编辑生命周期由宿主管理。
             MenuItem {
                 label: "编辑";
                 clicked => { root.entry-edit-requested(); root.entry-open = false; }
             }
+            // 删除入口提交移除请求，危险样式仅表示操作风险。
             MenuItem {
                 label: "从音频库移除";
                 danger: true;

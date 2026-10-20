@@ -6,25 +6,44 @@ import { PmButton } from "button.slint";
 import { ScrollView, Slider } from "std-widgets.slint";
 import { LevelMeter } from "level-meter.slint";
 
+// 状态栏接收 Rust bridge 的运行镜像和电平采样；用户编辑只通过回调交还宿主。
 export component StatusBar inherits Rectangle {
+    // 状态文案由引擎生命周期提供，不在 UI 内推导。
     in property <string> status-text: "未运行";
+    // 0 普通、1 成功、2 警告、3 错误；仅决定指示灯颜色。
     in property <int> status-kind: 0;
+    // 错误文本为空时不占行；非空时展开详情提示行。
     in property <string> error-text: "";
+    // 转发运行态控制开始/停止按钮及源操作可用性。
     in property <bool> running: false;
+    // 当前路由源数量，用于摘要文字和电平弹层高度。
     in property <int> source-count: 0;
+    // 源标题按槽位下标对齐，供弹层逐行显示。
     in property <[string]> source-titles: [];
+    // 所有源的峰值采样扁平数组，每个源占固定 32 个样本。
     in property <[float]> source-meter-history: [];
+    // 每个源当前峰值 dBFS 文本，与 source-titles 下标对齐。
     in property <[string]> source-meter-dbs: [];
+    // 主总线的 32 个峰值采样。
     in property <[float]> master-meter-history: [];
+    // 弹层是否打开；该状态由按钮和宿主双向保持。
     in-out property <bool> source-meter-open: false;
+    // 主总线最新峰值数值，保留给外部诊断/展示契约。
     in property <float> master-peak-value: 0;
+    // 主总线峰值格式化文本，例如 -∞ dB。
     in property <string> master-peak-db: "-∞ dB";
+    // 总线增益格式化文本，单位 dB。
     in property <string> master-volume-db: "0.0 dB";
+    // 总线音量百分比，Slider 以 0–100 映射。
     in-out property <float> master-volume: 100;
+    // 线缆安装/卸载忙碌态，忙碌时禁用开始转发。
     in property <bool> cable-busy: false;
+    // 滑块变化后通知 Rust 更新总线增益。
     callback master-volume-edited(float);
+    // 请求开始或停止整个转发引擎。
     callback start-stop();
 
+    // 有错误时增加一行高度，保证错误文案不会覆盖主控制行。
     height: root.error-text == ""
         ? Theme.statusBarHeight
         : Theme.statusBarHeight + 22px;
@@ -39,6 +58,7 @@ export component StatusBar inherits Rectangle {
         padding-top: 10px;
         padding-bottom: 10px;
         spacing: 4px;
+        // 错误行只在 bridge 提供非空错误文本时创建。
         if root.error-text != "": HorizontalLayout {
             width: 100%;
             spacing: 8px;
@@ -55,6 +75,7 @@ export component StatusBar inherits Rectangle {
                 color: Theme.accent;
                 font-size: 12px;
                 vertical-alignment: TextVerticalAlignment.center;
+                // 点击详情打开全局诊断浮层，不改变当前转发状态。
                 TouchArea {
                     mouse-cursor: pointer;
                     clicked => { DiagState.toggle(); }
@@ -73,6 +94,7 @@ export component StatusBar inherits Rectangle {
                         width: 10px;
                         height: 10px;
                         border-radius: 5px;
+                    // 指示灯颜色由 bridge 状态码决定，颜色本身没有业务副作用。
                         background: root.status-kind == 1
                             ? Theme.ok
                             : (root.status-kind == 2
@@ -89,6 +111,7 @@ export component StatusBar inherits Rectangle {
                     font-weight: 600;
                     vertical-alignment: center;
                 }
+                // 数量锚点为电平弹层提供绝对坐标；弹层关闭时仍保留稳定宽度。
                 source-count-anchor := Rectangle {
                     width: 122px;
                     height: 44px;
@@ -113,6 +136,7 @@ export component StatusBar inherits Rectangle {
                             vertical-alignment: center;
                         }
                     }
+                    // 点击源数量区域只切换本地弹层可见性。
                     TouchArea {
                         mouse-cursor: pointer;
                         clicked => {
@@ -137,6 +161,7 @@ export component StatusBar inherits Rectangle {
                     font-size: 16px;
                     vertical-alignment: center;
                 }
+                // Slider 双向绑定显示值，changed 回调负责写回 Rust 引擎。
                 Slider {
                     width: 240px;
                     minimum: 0;
@@ -161,6 +186,7 @@ export component StatusBar inherits Rectangle {
                     horizontal-alignment: right;
                     vertical-alignment: center;
                 }
+                // 诊断计数来自全局状态；点击只切换诊断浮层。
                 if DiagState.count > 0: PmButton {
                     label: DiagState.unseen > 0
                         ? "⚠  \{DiagState.count} 个问题（\{DiagState.unseen} 新）"
@@ -168,6 +194,7 @@ export component StatusBar inherits Rectangle {
                     danger: true;
                     clicked => { DiagState.toggle(); }
                 }
+                // 开始/停止按钮受线缆忙碌态保护，避免安装任务期间启动引擎。
                 PmButton {
                     label: root.running ? "■  停止" : "▶  开始转发";
                     filled: true;
@@ -179,12 +206,14 @@ export component StatusBar inherits Rectangle {
             }
         }
     }
+    // 源电平弹层覆盖在状态栏上方，关闭时不创建子项，降低常驻布局成本。
     if root.source-meter-open: Rectangle {
         x: source-count-anchor.absolute-position.x - root.absolute-position.x;
         y: source-count-anchor.absolute-position.y
             - root.absolute-position.y
             - self.height
             - 8px;
+        // 高度随源数量增长但封顶，ScrollView 负责超过可视区域的滚动。
         width: 360px;
         height: min(300px, 104px + 34px * root.source-count);
         border-radius: Theme.radiusCard;
@@ -200,6 +229,7 @@ export component StatusBar inherits Rectangle {
                 font-size: 13px;
                 font-weight: 600;
             }
+            // 每个源取扁平采样中的 32 点窗口；sample-offset 由槽位下标计算。
             ScrollView {
                 vertical-stretch: 1;
                 vertical-scrollbar-policy: always-off;
@@ -268,6 +298,7 @@ export component StatusBar inherits Rectangle {
                 font-size: 9px;
             }
         }
+        // 空 TouchArea 拦截弹层内部点击，避免点击内容时冒泡关闭弹层。
         TouchArea { }
     }
 }

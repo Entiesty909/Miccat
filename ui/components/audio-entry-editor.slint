@@ -4,16 +4,27 @@ import { LineEdit } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
 import { PmButton } from "button.slint";
 
+// 分类与音频条目共用的编辑表单；仅提交字段，不直接修改持久化数据。
 export component AudioEntryEditor inherits Rectangle {
+    // true 表示编辑分类，影响名称占位提示及宿主解释方式。
     in property <bool> category-mode: false;
+    // 正在编辑的显示名称，双向绑定到输入框。
     in-out property <string> name: "";
+    // 图标选择协议中的索引；0 为默认音符，5 为首字图标。
     in-out property <int> icon-index: 0;
+    // 宿主加载的自定义图片；路径非空时才用于预览。
     in property <image> custom-icon-image;
+    // 自定义图标路径，空值表示使用内置图标。
     in-out property <string> custom-icon-path: "";
+    // 图标按钮标签列表，通常由宿主按本地化配置提供。
     in property <[string]> icon-labels: ["默认音符", "首字图标"];
+    // 内置字形列表；缺失时预览回退到默认音符。
     in property <[string]> icon-glyphs: ["\u{EC4F}"];
+    // 请求宿主打开文件选择器并回填自定义图片。
     callback custom-icon-requested();
+    // 提交名称、图标索引与路径，持久化副作用由宿主完成。
     callback accepted(string, int, string);
+    // 放弃编辑且不提交任何字段。
     callback cancelled();
 
     width: 100%;
@@ -32,6 +43,7 @@ export component AudioEntryEditor inherits Rectangle {
                 font-size: 13px;
                 font-weight: 600;
             }
+            // 名称输入双向写入草稿；提交前由按钮的非空条件阻止空名称。
             LineEdit {
                 height: 38px;
                 text <=> root.name;
@@ -52,12 +64,14 @@ export component AudioEntryEditor inherits Rectangle {
                     height: 88px;
                     border-radius: 10px;
                     background: Theme.accentSoft;
+                    // 路径非空时展示宿主提供的图片资源，组件不负责读取文件。
                     if root.custom-icon-path != "": Image {
                         width: 100%;
                         height: 100%;
                         source: root.custom-icon-image;
                         image-fit: contain;
                     }
+                    // 无自定义图片时按 icon-index 选择首字或内置字形预览。
                     if root.custom-icon-path == "": Text {
                         text: root.icon-index == 5
                             ? root.name
@@ -81,6 +95,7 @@ export component AudioEntryEditor inherits Rectangle {
                     HorizontalLayout {
                         height: 34px;
                         spacing: 6px;
+                        // 选择内置图标会清空自定义路径，避免两种来源同时生效。
                         PmButton {
                             label: "默认音符";
                             selected: root.icon-index == 0;
@@ -98,12 +113,14 @@ export component AudioEntryEditor inherits Rectangle {
                             }
                         }
                     }
+                    // 文件选择按钮只发请求，路径和图片由宿主异步回填。
                     PmButton {
                         label: root.custom-icon-path == ""
                             ? "选择自定义图标文件"
                             : "已选自定义图标（点击更换）";
                         clicked => { root.custom-icon-requested(); }
                     }
+                    // 展示当前路径仅用于确认选择结果，不承担文件读取职责。
                     Text {
                         text: root.custom-icon-path;
                         color: Theme.text3;
@@ -118,6 +135,7 @@ export component AudioEntryEditor inherits Rectangle {
             HorizontalLayout {
                 height: 40px;
                 Rectangle { horizontal-stretch: 1; background: transparent; }
+                // 取消不提交草稿；确定按钮仅在名称非空时允许发出 accepted。
                 PmButton {
                     label: "取消";
                     clicked => { root.cancelled(); }

@@ -2,8 +2,11 @@
 
 import { Theme } from "../theme.slint";
 
+// 设置区块标题：展示标题文本，并以细线分隔后续内容。
 export component SectionTitle inherits VerticalLayout {
+    // 标题由使用方传入，以便复用于不同设置分组。
     in property <string> label: "";
+    // 固定标题高度让同一张卡片中的后续内容保持稳定起点。
     height: 28px;
     spacing: 4px;
     Text {

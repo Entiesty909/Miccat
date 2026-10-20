@@ -5,15 +5,23 @@ import { HotkeyState } from "../overlays/global-overlays.slint";
 import { Card } from "card.slint";
 import { SectionTitle } from "section-title.slint";
 
+// 快捷键设置卡片：把展示控件与父级操作及共享行状态连接起来。
 export component HotkeyCard inherits Card {
+    // 转发开关当前绑定的组合键文本。
     in property <string> toggle-label: "";
+    // 转发开关是否正处于键盘录制期。
     in property <bool> toggle-listening: false;
+    // 设置界面整体启用状态，传递给每个热键字段。
     in property <bool> enabled: true;
+    // 请求开始捕获开始/停止转发热键。
     callback begin-toggle();
+    // 请求清除开始/停止转发热键。
     callback reset-toggle();
+    // 共享热键行的录制和清除入口，行号由父级协议固定。
+    // 请求开始捕获共享状态中指定编号的热键行。
     callback begin-row(int);
+    // 请求清除共享状态中指定编号的热键行。
     callback reset-row(int);
-
     SectionTitle { label: "快捷键"; }
     HotkeyField {
         label: "开始/停止转发";
@@ -23,6 +31,7 @@ export component HotkeyCard inherits Card {
         begin => { root.begin-toggle(); }
         reset => { root.reset-toggle(); }
     }
+    // 共享状态中的上一首绑定映射到行号 1。
     HotkeyField {
         label: "上一首";
         combo: HotkeyState.previous;
@@ -31,6 +40,7 @@ export component HotkeyCard inherits Card {
         begin => { root.begin-row(1); }
         reset => { root.reset-row(1); }
     }
+    // 共享状态中的下一首绑定映射到行号 2。
     HotkeyField {
         label: "下一首";
         combo: HotkeyState.next;
@@ -39,6 +49,7 @@ export component HotkeyCard inherits Card {
         begin => { root.begin-row(2); }
         reset => { root.reset-row(2); }
     }
+    // 共享状态中的停止播放绑定映射到行号 3。
     HotkeyField {
         label: "停止播放";
         combo: HotkeyState.stop;
