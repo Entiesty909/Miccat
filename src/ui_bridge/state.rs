@@ -23,6 +23,8 @@ pub(super) struct EnumeratedLists {
     pub(super) mics: Vec<RenderDevice>,
     /// 按当前筛选条件枚举出的真实 WASAPI 输出端点；设备 ID 是不透明值。
     pub(super) destinations: Vec<DestDevice>,
+    /// 刷新线程确认已经不存在的路由音频路径。
+    pub(super) missing_audio_paths: Vec<String>,
 }
 
 /// 跨线程传递进程和设备刷新结果；只允许一个待处理刷新，结果由 UI 线程消费。

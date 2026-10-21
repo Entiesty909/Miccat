@@ -12,10 +12,9 @@ export component StatusBar inherits Rectangle {
     in property <string> status-text: "未运行";
     // 0 普通、1 成功、2 警告、3 错误；仅决定指示灯颜色。
     in property <int> status-kind: 0;
-    // 错误文本为空时不占行；非空时展开详情提示行。
+    // 错误短句在底栏左侧显示，详情按钮紧邻错误文本。
     in property <string> error-text: "";
-    // 转发运行态控制开始/停止按钮及源操作可用性。
-    in property <bool> running: false;
+    // 状态灯和状态文案保留在错误区之后，不再承载启停按钮。
     // 当前路由源数量，用于摘要文字和电平弹层高度。
     in property <int> source-count: 0;
     // 源标题按槽位下标对齐，供弹层逐行显示。
@@ -36,65 +35,88 @@ export component StatusBar inherits Rectangle {
     in property <string> master-volume-db: "0.0 dB";
     // 总线音量百分比，Slider 以 0–100 映射。
     in-out property <float> master-volume: 100;
-    // 线缆安装/卸载忙碌态，忙碌时禁用开始转发。
-    in property <bool> cable-busy: false;
+    // Rust 轮询的全局光标坐标，单位为主窗口逻辑坐标。
+    in-out property <length> volume-pointer-x: 0px;
+    in-out property <length> volume-pointer-y: 0px;
+    // 光标位置至少更新一次后才能创建悬浮窗口。
+    in-out property <bool> volume-pointer-valid: false;
+    // 总音量拖动态由 Slint 滑块上报并传给桥接层轮询全局光标。
+    in-out property <bool> volume-adjusting: false;
     // 滑块变化后通知 Rust 更新总线增益。
     callback master-volume-edited(float);
-    // 请求开始或停止整个转发引擎。
-    callback start-stop();
+    changed volume-adjusting => {
+        if !root.volume-adjusting {
+            root.volume-pointer-valid = false;
+            volume-pointer-popup.close();
+        }
+    }
+    changed volume-pointer-valid => {
+        if root.volume-adjusting && root.volume-pointer-valid {
+            volume-pointer-popup.show();
+        } else {
+            volume-pointer-popup.close();
+        }
+    }
 
-    // 有错误时增加一行高度，保证错误文案不会覆盖主控制行。
-    height: root.error-text == ""
-        ? Theme.statusBarHeight
-        : Theme.statusBarHeight + 22px;
-    background: Theme.card;
+    background: Theme.bar-bg;
     border-width: 1px;
     border-color: Theme.border;
 
-    VerticalLayout {
+    HorizontalLayout {
         width: 100%;
-        padding-left: 28px;
-        padding-right: 28px;
-        padding-top: 10px;
-        padding-bottom: 10px;
-        spacing: 4px;
-        // 错误行只在 bridge 提供非空错误文本时创建。
-        if root.error-text != "": HorizontalLayout {
-            width: 100%;
-            spacing: 8px;
-            Text {
-                text: root.error-text;
-                color: Theme.danger;
-                font-size: 12px;
-                wrap: word-wrap;
-                horizontal-stretch: 1;
-                vertical-alignment: TextVerticalAlignment.center;
-            }
-            Text {
-                text: "查看详情";
-                color: Theme.accent;
-                font-size: 12px;
-                vertical-alignment: TextVerticalAlignment.center;
-                // 点击详情打开全局诊断浮层，不改变当前转发状态。
-                TouchArea {
-                    mouse-cursor: pointer;
-                    clicked => { DiagState.toggle(); }
+        height: 100%;
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 7px;
+
+        // 错误提示固定在底栏最左侧，详情链接保留足够点击宽度。
+        if root.error-text != "": VerticalLayout {
+            width: 330px;
+            height: 100%;
+            alignment: center;
+            HorizontalLayout {
+                width: 330px;
+                height: 36px;
+                spacing: 8px;
+                Text {
+                    text: root.error-text;
+                    width: 246px;
+                    color: Theme.danger;
+                    font-size: 15px;
+                    overflow: elide;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: "详情";
+                    width: 66px;
+                    color: Theme.accent;
+                    font-size: 15px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { DiagState.toggle(); }
+                    }
                 }
             }
         }
-        HorizontalLayout {
-            width: 100%;
-            height: 44px;
-            spacing: 8px;
+
+        // 状态指示区使用固定控件高度并在全高包装中垂直居中。
+        VerticalLayout {
+            height: 100%;
+            alignment: center;
             HorizontalLayout {
+                height: 36px;
                 spacing: 8px;
                 VerticalLayout {
+                    width: 12px;
+                    height: 36px;
                     alignment: center;
                     Rectangle {
                         width: 10px;
                         height: 10px;
                         border-radius: 5px;
-                    // 指示灯颜色由 bridge 状态码决定，颜色本身没有业务副作用。
+                        // 指示灯颜色由 bridge 状态码决定，不参与业务状态转换。
                         background: root.status-kind == 1
                             ? Theme.ok
                             : (root.status-kind == 2
@@ -107,105 +129,128 @@ export component StatusBar inherits Rectangle {
                 Text {
                     text: root.status-text;
                     color: Theme.text;
-                    font-size: 13px;
+                    font-size: 15px;
                     font-weight: 600;
                     vertical-alignment: center;
-                }
-                // 数量锚点为电平弹层提供绝对坐标；弹层关闭时仍保留稳定宽度。
-                source-count-anchor := Rectangle {
-                    width: 122px;
-                    height: 44px;
-                    background: transparent;
-                    HorizontalLayout {
-                        spacing: 2px;
-                        Text {
-                            text: "\{root.source-count} 个音频源";
-                            width: self.preferred-width;
-                            horizontal-stretch: 0;
-                            color: Theme.text2;
-                            font-size: 12px;
-                            vertical-alignment: center;
-                        }
-                        Text {
-                            text: root.source-meter-open ? "\u{E70E}" : "\u{E70D}";
-                            width: 12px;
-                            font-family: "Segoe MDL2 Assets";
-                            color: root.source-meter-open ? Theme.accent : Theme.text2;
-                            font-size: 11px;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
-                        }
-                    }
-                    // 点击源数量区域只切换本地弹层可见性。
-                    TouchArea {
-                        mouse-cursor: pointer;
-                        clicked => {
-                            root.source-meter-open = !root.source-meter-open;
-                        }
-                    }
-                }
-            }
-            Rectangle { horizontal-stretch: 1; background: transparent; }
-            HorizontalLayout {
-                spacing: 8px;
-                Text {
-                    text: "总音量";
-                    color: Theme.text2;
-                    font-size: 12px;
-                    vertical-alignment: center;
-                }
-                Text {
-                    text: "\u{E767}";
-                    font-family: "Segoe MDL2 Assets";
-                    color: Theme.text2;
-                    font-size: 16px;
-                    vertical-alignment: center;
-                }
-                // Slider 双向绑定显示值，changed 回调负责写回 Rust 引擎。
-                Slider {
-                    width: 240px;
-                    minimum: 0;
-                    maximum: 100;
-                    value <=> root.master-volume;
-                    changed(v) => { root.master-volume-edited(v); }
-                }
-                Text {
-                    width: 58px;
-                    text: root.master-volume-db;
-                    color: Theme.text;
-                    font-size: 12px;
-                    horizontal-alignment: right;
-                    vertical-alignment: center;
-                }
-                Text {
-                    width: 44px;
-                    text: "\{Math.round(root.master-volume)}%";
-                    color: Theme.text;
-                    font-size: 13px;
-                    font-weight: 600;
-                    horizontal-alignment: right;
-                    vertical-alignment: center;
-                }
-                // 诊断计数来自全局状态；点击只切换诊断浮层。
-                if DiagState.count > 0: PmButton {
-                    label: DiagState.unseen > 0
-                        ? "⚠  \{DiagState.count} 个问题（\{DiagState.unseen} 新）"
-                        : "⚠  \{DiagState.count} 个问题";
-                    danger: true;
-                    clicked => { DiagState.toggle(); }
-                }
-                // 开始/停止按钮受线缆忙碌态保护，避免安装任务期间启动引擎。
-                PmButton {
-                    label: root.running ? "■  停止" : "▶  开始转发";
-                    filled: true;
-                    danger: root.running;
-                    button-width: 112px;
-                    enabled: !root.cable-busy;
-                    clicked => { root.start-stop(); }
                 }
             }
         }
+
+        Rectangle {
+            horizontal-stretch: 1;
+            background: transparent;
+        }
+
+        // 音源入口固定靠右并用作声纹弹层锚点。
+        VerticalLayout {
+            width: 144px;
+            height: 100%;
+            alignment: center;
+            source-count-anchor := Rectangle {
+                width: 144px;
+                height: 36px;
+                background: transparent;
+                HorizontalLayout {
+                    spacing: 3px;
+                    Text {
+                        text: "\{root.source-count} 个音频源";
+                        width: self.preferred-width;
+                        horizontal-stretch: 0;
+                        color: Theme.text2;
+                        font-size: 15px;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        text: root.source-meter-open ? "\u{E70E}" : "\u{E70D}";
+                        width: 15px;
+                        font-family: "Segoe MDL2 Assets";
+                        color: root.source-meter-open ? Theme.accent : Theme.text2;
+                        font-size: 13px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+                TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.source-meter-open = !root.source-meter-open;
+                    }
+                }
+            }
+        }
+
+        // 固定音量控件宽度；提示由独立PopupWindow绘制，不改变布局尺寸。
+        VerticalLayout {
+            width: 330px;
+            height: 100%;
+            alignment: center;
+            HorizontalLayout {
+                width: 330px;
+                height: 36px;
+                spacing: 12px;
+                Text {
+                    text: "\u{E767}";
+                    width: 21px;
+                    font-family: "Segoe MDL2 Assets";
+                    color: Theme.text2;
+                    font-size: 18px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                volume-slider := Slider {
+                    horizontal-stretch: 1;
+                    minimum: 0;
+                    maximum: 100;
+                    value <=> root.master-volume;
+                    changed(value) => {
+                        root.volume-adjusting = true;
+                        root.volume-pointer-x = volume-slider.absolute-position.x
+                            + volume-slider.width * (value / 100);
+                        root.volume-pointer-y = volume-slider.absolute-position.y
+                            + volume-slider.height / 2;
+                        root.volume-pointer-valid = true;
+                        root.master-volume-edited(value);
+                    }
+                    released(value) => {
+                        root.volume-adjusting = false;
+                        root.master-volume-edited(value);
+                    }
+                }
+            }
+        }
+
+        // 诊断按钮也随底栏缩小，不再撑高或挤压其它控件。
+        if DiagState.count > 0: VerticalLayout {
+            width: 48px;
+            height: 100%;
+            alignment: center;
+            PmButton {
+                label: "⚠  \{DiagState.count}";
+                danger: true;
+                button-width: 48px;
+                button-height: 33px;
+                clicked => { DiagState.toggle(); }
+            }
+        }
     }
+    // 独立 PopupWindow 让提示能越过主窗口边界，并始终以全局光标为锚点。
+    volume-pointer-popup := PopupWindow {
+        x: root.volume-pointer-x - 66px;
+        y: root.volume-pointer-y + 12px;
+        width: 132px;
+        height: 18px;
+        close-policy: no-auto-close;
+        Text {
+            text: "\{root.master-volume-db}   \{Math.round(root.master-volume)}%";
+            width: 100%;
+            height: 100%;
+            color: Theme.text;
+            font-size: 10px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+
     // 源电平弹层覆盖在状态栏上方，关闭时不创建子项，降低常驻布局成本。
     if root.source-meter-open: Rectangle {
         x: source-count-anchor.absolute-position.x - root.absolute-position.x;

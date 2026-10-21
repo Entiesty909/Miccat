@@ -26,7 +26,7 @@ Miccat 是 Windows 桌面进程音频路由器：以 WASAPI Process Loopback 捕
 | [`FRONTEND.md`](FRONTEND.md) | Slint 页面、桥接状态、UI 契约和限制 |
 | [`FILE-CONVENTIONS.md`](FILE-CONVENTIONS.md) | 目录职责、命名、规模、unsafe 与测试规范 |
 | [`DEBUGGING.md`](DEBUGGING.md) | CLI、音频链路和 UI 快照排障 |
-| [`goal.md`](goal.md) / [`docs/refactor-plan.md`](docs/refactor-plan.md) / [`docs/step-84-large-refactor-plan.md`](docs/step-84-large-refactor-plan.md) | 产品需求、S0–S6 历史计划与本轮大型收口重构 |
+| [`goal.md`](goal.md) / [`docs/refactor-plan.md`](docs/refactor-plan.md) / [`docs/ui-bridge-audio-refactor-plan.md`](docs/ui-bridge-audio-refactor-plan.md) | 产品需求、S0–S6 历史计划与 UI Bridge/音频模块收口计划 |
 | [`docs/step-*.md`](docs/) | 阶段实测记录；历史事实以最新记录为准 |
 
 ## 构建与冒烟
@@ -46,37 +46,18 @@ Miccat 是 Windows 桌面进程音频路由器：以 WASAPI Process Loopback 捕
 
 ## 当前重构状态
 
-- [`docs/step-84-large-refactor-plan.md`](docs/step-84-large-refactor-plan.md)：统一源行投影、窗口生命周期、桥接状态权威、展示格式、快照副作用和音频错误分类的重构计划；本轮代码已开始执行，真实设备性能基线仍待实测。
-- [`docs/step-83-microphone-source-add-and-name.md`](docs/step-83-microphone-source-add-and-name.md)：修复添加物理麦克风后独立窗口未隐藏，并在路由卡片显示实际麦克风友好名称。
-- [`docs/step-82-route-audio-controls-and-dialog-layout.md`](docs/step-82-route-audio-controls-and-dialog-layout.md)：修复音频源状态/播放控制，并整理添加源音频与麦克风双栏布局及输出设备选择。
-- [`docs/step-81-window-icons.md`](docs/step-81-window-icons.md)：统一主窗口、添加源/分类与条目编辑窗口以及 Windows 任务栏的应用图标资源。
-- [`docs/step-76-window-reopen-fixes.md`](docs/step-76-window-reopen-fixes.md)：窗口首次定位改为显示前恢复/立即居中；独立窗口下一轮重绘；添加进程/音频到路由后隐藏子窗口且不启动全局转发。
-- [`docs/step-77-route-card-isolation.md`](docs/step-77-route-card-isolation.md)：隔离每张进程/音频卡片的增益、静音、输出和 SFX 流，并拒绝重复进程或音频添加/替换。
-- [`docs/step-69-route-source-details-and-sfx-peak.md`](docs/step-69-route-source-details-and-sfx-peak.md)：添加源窗口显示真实条目详情与SFX实时峰值，并补齐空分类区右键命中。
-- [`docs/step-70-ui-routing-source-polish.md`](docs/step-70-ui-routing-source-polish.md)：修复音频库拖动/图标编辑、添加源三类入口、真实进程图标、实时声纹、路由源启动和顶层源菜单。
-- [`docs/step-71-ui-regression-fixes.md`](docs/step-71-ui-regression-fixes.md)：统一添加源类型卡、缩短并对齐麦克风下拉，修复文件源启用误启动全局路由和分类图标原名保存，源菜单改为 PopupWindow。
-- [`docs/step-72-multi-source-routing-performance.md`](docs/step-72-multi-source-routing-performance.md)：支持多进程/多音频加入、替换入口、删除源、文件不自动播放，并优化声纹轮询空闲CPU。
-- [`docs/step-74-popup-dialog-windows.md`](docs/step-74-popup-dialog-windows.md)：将添加源/音频编辑拆成独立Slint Window；Step 75 改为可拖动原生窗口并收口位置/重绘。
-- [`docs/step-73-microphone-forwarding-deadlock.md`](docs/step-73-microphone-forwarding-deadlock.md)：修复麦克风捕获线程停止标志未保存导致的永久 join 卡死。
-- [`docs/step-67-audio-library-interactions.md`](docs/step-67-audio-library-interactions.md)：音频库可调三栏、分类过滤、分类编辑、条目编辑和默认音乐图标。
-- [`docs/step-66-debug-build-script.md`](docs/step-66-debug-build-script.md)：修复双击 Debug 构建脚本时窗口闪退和工作目录依赖。
-- [`docs/step-65-line-gate-policy.md`](docs/step-65-line-gate-policy.md)：将行数门禁改为常规目标、审查警告和硬上限三级策略。
-- [`docs/step-64-audio-library-tab.md`](docs/step-64-audio-library-tab.md)：音频库 tab 红框区域、真实波形、详情操作和真实数据接线。
-- [`docs/step-63-marquee-toggle-selection.md`](docs/step-63-marquee-toggle-selection.md)：增加跑马灯总开关，并让蓝色指示条只标记实际选中项。
-- [`docs/step-62-marquee-dropdown.md`](docs/step-62-marquee-dropdown.md)：封装跑马灯文字/下拉列表并接入路由首页与进程选择。
-- [`docs/step-61-live-preview.md`](docs/step-61-live-preview.md)：Slint 1.18 官方 Live Preview 与开发脚本，验证窗口进程内重载。
-- [`docs/step-52-route-source-actions.md`](docs/step-52-route-source-actions.md)：源卡片状态保留、紧凑音量布局、源操作菜单与单独转发。
-- [`docs/step-53-route-card-layout.md`](docs/step-53-route-card-layout.md)：路由源卡片统一布局、真实麦克风下拉、右侧菜单和底部音量控制组。
-- [`docs/step-54-route-device-marquee.md`](docs/step-54-route-device-marquee.md)：输出设备长名称横向滚动与源菜单展开时隐藏 `...` 触发按钮。
-- [`docs/step-55-route-icons-menu.md`](docs/step-55-route-icons-menu.md)：Miccat 路由主页删减、单源菜单、启用开关重排和 exe/文件图标显示。
-- [`docs/step-56-miccat-branding-icons.md`](docs/step-56-miccat-branding-icons.md)：项目完整重命名为 Miccat，并修正路由源图标居中。
-- [`docs/step-58-route-icon-centering.md`](docs/step-58-route-icon-centering.md)：修正路由卡片图标上下居中，并保留顶部并列按钮。
-- [`docs/step-59-mic-icon-centering.md`](docs/step-59-mic-icon-centering.md)：按用户红框修正麦克风卡片图标相对整张卡片的上下居中。
-- [`docs/step-60-source-icon-absolute-centering.md`](docs/step-60-source-icon-absolute-centering.md)：将源图标块移出横向布局并按整张卡片绝对居中。
-- [`docs/step-50-home-layout-playback-hotkeys.md`](docs/step-50-home-layout-playback-hotkeys.md)：主页排版/卡片交互、播放暂停语义、右键菜单现代化、全局多热键与冲突检测。
-- [`docs/step-49-user-feedback-fixes.md`](docs/step-49-user-feedback-fixes.md)：八项用户反馈修复（开发脚本、0x8889000A 根因、实时切换、输出下拉、列表点击）。
-- [`docs/step-48-diagnostics.md`](docs/step-48-diagnostics.md)：全局错误诊断与调试输出系统（问题中心、运行时调试开关、日志落盘）。
-- [`docs/step-47-route-controls.md`](docs/step-47-route-controls.md)：路由页交互接线审查。
-- [`docs/step-46-library-tests.md`](docs/step-46-library-tests.md)：分离音频库单元测试，恢复 `library.rs` 行数门禁。
-- [`docs/step-45-reference-ui-and-source-logic.md`](docs/step-45-reference-ui-and-source-logic.md)：参考图驱动的页面与音频行为。
-本轮 35 项单元测试、`scripts\check.cmd`、`scripts\smoke.cmd`、路由及添加源快照通过；真实输出设备的路由听感和鼠标操作仍需人工验收。
+- [`docs/step-55-header-and-pink-theme.md`](docs/step-55-header-and-pink-theme.md)：顶栏、窗口图标、淡粉主题、卡片可读性、图片 API 和渲染优化。
+- [`docs/step-54-main-window-three-column-layout.md`](docs/step-54-main-window-three-column-layout.md)：三栏主窗口、状态栏排列/尺寸、音量浮层和刷新失效源清理。
+- [`docs/step-53-route-audio-controls-and-dialog-layout.md`](docs/step-53-route-audio-controls-and-dialog-layout.md)：路由文件槽位控制、添加源布局及麦克风提交/名称。
+- [`docs/step-52-route-card-visual-polish.md`](docs/step-52-route-card-visual-polish.md)：路由卡片紧凑列、真实图标和滚动条避让。
+- [`docs/step-51-popup-dialog-windows.md`](docs/step-51-popup-dialog-windows.md)：独立窗口呈现、原生拖动、位置恢复和重复显示重绘。
+- [`docs/step-50-multi-source-routing.md`](docs/step-50-multi-source-routing.md)：多源、卡片状态隔离、重复源校验、麦克风关停与空闲性能。
+- [`docs/step-49-route-source-details-and-sfx-peak.md`](docs/step-49-route-source-details-and-sfx-peak.md)：真实音源详情/峰值、交互接线和 UI 回归。
+- [`docs/step-48-audio-library-interactions.md`](docs/step-48-audio-library-interactions.md)：音频库分类/条目管理、播放设置归属和路由文件手动播放。
+- [`docs/step-47-marquee-dropdown.md`](docs/step-47-marquee-dropdown.md)：音频库三栏页面、长文本跑马灯及选中/计时开关。
+- [`docs/step-46-live-preview.md`](docs/step-46-live-preview.md)：Live Preview、Debug 构建提示和行数门禁。
+- [`docs/step-45-miccat-branding-icons.md`](docs/step-45-miccat-branding-icons.md)：应用统一重命名为 Miccat。
+- [`docs/step-44-home-layout-playback-hotkeys.md`](docs/step-44-home-layout-playback-hotkeys.md)：主页交互、播放器、菜单、全局热键和路由卡片/添加源布局。
+- [`docs/step-43-user-feedback-fixes.md`](docs/step-43-user-feedback-fixes.md)：八项用户反馈修复。
+- [`docs/step-42-diagnostics.md`](docs/step-42-diagnostics.md)：全局问题中心、运行时调试开关和日志。
+- [`docs/step-41-ui-redesign.md`](docs/step-41-ui-redesign.md)：三页视觉重排与音频交互接线。

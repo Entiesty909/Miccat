@@ -46,6 +46,7 @@ AudioEngine::stop()
 `SourceOutputRoutes` 为进程槽和音频文件槽分别保存 render 下标；未使用独立路由时，`open_outputs()` 将所有槽位送到全部目标。进程/文件增益按槽位使用原子值，渲染线程不会因修改一张卡片而读取另一张卡片的增益。
 
 `play_file_source(entry, slot)` 在 SFX mixer 中替换同槽旧流、保留其它槽流；`stop_file_source(slot)` 只停止指定文件卡片。暂停/恢复通过槽位命令保持当前解码位置；`file_source_state(slot)` 提供停止、播放、暂停和自然完成状态。
+路由卡片启用状态不触发播放。全局或单独路由启动只建立输出与输入源；用户点击音频卡片播放按钮后才调用 `play_file_source()`。关闭该卡片时停止该槽，重新启用不自动续播。
 路由启动的文件槽位只读取路由卡片的 `audio_output_ids`；没有卡片级目标时回退到当前主输出，不再因为历史 `file_output_id` 打开未使用的虚拟端点。
 
 设备 ID 列表为空时，启动路由回退为单个 `device_id`。
@@ -75,10 +76,11 @@ PID → Process Loopback capture → 源 SPSC ring
 
 配置路径为 `%APPDATA%\\Miccat\\config.json`。
 `config::load()` / `config::save()` 从 `config/mod.rs` re-export；实现位于 `config/store.rs`。
-读配置处理缺省、损坏和旧热键格式；写入失败只记录 tracing。
+读配置处理缺省、损坏和旧热键格式；`AppConfig.theme_index` 持久化主题索引（0 浅色、1 深色、2 淡粉），旧配置缺字段时默认浅色。
+写入失败只记录 tracing。
 
 UI 修改经 `ui_bridge/persist.rs::SaveQueue` 防抖 300 ms，再由 FIFO 单写线程落盘。
-退出时写入最终快照并 join；滑块回调不逐事件写盘。
+主题选择写回同一个配置对象；退出时写入最终快照并 join；滑块回调不逐事件写盘。
 
 ## 组合根与 CLI
 
@@ -111,3 +113,4 @@ UI 修改经 `ui_bridge/persist.rs::SaveQueue` 防抖 300 ms，再由 FIFO 单�
 - 路由停止回调当前同步调用 `AudioEngine::stop()`，这是已知 UI 响应性风险。
 - 导入回调当前同步执行 WAV/MF 文件探测，应移到工作线程。
 - 引擎线程 join、设备操作和文件 IO 不属于实时循环；Slint 回调仍须遵守 `AGENTS.md` 限制。
+- 淡粉背景下载、解码、裁剪与预合成均在后台线程；无效 HTTP/图片响应最多额外重试三次，UI 线程只安装最终不透明位图。

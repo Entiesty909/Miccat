@@ -60,7 +60,6 @@ pub(crate) fn start_source_only(
         cache.borrow_mut().mic_source_hidden = false;
     }
     // 单源模式先彻底停止旧路由，再用固定的唯一输出映射重建源，避免残留其他槽位。
-    let file_state = engine.file_state();
     engine.stop();
     // 所有源的路由目标都指向输出数组的第 0 项，其他槽位保持空映射以隔离单源模式。
     let routes = crate::engine::SourceOutputRoutes {
@@ -73,22 +72,14 @@ pub(crate) fn start_source_only(
         super::super::super::diagnostics::report_error(ui, &error);
         return;
     }
-    // 类型 0/1/2 分别代表进程、文件、麦克风；文件从当前播放位置续播，其余从源头开始。
+    // 文件单独转发仅准备目标和保留卡片状态，实际播放由卡片按钮显式启动。
     let result = match kind {
         0 => source_process_pid(ui, cache, source_index)
             .ok_or(Error::ProcessNotFound(0))
             .and_then(|pid| engine.add_process_source(pid, 0)),
-        1 => source_file_entry(ui, cache, &file_state.path)
-            .ok_or_else(|| Error::InvalidArgs("没有可单独转发的音频文件".into()))
-            .and_then(|entry| {
-                // 只有同一文件仍在播放时才沿用旧位置；切换条目必须从文件头开始。
-                let start = if file_state.path == entry.path {
-                    file_state.position_hns
-                } else {
-                    0
-                };
-                engine.play_file(&entry, start, crate::engine::PlaybackTarget::Route)
-            }),
+        1 => source_file_entry(ui, cache, source_index)
+            .map(|_| ())
+            .ok_or_else(|| Error::InvalidArgs("没有可单独转发的音频文件".into())),
         2 => source_mic_id(ui, cache)
             .ok_or_else(|| Error::InvalidArgs("没有选择麦克风".into()))
             .and_then(|id| engine.set_mic_source(Some(&id))),
@@ -137,22 +128,25 @@ fn source_mic_id(ui: &MainWindow, cache: &Rc<RefCell<UiCache>>) -> Option<String
         .cloned()
 }
 
-/// 根据正在播放的路径优先恢复条目，否则按音频库当前可见行解析文件。
+/// 按混合源行映射到路由文件槽，避免单独转发误用音频库当前选择。
 fn source_file_entry(
     ui: &MainWindow,
     cache: &Rc<RefCell<UiCache>>,
-    file_path: &str,
+    source_index: i32,
 ) -> Option<config::AudioEntry> {
-    if !file_path.is_empty() {
-        return cache
-            .borrow()
-            .audio_entries
-            .iter()
-            .find(|entry| entry.path == file_path)
-            .cloned();
-    }
-    let index = ui.get_audio_entry_index().max(0) as usize;
-    let actual = crate::ui_bridge::library::visible_entry(cache, index)?;
-    // 当前播放路径为空时，使用音频库可见行反查真实条目索引，避免把 UI 行当作底层数组下标。
-    cache.borrow().audio_entries.get(actual).cloned()
+    let source_index = usize::try_from(source_index).ok()?;
+    let kinds = ui.get_source_kinds();
+    // 文件槽位只计数当前行之前的文件源，进程与麦克风行不改变文件下标。
+    let file_slot = (0..source_index)
+        .filter(|row| kinds.row_data(*row) == Some(1))
+        .count();
+    let cache = cache.borrow();
+    let entry_index = if cache.route_audio_entries.is_empty() {
+        (file_slot == 0)
+            .then_some(cache.route_audio_entry)
+            .flatten()
+    } else {
+        cache.route_audio_entries.get(file_slot).copied()
+    }?;
+    cache.audio_entries.get(entry_index).cloned()
 }

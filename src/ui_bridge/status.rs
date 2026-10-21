@@ -12,6 +12,8 @@ use std::time::Duration;
 pub(super) fn start_status_timer(ui: &MainWindow, state: &AppState) -> Timer {
     let ui_weak = ui.as_weak();
     let state = state.clone();
+    // 窗口句柄只在定时器创建时查找一次，拖动期间只采集轻量屏幕坐标。
+    let cursor_window = crate::platform::window::find_current_window("Miccat");
     let last_dest_idx = Cell::new(ui.get_device_index());
     let last_diag_unseen = Cell::new(0usize);
     let mut source_meter_history = SourceMeterHistory::default();
@@ -19,6 +21,17 @@ pub(super) fn start_status_timer(ui: &MainWindow, state: &AppState) -> Timer {
     // 轮询固定在 UI 线程执行：后台只准备列表结果，Slint 模型和窗口属性在此处批量提交。
     timer.start(TimerMode::Repeated, Duration::from_millis(50), move || {
         let Some(ui) = ui_weak.upgrade() else { return };
+        // 按 50ms 轮询屏幕光标并换算到主窗口逻辑坐标，离开客户区后仍持续更新。
+        if ui.get_volume_adjusting()
+            && let Some(hwnd) = cursor_window
+            && let Some((pointer_x, pointer_y)) =
+                crate::platform::window::cursor_position_in_client(hwnd)
+        {
+            let scale = ui.window().scale_factor().max(0.1);
+            ui.set_volume_pointer_x(pointer_x as f32 / scale);
+            ui.set_volume_pointer_y(pointer_y as f32 / scale);
+            ui.set_volume_pointer_valid(true);
+        }
         // 窗口关闭后弱引用升级失败，定时器保持安全空操作而不延长窗口生命周期。
         apply_list_refresh(&ui, &state);
         // 先应用枚举结果，再读取引擎状态，避免同一 tick 使用已过期的设备或进程模型。
@@ -163,9 +176,12 @@ fn apply_list_refresh(ui: &MainWindow, state: &AppState) {
             super::lists::apply_process_list(ui, &state.cache, lists.processes);
             super::lists::apply_mics(ui, &state.cache, lists.mics);
             super::lists::apply_destinations(ui, &state.cache, lists.destinations, false);
+            remove_missing_audio_sources(ui, state, &lists.missing_audio_paths);
             if ui.get_mix_mic() && ui.get_mic_index() == 0 {
                 ui.invoke_mic_mix_changed(false);
             }
+            // 刷新可能删掉进程、文件或麦克风卡片，结构模型必须在同一轮重建。
+            super::sources::update(ui, state);
             if state.windows.add_source.window().is_visible() {
                 super::window_lifecycle::sync_add_source_window(
                     ui,
@@ -177,6 +193,64 @@ fn apply_list_refresh(ui: &MainWindow, state: &AppState) {
         }
         Err(message) => super::diagnostics::report_warning(ui, &message),
     }
+}
+
+/// 删除刷新时已不存在的音频文件卡片，并同步停止对应 SFX 槽和持久化配置。
+fn remove_missing_audio_sources(ui: &MainWindow, state: &AppState, missing_paths: &[String]) {
+    let mut removed_slots = Vec::new();
+    let changed = {
+        let mut cache = state.cache.borrow_mut();
+        if cache.route_audio_entries.is_empty() {
+            false
+        } else {
+            let old_len = cache.route_audio_entries.len();
+            let entries = std::mem::take(&mut cache.route_audio_entries);
+            let enabled = std::mem::take(&mut cache.route_audio_enabled);
+            let volumes = std::mem::take(&mut cache.audio_volumes);
+            let muted = std::mem::take(&mut cache.audio_muted_volumes);
+            let outputs = std::mem::take(&mut cache.audio_output_ids);
+            let mut kept_entries = Vec::new();
+            let mut kept_enabled = Vec::new();
+            let mut kept_volumes = Vec::new();
+            let mut kept_muted = Vec::new();
+            let mut kept_outputs = Vec::new();
+            for (slot, index) in entries.into_iter().enumerate() {
+                let exists = cache
+                    .audio_entries
+                    .get(index)
+                    .is_some_and(|entry| !missing_paths.contains(&entry.path));
+                if !exists {
+                    removed_slots.push(slot);
+                    continue;
+                }
+                kept_entries.push(index);
+                kept_enabled.push(enabled.get(slot).copied().unwrap_or(false));
+                kept_volumes.push(volumes.get(slot).copied().unwrap_or(1.0));
+                kept_muted.push(muted.get(slot).copied().flatten());
+                kept_outputs.push(outputs.get(slot).cloned().flatten());
+            }
+            let changed = kept_entries.len() != old_len;
+            cache.route_audio_entries = kept_entries;
+            cache.route_audio_enabled = kept_enabled;
+            cache.audio_volumes = kept_volumes;
+            cache.audio_muted_volumes = kept_muted;
+            cache.audio_output_ids = kept_outputs;
+            cache.route_audio_entry = cache.route_audio_entries.first().copied();
+            cache.route_file_enabled = cache.route_audio_enabled.iter().any(|enabled| *enabled);
+            cache.file_source_hidden = cache.route_audio_entries.is_empty();
+            changed
+        }
+    };
+    if !changed {
+        return;
+    }
+    if state.engine.is_running() {
+        for slot in removed_slots {
+            let _ = state.engine.stop_file_source(slot);
+        }
+    }
+    super::persist::save_process_selection(&state.cache, &state.app_config, &state.save_queue);
+    ui.set_audio_entry_index(-1);
 }
 
 /// 把 AudioEngine 的生命周期状态投影到状态文案，并在结束态恢复系统默认麦克风。

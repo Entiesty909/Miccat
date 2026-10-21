@@ -11,6 +11,7 @@ use super::super::{AppState, MainWindow};
 pub(super) fn register(ui: &MainWindow, state: &AppState) {
     let ui_weak = ui.as_weak();
     let list_refresh = state.list_refresh.clone();
+    let cache = state.cache.clone();
     // 弱引用升级失败表示窗口已销毁，此时丢弃事件而不触碰共享状态。
     ui.on_refresh(move || {
         // 回调只采集轻量筛选参数；真正的枚举在后台线程执行，避免阻塞 Slint 事件循环。
@@ -25,9 +26,21 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
         {
             return;
         }
-        // 在 UI 线程读取筛选开关，再把不可变值传入后台线程，避免跨线程访问 Slint。
-        // 只跨线程传递复制出的布尔值；后台线程不读取 Slint 对象或 UI 属性。
+        // 在 UI 线程复制当前路由文件路径，文件存在性检查在线程中完成，避免阻塞 Slint。
         let include_all = ui.get_all_devices();
+        let audio_paths = {
+            let cache_state = cache.borrow();
+            cache_state
+                .route_audio_entries
+                .iter()
+                .filter_map(|index| {
+                    cache_state
+                        .audio_entries
+                        .get(*index)
+                        .map(|entry| entry.path.clone())
+                })
+                .collect::<Vec<_>>()
+        };
         let worker_state = list_refresh.clone();
         if let Err(error) = thread::Builder::new()
             // 使用命名线程便于诊断后台枚举耗时和异常，不把线程句柄带回 UI 等待。
@@ -35,7 +48,7 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
             .spawn(move || {
                 // 线程只负责枚举并写入结果槽，UI 线程稍后消费该槽位。
                 // 结果槽由互斥锁保护；线程完成后只发布一次快照，消费方负责清理 pending。
-                let result = refresh_lists(include_all);
+                let result = refresh_lists(include_all, audio_paths);
                 if let Ok(mut slot) = worker_state.result.lock() {
                     // 替换而非追加结果，保证 UI 永远消费一次刷新请求对应的完整列表。
                     *slot = Some(result);
@@ -51,8 +64,8 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
     });
 }
 
-/// 同步枚举进程、物理麦克风和输出端点；错误转成可直接展示的用户文案。
-fn refresh_lists(include_all: bool) -> Result<EnumeratedLists, String> {
+/// 同步枚举进程、物理麦克风和输出端点，并在线程中检查路由文件路径。
+fn refresh_lists(include_all: bool, audio_paths: Vec<String>) -> Result<EnumeratedLists, String> {
     // 三次枚举按固定顺序执行，并在任一步失败时短路，避免拼出来源不同的混合快照。
     // 进程列表与 UI 的 process_index 同源；失败时不发布部分结果。
     // 物理麦克风 ID 供麦克风源下拉和混音配置使用，必须和进程列表属于同一刷新批次。
@@ -71,9 +84,14 @@ fn refresh_lists(include_all: bool) -> Result<EnumeratedLists, String> {
         tracing::warn!("refresh output devices: {error}");
         error.user_message().to_string()
     })?;
+    let missing_audio_paths = audio_paths
+        .into_iter()
+        .filter(|path| !std::path::Path::new(path).is_file())
+        .collect();
     Ok(EnumeratedLists {
         processes,
         mics,
         destinations,
+        missing_audio_paths,
     })
 }

@@ -1,0 +1,100 @@
+//! 侧边导航：仅显示路由、音频库和设置图标，点击后切换主页面。
+
+import { Theme } from "../theme.slint";
+
+component SidebarItem inherits Rectangle {
+    // 页面索引与 MainWindow.page 保持一致。
+    in property <int> index: 0;
+    // Segoe MDL2 Assets 图标字形。
+    in property <string> icon: "";
+    // 当前页面只改变图标颜色和左侧选中标记。
+    in property <bool> active: false;
+    // 点击后由父级切换页面。
+    callback clicked(int);
+
+    width: 45px;
+    height: 54px;
+    background: transparent;
+
+    Rectangle {
+        x: 3px;
+        y: 4px;
+        width: 39px;
+        height: 46px;
+        border-radius: Theme.radiusControl;
+        background: root.active ? Theme.accentSoft : transparent;
+        Rectangle {
+            x: 0px;
+            y: 8px;
+            width: 3px;
+            height: 30px;
+            border-radius: 2px;
+            background: root.active ? Theme.accent : transparent;
+        }
+        Text {
+            text: root.icon;
+            width: 100%;
+            height: 100%;
+            color: root.active ? Theme.accent : Theme.text2;
+            font-family: "Segoe MDL2 Assets";
+            font-size: 21px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+
+
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(root.index); }
+    }
+
+    states [
+        hovered when ta.has-hover: {
+            background: Theme.accentSoft;
+        }
+        pressed when ta.pressed: {
+            background: Theme.accentPressed;
+        }
+    ]
+}
+
+// 侧边栏固定在主窗口左侧，页面内容不再承担页签布局。
+export component SidebarNav inherits Rectangle {
+    // 当前页面索引：0 路由、1 音频库、2 设置。
+    in-out property <int> current: 0;
+    // 点击图标后通知 MainWindow。
+    callback picked(int);
+
+    background: Theme.bar-bg;
+    border-width: 1px;
+    border-color: Theme.border;
+
+    VerticalLayout {
+        width: 100%;
+        padding-top: 9px;
+        spacing: 3px;
+        SidebarItem {
+            index: 0;
+            icon: "\u{E80F}";
+            active: root.current == 0;
+            clicked(index) => { root.picked(index); }
+        }
+        SidebarItem {
+            index: 1;
+            icon: "\u{E8D6}";
+            active: root.current == 1;
+            clicked(index) => { root.picked(index); }
+        }
+        SidebarItem {
+            index: 2;
+            icon: "\u{E713}";
+            active: root.current == 2;
+            clicked(index) => { root.picked(index); }
+        }
+        Rectangle {
+            vertical-stretch: 1;
+            background: transparent;
+        }
+    }
+}

@@ -65,13 +65,21 @@ export component SourceRow inherits Rectangle {
     // 父级 PopupWindow 的可见状态镜像，仅用于行边框/交互条件。
     in property <bool> actions-open: false;
 
-    // 选中态使用强调边框；布局尺寸保持固定避免滚动列表跳动。
+    // 启用状态用卡片左侧窄竖线标记，不改变卡片外框厚度。
     height: 112px;
     width: 100%;
-    background: Theme.card;
+    background: Theme.content-card;
     border-radius: Theme.radiusCard;
-    border-width: root.active ? 2px : 1px;
-    border-color: root.active ? Theme.accent : Theme.borderStrong;
+    border-width: 1px;
+    border-color: Theme.borderStrong;
+    Rectangle {
+        x: 0px;
+        y: 12px;
+        width: 3px;
+        height: root.height - 24px;
+        border-radius: 2px;
+        background: root.active ? Theme.accent : transparent;
+    }
 
     Rectangle {
         x: 16px;
@@ -238,7 +246,7 @@ export component SourceRow inherits Rectangle {
                     }
                     // 暂停按钮只对已启用且正在运行的文件槽位开放。
                     if root.kind == 1: PmButton {
-                        label: root.status == "播放中" ? "\u{E768}" : "\u{E769}";
+                        label: root.status == "播放中" ? "\u{E769}" : "\u{E768}";
                         icon-only: true;
                         button-width: 36px;
                         enabled: root.route-running && root.active;

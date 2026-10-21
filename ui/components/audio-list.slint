@@ -122,7 +122,7 @@ export component AudioList inherits Rectangle {
                         ? Theme.accentSoft
                         : (index == root.playing-entry-index
                             ? Theme.playingSoft
-                            : Theme.card);
+                            : Theme.content-card);
                     // 整行命中区：声明在最前（命中栈底层），所以右侧的播放/更多
                     // 按钮等子控件仍优先拿到点击；其余任意列都落到这里。
                     // 行级点击选择并按现有约定通知双击；菜单状态随选择关闭。

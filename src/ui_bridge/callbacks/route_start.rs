@@ -29,8 +29,6 @@ struct RouteSelection {
     process_names: Vec<String>,
     /// 是否实际启用麦克风混音；无有效设备时会被强制关闭。
     mix_mic: bool,
-    /// 启用的文件条目及其 SFX 槽位，停止/重启时按原槽位恢复。
-    file_entries: Vec<(usize, config::AudioEntry)>,
 }
 
 /// 绑定底部开始/停止回调；使用弱 UI 引用避免窗口销毁后闭包持有界面。
@@ -104,34 +102,27 @@ fn selected_route(ui: &MainWindow, state: &AppState) -> Option<RouteSelection> {
     let primary_pid = selected.first().copied().or(pid);
     // 第一个 PID 固定占用主槽，其余 PID 保持选择顺序，便于 UI 与每槽输出映射对应。
     let extra_pids = selected.iter().skip(1).copied().collect();
-    let file_entries = if cache.route_audio_entries.is_empty() {
+    // 文件只需参与是否存在有效转发源的判断；此处不克隆条目或预先创建播放流。
+    let has_enabled_file_source = if cache.route_audio_entries.is_empty() {
         cache
             .route_file_enabled
             .then_some(cache.route_audio_entry)
             .flatten()
-            .and_then(|index| cache.audio_entries.get(index).cloned())
-            .map(|entry| vec![(0, entry)])
-            .unwrap_or_default()
+            .and_then(|index| cache.audio_entries.get(index))
+            .is_some()
     } else {
         cache
             .route_audio_entries
             .iter()
             .enumerate()
-            .filter(|(slot, _)| {
+            .any(|(slot, index)| {
                 cache
                     .route_audio_enabled
-                    .get(*slot)
+                    .get(slot)
                     .copied()
                     .unwrap_or(false)
+                    && cache.audio_entries.get(*index).is_some()
             })
-            .filter_map(|(slot, index)| {
-                cache
-                    .audio_entries
-                    .get(*index)
-                    .cloned()
-                    .map(|entry| (slot, entry))
-            })
-            .collect::<Vec<_>>()
     };
     // 目标设备是启动快照的必要条件，索引失效时不应启动半成品路由。
     let dest = cache.dests.get(ui.get_device_index() as usize).cloned()?;
@@ -217,7 +208,7 @@ fn selected_route(ui: &MainWindow, state: &AppState) -> Option<RouteSelection> {
         None
     };
     let mix_mic = ui.get_mix_mic() && mic_id.is_some();
-    if primary_pid.is_none() && file_entries.is_empty() && !mix_mic {
+    if primary_pid.is_none() && !has_enabled_file_source && !mix_mic {
         return None;
     }
     let process_names = selected
@@ -242,7 +233,6 @@ fn selected_route(ui: &MainWindow, state: &AppState) -> Option<RouteSelection> {
         process_name: process_names.first().cloned(),
         process_names,
         mix_mic,
-        file_entries,
     })
 }
 
@@ -262,10 +252,7 @@ fn start_route(engine: &AudioEngine, selection: &RouteSelection) -> Result<(), E
         }
     }
     engine.set_mic_source(selection.mic_id.as_deref())?;
-    // 麦克风和文件源按快照槽位安装，未启用的槽不会被隐式清空或重排。
-    for (slot, entry) in &selection.file_entries {
-        engine.play_file_source(entry, *slot)?;
-    }
+    // 启动只建立路由和输入源；启用的音频文件仍由用户通过卡片播放按钮启动。
     Ok(())
 }
 /// 启动成功后回写配置/UI，并按用户选项应用系统默认设备策略。

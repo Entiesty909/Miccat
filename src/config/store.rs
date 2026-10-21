@@ -190,6 +190,25 @@ mod tests {
         assert!(decoded.windows.add_source.is_none());
         assert!(decoded.windows.audio_edit.is_none());
     }
+    /// 主题选择应往返持久化，缺少新字段的旧配置仍默认浅色。
+    #[test]
+    fn theme_index_round_trips_and_defaults_for_older_configs() {
+        let mut config = AppConfig::default();
+        config.theme_index = 2;
+        let text = serde_json::to_string(&config).expect("serialize theme index");
+        let decoded: AppConfig = serde_json::from_str(&text).expect("deserialize theme index");
+        assert_eq!(decoded.theme_index, 2);
+
+        let mut old_config =
+            serde_json::to_value(AppConfig::default()).expect("serialize old theme config");
+        old_config
+            .as_object_mut()
+            .expect("config object")
+            .remove("theme_index");
+        let decoded: AppConfig =
+            serde_json::from_value(old_config).expect("older config without theme index");
+        assert_eq!(decoded.theme_index, 0);
+    }
 }
 
 /// 解析当前用户配置文件位置；APPDATA 缺失时退回工作目录。

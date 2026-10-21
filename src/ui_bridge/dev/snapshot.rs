@@ -117,8 +117,8 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
     // 快照只构造内存 fixture，不把旧媒体时长补全写回用户配置。
     let _ = hydrate_audio_durations(&persisted_state);
     let persisted = persisted_state.borrow().clone();
+    ui.set_app_version(env!("CARGO_PKG_VERSION").into());
     ui.set_all_devices(persisted.output.all_devices);
-    ui.set_set_default_mic(persisted.output.set_default_mic);
     ui.set_set_default_render(persisted.output.set_default_render);
     ui.set_set_default_communications(persisted.output.set_default_communications);
     // 空白分类场景必须使用空模型，不能从真实库借一条数据，否则右键命中测试会失真。

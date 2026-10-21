@@ -76,8 +76,8 @@ export component ContextMenu inherits Rectangle {
         );
         width: 248px;
         height: root.category-rename-open ? 182px : 132px;
-        background: #F8F8F8;
-        border-color: #B8B8B8;
+        background: Theme.card;
+        border-color: Theme.borderStrong;
         border-width: 1px;
         border-radius: 3px;
 
@@ -91,7 +91,7 @@ export component ContextMenu inherits Rectangle {
                 Text {
                     text: "分类";
                     x: 12px;
-                    color: #666666;
+                    color: Theme.text2;
                     font-size: 11px;
                     vertical-alignment: TextVerticalAlignment.center;
                 }
@@ -130,8 +130,8 @@ export component ContextMenu inherits Rectangle {
         y: min(max(0px, root.entry-y), root.height - 330px);
         width: 292px;
         height: 322px;
-        background: #F8F8F8;
-        border-color: #B8B8B8;
+        background: Theme.card;
+        border-color: Theme.borderStrong;
         border-width: 1px;
         border-radius: 3px;
 
@@ -145,7 +145,7 @@ export component ContextMenu inherits Rectangle {
                 Text {
                     text: "音频";
                     x: 12px;
-                    color: #666666;
+                    color: Theme.text2;
                     font-size: 11px;
                     vertical-alignment: TextVerticalAlignment.center;
                 }
@@ -165,7 +165,7 @@ export component ContextMenu inherits Rectangle {
                 label: "添加到路由主页";
                 clicked => { root.entry-add-route(); root.entry-open = false; }
             }
-            Rectangle { height: 1px; width: 100%; background: #E4E4E4; }
+            Rectangle { height: 1px; width: 100%; background: Theme.border; }
             MenuItem {
                 // 快捷键设置与清除共享当前条目的菜单生命周期。
                 label: root.entry-hotkey == ""
@@ -179,7 +179,7 @@ export component ContextMenu inherits Rectangle {
                 enabled: root.entry-hotkey != "";
                 clicked => { root.entry-hotkey-clear(); root.entry-open = false; }
             }
-            Rectangle { height: 1px; width: 100%; background: #E4E4E4; }
+            Rectangle { height: 1px; width: 100%; background: Theme.border; }
             MenuItem {
                 // 文件操作和编辑入口均在回调后关闭菜单，结束本次上下文交互。
                 label: "在资源管理器中显示";

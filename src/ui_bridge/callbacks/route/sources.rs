@@ -493,7 +493,7 @@ fn hot_swap_process_sources(engine: &AudioEngine, cache: &Rc<RefCell<UiCache>>) 
     }
 }
 
-/// 切换文件卡片的启用状态；每个文件槽独立调用播放或停止。
+/// 切换文件卡片的路由启用状态；关闭时停止该槽位，开启不触发播放。
 fn toggle_file_source(
     ui: &MainWindow,
     engine: &AudioEngine,
@@ -510,8 +510,8 @@ fn toggle_file_source(
         .filter(|row| kinds.row_data(*row) == Some(1))
         .count();
     let selected_visible = visible_entry(cache, ui.get_audio_entry_index().max(0) as usize);
-    let entry = {
-        // 首次从音频库选中条目时懒初始化第一个文件槽，随后各卡片都沿用自己的状态。
+    {
+        // 启用标记只决定文件槽是否参与路由；播放流由用户单独点击卡片播放按钮启动。
         let mut cache_state = cache.borrow_mut();
         if cache_state.route_audio_entries.is_empty()
             && let Some(index) = selected_visible
@@ -531,18 +531,10 @@ fn toggle_file_source(
             *state = enabled;
         }
         cache_state.route_file_enabled = cache_state.route_audio_enabled.iter().any(|state| *state);
-        let index = cache_state.route_audio_entries[file_slot];
-        cache_state.audio_entries.get(index).cloned()
-    };
-    if engine.is_running()
-    // 启停只操作计算出的单个文件槽，绝不能调用会清空全部 SFX 槽的全局播放接口。
-        && let Some(entry) = entry
-    {
-        if enabled {
-            let _ = engine.play_file_source(&entry, file_slot);
-        } else {
-            let _ = engine.stop_file_source(file_slot);
-        }
+    }
+    if engine.is_running() && !enabled {
+        // 关闭当前槽位仍立即停止播放；重新启用后需用户手动播放。
+        let _ = engine.stop_file_source(file_slot);
     }
 }
 

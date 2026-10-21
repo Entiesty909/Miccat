@@ -1,8 +1,9 @@
 //! 激活并定位本进程的独立顶层窗口。
 
-use windows::Win32::Foundation::{HWND, LPARAM, RECT};
+use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT};
+use windows::Win32::Graphics::Gdi::ScreenToClient;
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, HWND_TOP,
+    EnumWindows, GetCursorPos, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, HWND_TOP,
     SPI_GETWORKAREA, SWP_NOACTIVATE, SWP_NOSIZE, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
     SetForegroundWindow, SetWindowPos, SystemParametersInfoW,
 };
@@ -57,8 +58,8 @@ pub(crate) fn center_window_on_work_area(title: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// 枚举当前进程的顶层窗口，并按完整标题返回第一个匹配句柄。
-fn find_current_window(title: &str) -> Option<HWND> {
+/// 枚举当前进程的顶层窗口，并按完整标题返回句柄供同进程UI定位复用。
+pub(crate) fn find_current_window(title: &str) -> Option<HWND> {
     // 搜索状态只在同步 EnumWindows 调用期间借用，回调结束后再读取结果。
     let mut search = WindowSearch {
         // 仅接受属于当前进程的窗口，避免标题相同时误选其他进程窗口。
@@ -81,6 +82,19 @@ fn find_current_window(title: &str) -> Option<HWND> {
     // 枚举失败与“没有匹配窗口”都返回 None；调用方统一呈现找不到窗口的错误。
     result.ok()?;
     None
+}
+/// 读取系统屏幕光标位置并转换为指定窗口客户区坐标，拖拽出窗仍可持续追踪。
+pub(crate) fn cursor_position_in_client(hwnd: HWND) -> Option<(i32, i32)> {
+    let mut point = POINT::default();
+    unsafe {
+        // SAFETY: `point` 是当前栈帧内可写且有效的 POINT 输出缓冲区。
+        GetCursorPos(&mut point).ok()?;
+        // SAFETY: hwnd 来自当前进程窗口枚举，point 已由 GetCursorPos 初始化。
+        if !ScreenToClient(hwnd, &mut point).as_bool() {
+            return None;
+        }
+    }
+    Some((point.x, point.y))
 }
 
 /// EnumWindows 回调共享的筛选条件与结果槽；生命周期限定在一次同步枚举内。

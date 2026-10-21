@@ -1,14 +1,16 @@
 //! 主窗口：Windows 桌面顶栏、三页内容、常驻状态栏和全局右键菜单。
 
 import { Theme } from "theme.slint";
+import { Palette } from "std-widgets.slint";
 import { AppFocusScope } from "components/app-focus-scope.slint";
+import { SidebarNav } from "components/sidebar-nav.slint";
 import { AppHeader } from "components/app-header.slint";
 import { StatusBar } from "components/status-bar.slint";
 import { ContextMenuHost } from "overlays/context-menu-host.slint";
 import { DiagState, GlobalOverlays, HotkeyState } from "overlays/global-overlays.slint";
 import { AddSourceWindow, AudioEditWindow } from "windows.slint";
 import { PageHost } from "components/page-host.slint";
-export { AddSourceWindow, AudioEditWindow, DiagState, HotkeyState }
+export { AddSourceWindow, AudioEditWindow, DiagState, HotkeyState, Palette, Theme }
 
 // 主窗口持有 Rust bridge 的权威 UI 镜像，并把页面事件汇聚回应用控制器。
 export component MainWindow inherits Window {
@@ -24,22 +26,34 @@ export component MainWindow inherits Window {
     preferred-width: 1280px;
     // 首次创建窗口的建议高度。
     preferred-height: 800px;
-    // 全局背景色来自 Theme，页面组件保持透明以复用该底色。
-    background: Theme.bg;
+    // 窗口底色保持不透明；淡粉图片绘制其上，避免初始加载时透出其它窗口。
+    background: Theme.page-bg;
+    if Theme.pink-mode: Image {
+        source: Theme.pink-background-image;
+        width: 100%;
+        height: 100%;
+        image-fit: cover;
+    }
     // Windows 默认字体，确保图标字体和正文排版稳定。
     default-font-family: "Segoe UI";
     // 全局字号，子组件可按信息层级覆盖。
     default-font-size: 14px;
+    // 标准 CheckBox/LineEdit 等控件的全局调色板同步应用当前预设。
+    init => {
+        Palette.color-scheme = ColorScheme.light;
+    }
 
     // 当前页索引：0 路由、1 音频库、2 设置。
     in-out property <int> page: 0;
+    // 顶栏显示的 Cargo package 版本。
+    in-out property <string> app-version: "";
     // 引擎状态摘要文本。
     in-out property <string> status-text: "未运行";
     // 0 普通、1 成功、2 警告、3 错误，供状态栏选择指示色。
     in-out property <int> status-kind: 0;
-    // 当前错误文本；非空时状态栏展开诊断行。
+    // 当前错误文本；非空时状态栏显示错误和详情入口。
     in-out property <string> error-text: "";
-    // 转发引擎是否运行，驱动按钮和设备控件禁用条件。
+    // 转发引擎是否运行，驱动顶栏按钮和设备控件禁用条件。
     in-out property <bool> running: false;
     // 可添加/已路由进程名称数组。
     in-out property <[string]> processes: [];
@@ -247,6 +261,13 @@ export component MainWindow inherits Window {
     in-out property <float> master-volume: 100;
     // 总线音量 dB 文本。
     in-out property <string> master-volume-db: "0.0 dB";
+    // 用户正在拖动总音量滑块时保持 PointerPopup 打开。
+    in-out property <bool> volume-adjusting: false;
+    // PointerPopup 的屏幕位置换算到主窗口逻辑坐标。
+    in-out property <length> volume-pointer-x: 0px;
+    in-out property <length> volume-pointer-y: 0px;
+    // Rust 已提供有效的鼠标坐标后才显示 popup，避免首帧闪到窗口原点。
+    in-out property <bool> volume-pointer-valid: false;
     // 总线峰值数值。
     in-out property <float> master-peak-value: 0;
     // 总线峰值 dB 文本。
@@ -258,10 +279,14 @@ export component MainWindow inherits Window {
 
     // 启动或停止转发引擎。
     callback start-stop();
-    // 刷新进程、设备和音频库数据。
+    // 重新枚举进程、设备并清理失效源卡片。
     callback refresh();
     // 打开添加源窗口。
     callback source-add-requested();
+    // 用户从主题悬浮菜单选择预设。
+    callback theme-selected(int);
+    // 淡粉主题图片解码完成后由 Rust 回写到主窗口及独立窗口。
+    callback theme-image-ready(image);
     // 绑定音频条目快捷键。
     callback audio-entry-hotkey-bind();
     // 编辑总线音量，参数为百分比。
@@ -417,19 +442,36 @@ export component MainWindow inherits Window {
             root.audio-entry-menu-open = false;
             // Escape/外部点击关闭菜单时，仅清理菜单可见状态，不修改条目数据。
         }
-        // 垂直布局固定顶栏、页面内容和状态栏的生命周期顺序。
+        // 顶栏、内容行和底栏纵向排列，侧栏仅属于中间页面行。
+        // 顶栏和底栏占据完整窗口宽度；中间内容行才包含导航与页面。
         VerticalLayout {
+            width: 100%;
+            height: 100%;
             AppHeader {
-            // 顶部页签改变页面并同步关闭两类上下文菜单。
-                current <=> root.page;
-                picked(i) => {
-                    root.page = i;
-                    root.audio-category-menu-open = false;
-                    root.audio-entry-menu-open = false;
-                }
+                width: 100%;
+                cable-busy: root.cable-busy;
+                theme-index: Theme.theme-index;
+                version: root.app-version;
+                start-stop => { root.start-stop(); }
+                theme-selected(index) => { root.theme-selected(index); }
+                refresh => { root.refresh(); }
             }
-            // 页面内容容器占据剩余高度，使 PageHost 与状态栏保持稳定层级。
+            // 页面行独占两栏之间的剩余高度，侧栏不覆盖顶栏或底栏。
+            HorizontalLayout {
+                vertical-stretch: 1;
+                min-height: 0px;
+                SidebarNav {
+                    current <=> root.page;
+                    picked(i) => {
+                        root.page = i;
+                        root.audio-category-menu-open = false;
+                        root.audio-entry-menu-open = false;
+                    }
+                }
+            // 页面内容容器占据中间行剩余高度，使 PageHost 与底栏保持稳定层级。
             Rectangle {
+                horizontal-stretch: 1;
+                min-width: 0px;
                 vertical-stretch: 1;
             // PageHost 按当前页索引装配路由、音频库或设置页，未选中的页面不处理输入。
             PageHost {
@@ -628,25 +670,27 @@ export component MainWindow inherits Window {
                 }
             }
             }
-            // 状态栏始终位于页面内容下方，窗口关闭前持续显示引擎和电平摘要。
+            }
+            // 状态栏位于页面右侧底部，仅承载错误、状态、总音量和音源摘要。
             StatusBar {
                 status-text <=> root.status-text;
                 status-kind <=> root.status-kind;
                 error-text <=> root.error-text;
-                running <=> root.running;
                 source-count: root.source-titles.length;
                 source-titles <=> root.source-titles;
                 source-meter-history: root.source-meter-history;
                 source-meter-dbs: root.source-meter-dbs;
                 source-meter-open <=> root.source-meter-open;
                 master-meter-history: root.master-meter-history;
-                master-peak-value <=> root.master-peak-value;
-                master-peak-db <=> root.master-peak-db;
+                master-peak-value: root.master-peak-value;
+                master-peak-db: root.master-peak-db;
                 master-volume-db <=> root.master-volume-db;
                 master-volume <=> root.master-volume;
-                cable-busy <=> root.cable-busy;
+                volume-adjusting <=> root.volume-adjusting;
+                volume-pointer-x <=> root.volume-pointer-x;
+                volume-pointer-y <=> root.volume-pointer-y;
+                volume-pointer-valid <=> root.volume-pointer-valid;
                 master-volume-edited(value) => { root.master-volume-edited(value); }
-                start-stop => { root.start-stop(); }
             }
         }
     }

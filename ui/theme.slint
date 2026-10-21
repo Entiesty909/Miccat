@@ -1,68 +1,88 @@
-//! 视觉 token。软件渲染器使用扁平边框、紧凑间距和明确状态色。
+//! 主题调度器：独立主题文件提供颜色 token，Theme 只选择当前预设。
 
+import { LightTheme } from "themes/light.slint";
+import { DarkTheme } from "themes/dark.slint";
+import { PinkTheme } from "themes/pink.slint";
+
+// 所有主题共享相同字段；未来新增主题只需增加调色板文件和选择分支。
 // 全局导出的视觉契约；组件通过这些只读 token 统一颜色、间距和尺寸。
 // 属性值只影响绘制，不参与 Rust bridge 状态或交互逻辑。
 // 全局 Theme 不保存运行态，只向所有界面组件提供统一的视觉 token。
 export global Theme {
-    // 页面与控件颜色
-    // 页面背景色，作为主窗口和弹出内容的最底层填充。
-    out property <color> bg: #F5F9FE;
-    // 卡片和弹出面板背景色，保证内容区域与页面有清晰层级。
-    out property <color> card: #FFFFFF;
-    // 输入控件背景色，用于需要与卡片区分的可编辑区域。
-    out property <color> field: #FFFFFF;
-    // 常规边框色，用于分隔线和非激活控件。
-    out property <color> border: #DCE7F2;
-    // 强边框色，用于卡片轮廓和需要更高对比度的边界。
-    out property <color> borderStrong: #C8D8E8;
-    // 主强调色，表示当前选中、启用或可执行的操作。
-    out property <color> accent: #1677E8;
-    // 悬停时的强调色，仅改变指针反馈，不改变业务状态。
-    out property <color> accentHover: #0D66D0;
-    // 强调色的浅色底，用于选中项和提示性的背景高亮。
-    out property <color> accentSoft: #E8F2FF;
-    // 播放状态的浅色底，区别于普通选中但不触发额外操作。
-    out property <color> playingSoft: #F2F7FC;
-    // 按下态底色，反馈 TouchArea 已接收点击。
-    out property <color> accentPressed: #D5E8FF;
-    // 成功/运行状态色，例如转发已启动或设备已就绪。
+    // 0 浅色、1 深色、2 淡粉；主题选择不承担业务状态。
+    in-out property <int> theme-index: 0;
+    // 淡粉主题的远程背景图，由 Rust 下载并在 UI 线程注入。
+    in-out property <image> pink-background-image;
+    // 兼容现有组件对深色状态的读取。
+    out property <bool> dark-mode: root.theme-index == 1;
+    // 粉色主题只允许在该分支显示图片背景。
+    out property <bool> pink-mode: root.theme-index == 2;
+    // 页面与控件颜色来自当前独立调色板文件。
+    out property <color> bg: root.theme-index == 1
+        ? DarkTheme.bg
+        : (root.theme-index == 2 ? PinkTheme.bg : LightTheme.bg);
+    out property <color> bar-bg: root.theme-index == 1
+        ? DarkTheme.bar-bg
+        : (root.theme-index == 2 ? PinkTheme.bar-bg : LightTheme.bar-bg);
+    out property <color> page-bg: root.theme-index == 1
+        ? DarkTheme.page-bg
+        : (root.theme-index == 2 ? PinkTheme.page-bg : LightTheme.page-bg);
+    // 三页主内容底层只在淡粉主题铺浅色遮罩，提高非卡片文字对比度。
+    out property <color> page-overlay: root.theme-index == 2
+        ? PinkTheme.page-overlay
+        : transparent;
+    // 页面内容卡片独立于弹层表面设置透明度。
+    out property <color> content-card: root.theme-index == 1
+        ? DarkTheme.card
+        : (root.theme-index == 2
+            ? PinkTheme.content-card
+            : LightTheme.card);
+    out property <color> card: root.theme-index == 1
+        ? DarkTheme.card
+        : (root.theme-index == 2 ? PinkTheme.card : LightTheme.card);
+    out property <color> field: root.theme-index == 1
+        ? DarkTheme.field
+        : (root.theme-index == 2 ? PinkTheme.field : LightTheme.field);
+    out property <color> border: root.theme-index == 1
+        ? DarkTheme.border
+        : (root.theme-index == 2 ? PinkTheme.border : LightTheme.border);
+    out property <color> borderStrong: root.theme-index == 1
+        ? DarkTheme.border-strong
+        : (root.theme-index == 2 ? PinkTheme.border-strong : LightTheme.border-strong);
+    out property <color> accentSoft: root.theme-index == 1
+        ? DarkTheme.accent-soft
+        : (root.theme-index == 2 ? PinkTheme.accent-soft : LightTheme.accent-soft);
+    out property <color> playingSoft: root.theme-index == 1
+        ? DarkTheme.playing-soft
+        : (root.theme-index == 2 ? PinkTheme.playing-soft : LightTheme.playing-soft);
+    out property <color> accentPressed: root.theme-index == 1
+        ? DarkTheme.accent-pressed
+        : (root.theme-index == 2 ? PinkTheme.accent-pressed : LightTheme.accent-pressed);
+    out property <color> accent: root.theme-index == 2 ? #D85C91 : #1677E8;
+    out property <color> accentHover: root.theme-index == 2 ? #C94D82 : #0D66D0;
     out property <color> ok: #22B879;
-    // 警告状态色，例如设备操作受限或存在待处理问题。
     out property <color> warn: #D98A18;
-    // 错误和危险操作色，提醒用户操作具有破坏性或已失败。
     out property <color> danger: #D94B55;
-    // 强调色上的前景色，确保按钮文字在强调背景上可读。
     out property <color> onAccent: #FFFFFF;
-    // 一级正文色，用于标题、主要标签和关键数值。
-    out property <color> text: #172435;
-    // 二级说明色，用于辅助文字、状态说明和次要标签。
-    out property <color> text2: #657487;
-    // 三级弱化色，用于补充细节和低优先级提示。
-    out property <color> text3: #8A98A8;
+    out property <color> text: root.theme-index == 1
+        ? DarkTheme.text
+        : (root.theme-index == 2 ? PinkTheme.text : LightTheme.text);
+    out property <color> text2: root.theme-index == 1
+        ? DarkTheme.text2
+        : (root.theme-index == 2 ? PinkTheme.text2 : LightTheme.text2);
+    out property <color> text3: root.theme-index == 1
+        ? DarkTheme.text3
+        : (root.theme-index == 2 ? PinkTheme.text3 : LightTheme.text3);
 
-    // 页面与组件使用统一的紧凑间距和轻量圆角。
-    // 卡片圆角，页面卡片、弹窗和状态面板共用。
     out property <length> radiusCard: 8px;
-    // 控件圆角，适用于按钮、输入框和下拉框。
     out property <length> radiusControl: 5px;
-    // 页面外边距，保证各页内容不贴近窗口边界。
     out property <length> padPage: 20px;
-    // 卡片内边距，维持内容与卡片边框之间的可读间隔。
     out property <length> padCard: 16px;
-    // 分组内边距，用于卡片内部的局部区域。
     out property <length> padSection: 12px;
-    // 基础控件间距，单位为 Slint length。
     out property <length> gap: 10px;
-    // 宽松控件间距，用于不同功能区之间的留白。
     out property <length> gapLg: 16px;
-
-    // 主窗口与固定栏尺寸。
-    // 控件标准高度，按钮和编辑控件据此保持对齐。
     out property <length> controlHeight: 36px;
-    // 顶栏固定高度，AppHeader 与页签布局共同使用。
     out property <length> topBarHeight: 96px;
-    // 状态栏基础高度；出现错误行时由组件额外增加高度。
-    out property <length> statusBarHeight: 64px;
-    // 电平表高度，供实时峰值条在紧凑面板中绘制。
+    out property <length> statusBarHeight: 48px;
     out property <length> meterHeight: 28px;
 }

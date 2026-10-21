@@ -21,7 +21,17 @@ export component AddSourceWindow inherits Window {
     // 统一独立窗口内控件的字体族。
     default-font-family: "Segoe UI";
     // 统一正文基准字号，子组件按层级覆盖。
-    default-font-size: 14px;
+    // Rust 主窗口主题选择同步到独立窗口的本地 Theme 全局。
+    in-out property <int> theme-index: 0;
+    in-out property <image> pink-background-image;
+    init => {
+        Theme.theme-index = root.theme-index;
+        Theme.pink-background-image = root.pink-background-image;
+    }
+    changed theme-index => { Theme.theme-index = root.theme-index; }
+    changed pink-background-image => {
+        Theme.pink-background-image = root.pink-background-image;
+    }
 
     // 进程列表及 PID 由 bridge 刷新，PID 用于避免重复添加同一进程。
     in-out property <[string]> processes: [];
@@ -104,7 +114,12 @@ export component AddSourceWindow inherits Window {
     callback audio-search-changed();
     // 面板的 dismiss 事件由下方绑定直接调用 Window.close，结束窗口生命周期。
 
-    // 关闭/刷新 surface 只负责覆盖背景，避免改变窗口内容行为。
+    if Theme.pink-mode: Image {
+        source: Theme.pink-background-image;
+        width: 100%;
+        height: 100%;
+        image-fit: cover;
+    }
     if root.refresh-surface: Rectangle {
         width: 100%;
         height: 100%;
@@ -177,7 +192,17 @@ export component AudioEditWindow inherits Window {
     // 统一编辑表单内控件的字体族。
     default-font-family: "Segoe UI";
     // 统一编辑表单的正文基准字号。
-    default-font-size: 14px;
+    // Rust 主窗口主题选择同步到编辑窗口的本地 Theme 全局。
+    in-out property <int> theme-index: 0;
+    in-out property <image> pink-background-image;
+    init => {
+        Theme.theme-index = root.theme-index;
+        Theme.pink-background-image = root.pink-background-image;
+    }
+    changed theme-index => { Theme.theme-index = root.theme-index; }
+    changed pink-background-image => {
+        Theme.pink-background-image = root.pink-background-image;
+    }
     // 当前编辑对象的标题文本；双向绑定使表单修改实时可见。
     in-out property <string> edit-title: "编辑音频";
 
@@ -199,8 +224,12 @@ export component AudioEditWindow inherits Window {
     callback cancelled();
     // 请求打开原生文件选择器以选择自定义图标。
     callback custom-icon-requested();
-
-    // 与 AddSourceWindow 相同的 surface 清理遮罩，仅在宿主要求时出现。
+    if Theme.pink-mode: Image {
+        source: Theme.pink-background-image;
+        width: 100%;
+        height: 100%;
+        image-fit: cover;
+    }
     if root.refresh-surface: Rectangle {
         width: 100%;
         height: 100%;

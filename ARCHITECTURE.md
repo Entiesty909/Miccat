@@ -28,10 +28,12 @@ Miccat 是 Windows 本地桌面程序：以 WASAPI Process Loopback 捕获指定
 | `src/process.rs`、`src/hotkey.rs`、`src/vbcable.rs`、`src/platform/icon.rs` | 进程枚举、RegisterHotKey、VB-CABLE 安装、Win32 exe/文件图标提取 |
 | `src/diagnostics/` | 运行时调试开关、tracing 捕获、日志落盘与全局问题中心 |
 | `src/platform/clipboard.rs` | Win32 剪贴板文本写入（问题中心复制详情） |
-| `ui/app-window.slint` | 主窗口、顶栏、状态栏、实时源声纹 Popover 和全局右键菜单覆盖层 |
+| `ui/app-window.slint` | 全宽顶栏、中央侧栏+页面内容行、全宽底栏；同步焦点作用域、全局菜单遮罩和应用对话框。 |
 | `ui/overlays/diagnostic-panel.slint`、`ui/overlays/global-overlays.slint` | 右侧抽屉式问题中心（问题列表 + 日志开关）、`DiagState` 全局状态与顶层覆盖层宿主；状态栏与设置页直接读写该全局，不经 `app-window` 透传。 |
 | `ui/components/diagnostic-row.slint`、`ui/components/diagnostics-card.slint` | 问题行/徽标与设置页诊断卡片。 |
 | `ui/components/page-host.slint` | 装配路由、音频库、设置页、音频库三栏拖动宽度和独立编辑窗口事件转发；音频库详情只展示管理信息，路由页拥有输出/增益等播放设置。 |
+| `ui/components/app-header.slint`、`ui/components/sidebar-nav.slint`、`ui/components/status-bar.slint` | 品牌操作栏、仅图标页面导航和错误/音量/音源状态栏。 |
+| `ui/themes/*.slint`、`src/platform/theme.rs`、`src/ui_bridge/theme.rs` | 三套主题调色板、WinHTTP 状态/有界重试、后台解码裁剪和异步图片回写；粉色模式窗口不透明，三页内容区由浅粉透明层和微透卡片承载。 |
 
 完整文件树和文件规模规则见 [`FILE-CONVENTIONS.md`](FILE-CONVENTIONS.md)。
 
@@ -59,7 +61,7 @@ audio/com ─────────────→ platform::com
 ## 状态权威
 
 - `AudioEngine`：进程/麦/输出运行态、音量、电平、试听和文件播放控制。
-- `AppConfig`：本地持久化配置，路径 `%APPDATA%\\Miccat\\config.json`。
+- `AppConfig`：本地持久化配置，路径 `%APPDATA%\\Miccat\\config.json`；`theme_index` 保存上次所选主题。
   - `AppConfig.audio_category_icons`：分类路径到 glyph/图标文件路径的持久化映射。
   - `AudioEntry.name`、`icon_glyph`、`icon_path`：软件显示名称与图标配置；不改磁盘文件名。
   - `src/ui_bridge/sources.rs`：将进程、当前音频文件和物理麦克风投影为路由源行；麦克风源行固定显示“麦克风”，副标题使用所选物理设备的 Windows 友好名称，`update_dynamic` 只写实时峰值/音量/状态，不重建静态模型。
@@ -68,9 +70,9 @@ audio/com ─────────────→ platform::com
 - `UiCache.route_audio_entry`：待加入路由或当前路由使用的音频条目实际下标；仍是桥接派生状态，不替代引擎播放状态。
 - `UiCache.route_file_enabled`：用户为文件源选择的启用状态；与全局路由启停和文件播放器播放状态分离。
 - `UiCache.route_audio_entries` 与 `route_audio_enabled`：多个已加入路由的音频条目及其启用状态；不保存 PCM。
-  运行期播放状态由引擎 SFX mixer 的槽位原子状态提供，UI 每 50 ms 更新对应行。
+  文件源的路由启用不启动解码；播放状态由引擎 SFX 槽位提供，UI 每 50 ms 更新对应行，卡片播放按钮才创建/恢复流。
 - `OutputConfig.device_ids` 持久化多选 render 设备 ID；`process_output_ids` / `file_output_ids` 保存卡片级目标。
-- `OutputConfig.mic_output_id` 保存麦克风源可选目标；未设置时跟随路由主输出。
+- `OutputConfig.mic_output_id` 保存麦克风源可选目标；未设置时跟随路由主输出。物理麦克风是捕获端，不能作为 WASAPI render 目标；虚拟麦克风选项将录音端映射到配对播放端。
 Slint 属性只作为显示投影和事件契约，不保存 PCM。
 
 ## 运行线程

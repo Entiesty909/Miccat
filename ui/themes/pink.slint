@@ -1,0 +1,24 @@
+//! 淡粉主题调色板：只承载粉色 token，图片背景由运行时单独注入。
+
+export global PinkTheme {
+    // 窗口和内容区必须不透明，避免初始背景透出其它窗口并触发高频混合。
+    out property <color> bg: #FFF0F6;
+    // 弹出菜单和辅助面板保持较不透明，避免干扰文字与点击目标。
+    out property <color> card: rgba(255, 249, 252, 0.9);
+    // 页面卡片通过这层较高透光度显示本窗口背景，不影响弹出菜单底色。
+    out property <color> content-card: rgba(255, 249, 252, 0.6);
+    out property <color> field: rgba(255, 246, 250, 0.92);
+    // 顶栏、底栏和侧栏保留轻微透明度，让本窗口背景图透出。
+    out property <color> bar-bg: rgba(255, 249, 252, 0.78);
+    out property <color> page-bg: #FFF0F6;
+    // 非卡片内容区覆盖浅粉底色，压低复杂图片对正文的干扰。
+    out property <color> page-overlay: rgba(255, 240, 246, 0.72);
+    out property <color> border: rgba(242, 202, 219, 0.82);
+    out property <color> border-strong: rgba(231, 175, 200, 0.9);
+    out property <color> accent-soft: rgba(255, 224, 236, 0.78);
+    out property <color> playing-soft: rgba(255, 240, 246, 0.7);
+    out property <color> accent-pressed: rgba(248, 196, 217, 0.82);
+    out property <color> text: #3A2430;
+    out property <color> text2: #795568;
+    out property <color> text3: #AA8297;
+}

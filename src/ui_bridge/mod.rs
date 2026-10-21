@@ -24,6 +24,7 @@ mod persist;
 mod sources;
 mod state;
 mod status;
+mod theme;
 mod window;
 mod window_lifecycle;
 
@@ -62,8 +63,9 @@ pub fn run_ui() -> Result<(), Error> {
     // 所有 UI 写盘都进入防抖队列，避免滑块事件同步阻塞事件循环。
     let save_queue = SaveQueue::new(app_config.clone())?;
     let persisted = app_config.borrow().clone();
+    // 顶栏版本直接来自 Cargo package，避免 UI 文案与实际构建版本漂移。
+    ui.set_app_version(env!("CARGO_PKG_VERSION").into());
     ui.set_all_devices(persisted.output.all_devices);
-    ui.set_set_default_mic(persisted.output.set_default_mic);
     ui.set_set_default_render(persisted.output.set_default_render);
     ui.set_set_default_communications(persisted.output.set_default_communications);
     let cache = Rc::new(RefCell::new(UiCache {
@@ -97,6 +99,13 @@ pub fn run_ui() -> Result<(), Error> {
         add_source: add_source_window,
         audio_edit: audio_edit_window,
     });
+    // 首帧使用经过范围校验的持久化主题；非法旧值修正后进入防抖写盘。
+    let theme_index = persisted.theme_index.clamp(0, 2);
+    if theme_index != persisted.theme_index {
+        app_config.borrow_mut().theme_index = theme_index;
+        save_queue.schedule();
+    }
+    theme::initialize(&ui, &windows, theme_index);
     let saved_mics = Rc::new(RefCell::new(Vec::<(u32, String)>::new()));
     let hotkey = Rc::new(RefCell::new(persisted.hotkeys.toggle_route));
     engine.set_volume(persisted.mix.process);
@@ -158,6 +167,7 @@ pub fn run_ui() -> Result<(), Error> {
         list_refresh: list_refresh.clone(),
     };
     wire_callbacks(&ui, &state);
+    theme::register(&ui, &state);
     sources::update(&ui, &state);
     let _timer = start_status_timer(&ui, &state);
     // 启动时把三行热键文案灌入 Slint。

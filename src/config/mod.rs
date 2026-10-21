@@ -266,6 +266,9 @@ pub struct AppConfig {
     pub mix: MixConfig,
     /// 热键集合。
     pub hotkeys: Hotkeys,
+    /// 当前界面主题索引：0 浅色、1 深色、2 淡粉。
+    #[serde(default)]
+    pub theme_index: i32,
     /// 是否把音频库播放同时送到本机预览设备。
     #[serde(default)]
     pub preview_enabled: bool,
@@ -300,6 +303,7 @@ impl Default for AppConfig {
             route: RouteConfig::default(),
             mix: MixConfig::default(),
             hotkeys: Hotkeys::default(),
+            theme_index: 0,
             preview_enabled: false,
             preview_volume: 0.5,
             // 两个根项供分类树和音频库筛选使用，新配置始终从它们开始。

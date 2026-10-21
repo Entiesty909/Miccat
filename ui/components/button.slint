@@ -22,8 +22,13 @@ export component PmButton inherits Rectangle {
     in property <bool> icon-only: false;
     // 最小按钮宽度，也影响内部水平留白。
     in property <length> button-width: 76px;
+    // 可选图片图标；是否显示由显式布尔值控制，避免把 image 当 bool 使用。
+    in property <image> icon-image;
+    in property <bool> has-icon-image: false;
+    // 高度默认跟随标准控件尺寸；紧凑状态栏可按需缩小。
+    in property <length> button-height: Theme.controlHeight;
 
-    height: Theme.controlHeight;
+    height: root.button-height;
     min-width: root.button-width;
     border-radius: Theme.radiusControl;
     opacity: root.enabled ? 1.0 : 0.45;
@@ -40,10 +45,14 @@ export component PmButton inherits Rectangle {
             : (root.flat ? transparent : Theme.borderStrong));
 
     HorizontalLayout {
+        width: 100%;
+        height: 100%;
         padding-left: root.button-width < 60px ? 4px : 12px;
         padding-right: root.button-width < 60px ? 4px : 12px;
-        alignment: root.flat ? LayoutAlignment.start : LayoutAlignment.center;
-        Text {
+        alignment: root.icon-only
+            ? LayoutAlignment.center
+            : (root.flat ? LayoutAlignment.start : LayoutAlignment.center);
+        if !root.has-icon-image: Text {
             text: root.label;
             color: root.selected
                 ? Theme.accent
@@ -51,8 +60,18 @@ export component PmButton inherits Rectangle {
             font-family: root.icon-only ? "Segoe MDL2 Assets" : "Segoe UI";
             font-size: root.icon-only ? 16px : 13px;
             font-weight: 600;
-            vertical-alignment: TextVerticalAlignment.center;
+            horizontal-alignment: root.icon-only ? center : left;
+            vertical-alignment: center;
         }
+    }
+    // 图片图标脱离文字布局，按按钮自身宽高分别居中定位。
+    if root.has-icon-image: Image {
+        x: (root.width - self.width) / 2;
+        y: (root.height - self.height) / 2;
+        width: 24px;
+        height: 24px;
+        image-fit: contain;
+        source: root.icon-image;
     }
 
     // 透明命中区只负责把启用按钮的点击事件转发给调用方。

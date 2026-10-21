@@ -3,6 +3,7 @@
 import { RoutePage } from "../pages/route.slint";
 import { PlayerPage } from "../pages/player.slint";
 import { SettingsPage } from "../pages/settings.slint";
+import { Theme } from "../theme.slint";
 
 // 页面宿主只做属性桥接和事件转发；业务状态由 MainWindow/Rust bridge 持有。
 export component PageHost inherits Rectangle {
@@ -330,7 +331,8 @@ export component PageHost inherits Rectangle {
     // 默认通信设备切换。
     callback set-default-communications-toggled(bool);
 
-    background: transparent;
+    // 淡粉模式下给三页非卡片内容增加半透明浅色底层，保护文字对比度。
+    background: Theme.page-overlay;
 
     // 条件组件按 page 重建，保证隐藏页面不继续接收交互。
     // 路由页仅负责把桥接数组投影到页面，并将用户事件原样上送。
