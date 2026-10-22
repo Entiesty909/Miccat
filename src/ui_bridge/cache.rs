@@ -61,6 +61,10 @@ pub(super) struct UiCache {
     pub(super) route_audio_entries: Vec<usize>,
     /// 与 `route_audio_entries` 按槽位对齐的用户启用状态。
     pub(super) route_audio_enabled: Vec<bool>,
+    /// 与音频卡片槽位对齐的播放模式：0 顺序、1 列表循环、2 单曲循环、3 随机。
+    pub(super) audio_play_modes: Vec<u8>,
+    /// 记录完成态是否已经处理，防止 50 ms 轮询重复切歌。
+    pub(super) audio_finished_handled: Vec<bool>,
     /// 与音频卡片槽位对齐的独立增益；数值单位为线性音量倍数。
     pub(super) audio_volumes: Vec<f32>,
     /// 与音频卡片槽位对齐的静音前增益；`Some` 表示可从静音恢复原值。

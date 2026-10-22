@@ -37,6 +37,8 @@ pub(super) fn start_status_timer(ui: &MainWindow, state: &AppState) -> Timer {
         // 先应用枚举结果，再读取引擎状态，避免同一 tick 使用已过期的设备或进程模型。
         update_engine_status(&ui, &state);
         super::sources::update_dynamic(&ui, &state);
+        // 完成态在动态模型更新后仅处理一次，按卡片模式续播或停在末尾。
+        super::callbacks::poll_finished_route_audio(&ui, &state);
         update_source_meter(&ui, &state, &mut source_meter_history);
         update_player_progress(&ui, &state);
         update_device_label(&ui, &state, &last_dest_idx);
@@ -206,11 +208,15 @@ fn remove_missing_audio_sources(ui: &MainWindow, state: &AppState, missing_paths
             let old_len = cache.route_audio_entries.len();
             let entries = std::mem::take(&mut cache.route_audio_entries);
             let enabled = std::mem::take(&mut cache.route_audio_enabled);
+            let play_modes = std::mem::take(&mut cache.audio_play_modes);
+            let finished = std::mem::take(&mut cache.audio_finished_handled);
             let volumes = std::mem::take(&mut cache.audio_volumes);
             let muted = std::mem::take(&mut cache.audio_muted_volumes);
             let outputs = std::mem::take(&mut cache.audio_output_ids);
             let mut kept_entries = Vec::new();
             let mut kept_enabled = Vec::new();
+            let mut kept_play_modes = Vec::new();
+            let mut kept_finished = Vec::new();
             let mut kept_volumes = Vec::new();
             let mut kept_muted = Vec::new();
             let mut kept_outputs = Vec::new();
@@ -225,6 +231,8 @@ fn remove_missing_audio_sources(ui: &MainWindow, state: &AppState, missing_paths
                 }
                 kept_entries.push(index);
                 kept_enabled.push(enabled.get(slot).copied().unwrap_or(false));
+                kept_play_modes.push(play_modes.get(slot).copied().unwrap_or(0));
+                kept_finished.push(finished.get(slot).copied().unwrap_or(false));
                 kept_volumes.push(volumes.get(slot).copied().unwrap_or(1.0));
                 kept_muted.push(muted.get(slot).copied().flatten());
                 kept_outputs.push(outputs.get(slot).cloned().flatten());
@@ -232,6 +240,8 @@ fn remove_missing_audio_sources(ui: &MainWindow, state: &AppState, missing_paths
             let changed = kept_entries.len() != old_len;
             cache.route_audio_entries = kept_entries;
             cache.route_audio_enabled = kept_enabled;
+            cache.audio_play_modes = kept_play_modes;
+            cache.audio_finished_handled = kept_finished;
             cache.audio_volumes = kept_volumes;
             cache.audio_muted_volumes = kept_muted;
             cache.audio_output_ids = kept_outputs;

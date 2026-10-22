@@ -223,10 +223,15 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
                 });
             }
             if let Some(entry) = cache.audio_entries.first() {
+                let extension = std::path::Path::new(&entry.path)
+                    .extension()
+                    .and_then(|value| value.to_str())
+                    .map(str::to_uppercase)
+                    .unwrap_or_else(|| "音频".into());
                 let detail = format!(
-                    "{} · {}",
-                    crate::library::category_leaf(&entry.category),
-                    super::super::format::format_duration_hns(entry.duration_hns)
+                    "本地音频 · {} · {}",
+                    extension,
+                    crate::library::category_leaf(&entry.category)
                 );
                 rows.push_file(super::super::sources::FileRowInput {
                     name: entry.name.clone(),
@@ -238,16 +243,27 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
                     volume: persisted.mix.sfx,
                     peak: 0.0,
                     output_index: 0,
+                    play_mode: persisted
+                        .route
+                        .audio_source_play_modes
+                        .first()
+                        .copied()
+                        .unwrap_or(0),
+                    position_hns: 0,
+                    duration_hns: entry.duration_hns,
                 });
             }
-            if let Some(mic_id) = persisted.output.mic_id.as_deref()
-                && let Some(index) = cache.mic_ids.iter().position(|id| id == mic_id)
-                && let Some(name) = cache.mic_names.get(index)
-            {
+            let mic_index = persisted
+                .output
+                .mic_id
+                .as_deref()
+                .and_then(|mic_id| cache.mic_ids.iter().position(|id| id == mic_id))
+                .or_else(|| cache.mic_names.iter().position(|name| !name.is_empty()));
+            if let Some(name) = mic_index.and_then(|index| cache.mic_names.get(index)) {
                 rows.push_microphone(super::super::sources::MicrophoneRowInput {
                     name: name.clone(),
                     status: if persisted.route.mix_mic {
-                        "已启用".into()
+                        "已连接".into()
                     } else {
                         "未启用".into()
                     },
@@ -379,7 +395,7 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
             .window()
             .take_snapshot()
             .map_err(|error| Error::InvalidArgs(error.to_string()))?;
-        dispatch_left_click(&ui, slint::LogicalPosition::new(1208.0, 167.0));
+        dispatch_left_click(&ui, slint::LogicalPosition::new(1224.0, 126.0));
         let _ = ui
             .window()
             .take_snapshot()

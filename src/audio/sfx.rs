@@ -1,7 +1,7 @@
 //! 声板混音线程：读取已经解码的 WAV，在固定 ring 中混合并输出。
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering};
 
 use super::buffer::SpscRing;
 use super::format::AudioFormat;
@@ -58,6 +58,7 @@ pub fn run_sfx_loop(
     stop: Arc<AtomicBool>,
     peak: Arc<AtomicU32>,
     states: Arc<Vec<AtomicU8>>,
+    positions: Arc<Vec<AtomicU64>>,
     rx: Receiver<SfxCommand>,
 ) {
     // render 的采样率和声道决定输出块大小，避免热路径硬编码设备格式。
@@ -85,11 +86,16 @@ pub fn run_sfx_loop(
                         // 状态先发布为播放中，UI 可在首个音频块混入前显示一致状态。
                         state.store(1, Ordering::Relaxed);
                     }
+                    if let Some(position) = positions.get(slot) {
+                        // 新流从头开始，先清零上一次播放留下的位置。
+                        position.store(0, Ordering::Relaxed);
+                    }
                     players.push(SfxPlayer::Stream(StreamPlayer::new(
                         slot,
                         sample_rate,
                         channels,
                         volume,
+                        positions.clone(),
                         rx,
                     )));
                 }
@@ -98,6 +104,9 @@ pub fn run_sfx_loop(
                     players.retain(|player| player.slot() != slot);
                     if let Some(state) = states.get(slot) {
                         state.store(0, Ordering::Relaxed);
+                    }
+                    if let Some(position) = positions.get(slot) {
+                        position.store(0, Ordering::Relaxed);
                     }
                 }
                 SfxCommand::SetPaused { slot, paused } => {
@@ -189,6 +198,10 @@ struct StreamPlayer {
     buffer: Vec<f32>,
     /// 源帧游标，允许非整数步长完成采样率转换。
     position: f64,
+    /// 从流开始累计的源帧数，不受本地缓冲前缀回收影响。
+    played_frames: f64,
+    /// 与槽位状态并列的进度原子；每个混音块只写一次。
+    positions: Arc<Vec<AtomicU64>>,
     /// 是否收到源 EOF 标记。
     done: bool,
     /// 是否已消费完 EOF 后的缓冲，供主循环移除播放器。
@@ -205,6 +218,7 @@ impl StreamPlayer {
         sample_rate: u32,
         channels: u16,
         volume: f32,
+        positions: Arc<Vec<AtomicU64>>,
         rx: Receiver<StreamChunk>,
     ) -> Self {
         Self {
@@ -215,6 +229,8 @@ impl StreamPlayer {
             rx,
             buffer: Vec::with_capacity(64_000),
             position: 0.0,
+            played_frames: 0.0,
+            positions,
             done: false,
             finished: false,
             paused: false,
@@ -266,6 +282,7 @@ impl StreamPlayer {
                 }] * self.volume;
             }
             self.position += step;
+            self.played_frames += step;
         }
         let drop_frames = self.position.floor() as usize;
         // 仅在游标积累足够多时回收前缀，避免每个输出块都触发 Vec::drain。
@@ -278,6 +295,10 @@ impl StreamPlayer {
                 self.position -= consumed as f64;
             }
         }
+        if let Some(position) = self.positions.get(self.slot) {
+            let hns = (self.played_frames * 10_000_000.0 / f64::from(self.sample_rate)) as u64;
+            position.store(hns, Ordering::Relaxed);
+        }
         self.pump();
         // 混音后再次预取，下一轮可直接使用已到达的块并平滑衔接。
     }
@@ -287,7 +308,8 @@ impl StreamPlayer {
 mod tests {
     use super::{StreamChunk, StreamPlayer};
     use crate::audio::format::{AudioFormat, SampleKind};
-    use std::sync::mpsc;
+    use std::sync::atomic::AtomicU64;
+    use std::sync::{Arc, mpsc};
 
     /// 验证暂停不会推进源游标，恢复后仍从已有缓存继续播放。
     #[test]
@@ -298,7 +320,8 @@ mod tests {
             done: false,
         })
         .unwrap();
-        let mut player = StreamPlayer::new(0, 48_000, 1, 1.0, rx);
+        let positions = Arc::new(vec![AtomicU64::new(0)]);
+        let mut player = StreamPlayer::new(0, 48_000, 1, 1.0, positions, rx);
         let format = AudioFormat {
             sample_rate: 48_000,
             channels: 1,

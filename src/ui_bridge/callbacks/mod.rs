@@ -9,6 +9,7 @@ mod route_start;
 mod settings;
 
 use super::{AppState, MainWindow};
+pub(super) use route::audio_queue::poll_finished as poll_finished_route_audio;
 pub(super) use settings::refresh_row_labels;
 
 /// 将各业务域的 Slint 回调一次性绑定到主窗口；闭包捕获的状态句柄决定后续配置与引擎更新落点。

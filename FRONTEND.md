@@ -6,7 +6,7 @@
 ## 1. 文件职责
 
 `ui/app-window.slint`：窗口骨架与焦点作用域；纵向排列全宽顶栏、中央内容行、全宽底栏，并承载全局菜单遮罩。
-`ui/components/app-header.slint`：58px 品牌操作栏；图标、Miccat 字样和版本靠左，三个操作按钮靠右并垂直居中；T 恤图片为 24px，大小与刷新图标一致且按按钮自身宽高居中。
+`ui/components/app-header.slint`：58px 品牌操作栏；图标、Miccat 字样和版本靠左，路由页的“添加音频源”与全局操作靠右并垂直居中。添加入口复用原独立窗口回调；路由页不再重复显示添加和“刷新进程”按钮。
 `ui/components/sidebar-nav.slint`：45px 仅图标路由、音频库、设置侧栏；只占中央页面行高度，点击切换主页面，无 Tooltip。
 `ui/components/status-bar.slint`：48px 底栏左侧错误/详情、中间状态，右侧按“音源入口—总音量滑块—诊断计数”排列；拖动时只显示无背景纯文字 Popup，由屏幕级光标坐标驱动，可跟随鼠标离开主窗口。
 - `ui/themes/light.slint`、`dark.slint`、`pink.slint`：分别保存三套颜色 token；`ui/theme.slint` 只做主题索引调度。标准 `CheckBox`/`LineEdit` 由 `Palette.color-scheme` 同步黑白主题，所有自定义窗口/右键菜单/跑马灯弹层读取 Theme token。
@@ -15,10 +15,11 @@
 `ui/overlays/diagnostic-panel.slint`、`ui/overlays/global-overlays.slint`：右侧抽屉式问题中心（问题列表 + 日志开关）、
 `DiagState` 全局状态与顶层覆盖层宿主；状态栏与设置页直接读写该全局，不经 `app-window` 透传。
 `ui/components/diagnostic-row.slint`、`ui/components/diagnostics-card.slint`：问题行/徽标与设置页诊断卡片。
-`ui/pages/route.slint`、`ui/components/source-row.slint`：卡片按“图标—源信息—输出设备—音量—操作—启用转发”排列；音频文件行显示 SFX 槽位状态，并独立控制该槽位播放/暂停/停止。
-- `ui/components/add-source-panel.slint`：按真实进程、音频库和物理麦模型添加路由源；音频/麦克风双栏各自成卡、不包额外底色容器；麦克风列表从首个真实设备起纵向排列，添加麦克风成功后关闭独立窗口；路由麦克风源行第一行固定显示“麦克风”，第二行灰色小字显示所选设备的 Windows 友好名称。普通“添加音频源”入口每次重置为第一个“进程”Tab；替换动作仍显式打开对应源类型。设置区可选择跟随全局输出或指定输出。
+`ui/pages/route.slint`、`ui/components/source-row.slint`：三类卡片统一为“图标与状态—文件播放区（仅音频）—分隔线—输出/转发音量/预览占位—启用转发”。预览音量是禁用占位，不读写配置；原 `...` 入口改为右上角上三角并继续打开同一个独立 `PopupWindow`。
+音频文件卡片显示所属音频库分类、上一首/播放暂停/下一首，以及一个循环切换顺序播放、列表循环、单曲循环、随机播放的模式按钮；进度和时长来自对应 SFX 槽。
+- `ui/components/add-source-panel.slint`：按真实进程、音频库和物理麦模型添加路由源；音频/麦克风双栏各自成卡、不包额外底色容器；麦克风列表从首个真实设备起纵向排列，添加麦克风成功后关闭独立窗口；路由麦克风源行第一行固定显示“麦克风”，第二行灰色小字显示所选物理设备的 Windows 友好名称。普通“添加音频源”入口每次重置为第一个“进程”Tab；替换动作仍显式打开对应源类型。设置区可选择跟随全局输出或指定输出。
 `ui/components/audio-source-list.slint`、`audio-source-details.slint`：分别显示可搜索的真实音频条目列表和所选条目的元数据/路由音量设置。
-`ui/components/source-actions-menu.slint`：源卡片右侧更多菜单；由独立 `PopupWindow` 承载，按源类型提供替换进程、替换音频、替换麦克风、删除和单独转发。
+`ui/components/source-actions-menu.slint`：源卡片右上角上三角菜单；由独立 `PopupWindow` 承载，按源类型提供替换、删除、单独转发，文件源另含定位、快捷键和停止播放。
 `ui/components/category-sidebar.slint`：真实 `/` 分类路径、计数、拖拽排序、右键编辑和分类图标，图标与名称使用同一横向布局。
 `ui/components/audio-entry-editor.slint`：分类/条目共用的名称与音符/首字/自定义图标编辑内容；由独立、非模态的 `AudioEditWindow` 承载，标题随编辑对象显示在 Windows 标题栏中，条目名称只改软件显示。
 `ui/pages/settings.slint`：常规/音频设备/快捷键/VB-CABLE/关于导航；设备、默认角色、热键与安装操作走现有 bridge 回调。
@@ -40,12 +41,14 @@ Rust 桥接：
 - `src/library.rs` 提供分类路径、可见索引、递归变更和文件验证规则。
 - 文件播放与试听通过 `AudioEngine` API；桥接不直接调用 decode、SFX 或 PreviewEngine。
 - `ui_bridge` 仍访问 `audio::device` / `audio::policy`、原生文件选择器和 VB-CABLE 安装；`src/platform/window.rs` 在独立窗口显示后将其带到前台，不设置 owner，不禁用主窗口。
-- 刷新进程/设备按钮在 worker 枚举所有列表，50 ms 状态定时器把结果写回 Slint；设备分类开关走同一刷新路径。
+- 顶栏刷新图标和设置页刷新入口在 worker 枚举所有列表，50 ms 状态定时器把结果写回 Slint；设备分类开关走同一刷新路径。
   - Process、file、mic 各自的 render ID 保存到 `OutputConfig`；进程和文件卡片额外按槽位保存独立 render ID，启动时 `SourceOutputRoutes` 将每个输入送到自己的 render 端点。
   - 进程行开关只切换当前进程的启用状态，关闭后保留卡片；删除动作才从路由源集合移除进程。
   - 文件行启用只代表路由配置，不启动播放；全局或单独转发启动后仍保持静音，由用户点击卡片播放按钮启动对应 SFX 槽。
   - 文件播放/暂停/停止只操作当前卡片的 SFX 槽；停止后按钮显示播放三角，暂停时点击恢复原位置。
   - 关闭文件源转发会停止该槽播放；重新启用不自动续播。文件源状态与音频库全局播放器互不混用。
+  - 音频卡片前后切歌只在当前条目的精确分类内选择；手动前后切换首尾环绕。自然结束时，顺序播放在分类末尾停止，列表循环回到第一首，单曲循环重播当前条目，随机播放优先避开当前条目。
+  - 播放模式按文件卡片槽位持久化到 `RouteConfig.audio_source_play_modes`；切歌后卡片条目路径同步写回配置。
   - 更多菜单的“单独转发”只打开选中的一个源，使用该源保存的输出设备，绕过底部总开关的多源选择。
 -  麦克风和进程源提供删除/单独转发；快捷键只对音频文件启用，避免伪造没有配置模型支撑的进程热键。
 -  添加源麦克风的“添加麦克风”按钮走独立提交回调：先同步选择到主路由、再隐藏添加源窗口；列表内切换设备仍只修改选择，不触发窗口关闭。

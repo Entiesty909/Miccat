@@ -151,7 +151,7 @@ fn probe_playback(
 ) -> Result<(), Error> {
     // 探针同时保留原始解码数据和实时消费结果，用于定位设备时钟或混音造成的偏差。
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32};
+    use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64};
     use std::time::Instant;
 
     use audio::buffer::SpscRing;
@@ -211,8 +211,11 @@ fn probe_playback(
         let stop_mixer = stop.clone();
         let peak = Arc::new(AtomicU32::new(0.0f32.to_bits()));
         let states = Arc::new(vec![AtomicU8::new(0)]);
+        let positions = Arc::new(vec![AtomicU64::new(0)]);
         let source = thread::spawn(move || {
-            audio::sfx::run_sfx_loop(ring_mixer, target, stop_mixer, peak, states, commands)
+            audio::sfx::run_sfx_loop(
+                ring_mixer, target, stop_mixer, peak, states, positions, commands,
+            )
         });
         tx.send(audio::sfx::SfxCommand::PlayStream {
             slot: 0,

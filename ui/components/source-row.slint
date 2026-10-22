@@ -1,339 +1,440 @@
-//! 路由页单条真实音频源：名称、输出目标、增益、启用状态和操作入口。
+//! 路由页单条音频源卡片：源信息、文件播放控制、输出设置和转发开关。
 
 import { Theme } from "../theme.slint";
 import { MarqueeComboBox } from "marquee-combo-box.slint";
 import { PmButton } from "button.slint";
 import { SliderRow } from "slider-row.slint";
-// 单行组件只投影一个路由槽位；所有变更经回调交给 RoutePage/Rust bridge。
+
+// 三类源共用同一横向骨架；文件源在信息区与设置区之间插入播放控制。
 export component SourceRow inherits Rectangle {
-    // Rust bridge 保持 0=进程、1=文件、2=麦克风，与路由回调的槽位映射一致。
-    // 源类型由 bridge 约定：0 进程、1 文件、2 麦克风。
+    // 源类型协议：0 进程、1 文件、2 麦克风。
     in property <int> kind: 0;
-    // 行在源数组中的稳定下标，作为所有回调的槽位键。
+    // 混合源列表中的稳定行号，所有事件都携带该值回到桥接层。
     in property <int> row-index: 0;
-    // 字体图标回退文本，文件/麦克风源使用。
+    // 文件与麦克风使用的 MDL2 回退图标。
     in property <string> icon: "";
-    // 进程图像资源；空图像时保留统一图标占位。
+    // 进程或文件的真实图标；空图像时显示回退字形。
     in property <image> icon-image;
-    // bridge 提供的主标题，不在 UI 侧拼接进程名或文件名。
+    // 卡片主标题。
     in property <string> title: "";
-    // 类型相关副标题，例如文件名、设备名或进程描述。
+    // 来源类型、格式和分类等次要信息。
     in property <string> subtitle: "";
-    // 类型相关详情文本，保持与 source-details 下标一致。
+    // 进程 PID 等补充信息。
     in property <string> detail: "";
-    // 文件源播放状态文本；“播放中”决定状态色。
+    // 运行、连接或文件播放状态。
     in property <string> status: "";
-    // 是否启用该槽位的转发；开关变化写回宿主。
+    // 当前槽位是否参与转发。
     in property <bool> active: false;
-    // 文件源暂停状态，独立于 active，避免停止其他卡片。
+    // 文件槽是否暂停。
     in property <bool> paused: false;
-    // 静音状态由宿主保存，进程/麦克风显示静音按钮。
+    // 进程/麦克风是否静音。
     in property <bool> muted: false;
-    // 整体转发运行态；运行时禁用会改变设备拓扑的控件。
+    // 全局路由运行态；设备下拉在运行时锁定。
     in property <bool> route-running: false;
-    // 输出设备名称列表，来源于 bridge 的设备枚举。
+    // 输出设备显示模型。
     in property <[string]> outputs: [];
-    // 宿主解析出的初始设备下标；仅在 init 时投影到 output-index。
+    // bridge 恢复的设备下标，只在组件初始化时写入双向属性。
     in property <int> initial-output-index: 0;
-    // 当前输出设备下标，MarqueeComboBox 双向绑定并通过回调提交。
+    // 当前输出设备下标。
     in-out property <int> output-index: 0;
-    // 初始设备同步只发生一次，避免列表刷新时覆盖用户当前选择。
+    // 当前槽位转发音量，单位百分比。
+    in-out property <float> volume: 100;
+    // 文件播放模式：0 顺序、1 列表循环、2 单曲循环、3 随机。
+    in property <int> play-mode: 0;
+    // 文件播放进度，范围 0..=1。
+    in property <float> progress: 0;
+    // 文件当前时间文本。
+    in property <string> position-text: "";
+    // 文件总时长文本。
+    in property <string> duration-text: "";
+    // 菜单打开态只用于强调右上角入口。
+    in property <bool> actions-open: false;
+    // 当前状态是否使用强调色。
+    property <bool> status-active: root.status == "运行中"
+        || root.status == "已连接"
+        || root.status == "播放中";
+    // 播放模式按钮图标随模式切换。
+    property <string> mode-icon: root.play-mode == 3
+        ? "\u{E8B1}"
+        : (root.play-mode == 0 ? "\u{E8FD}" : "\u{E8EE}");
+    // 播放模式短标签用于消除图标歧义。
+    property <string> mode-label: root.play-mode == 0
+        ? "顺序"
+        : (root.play-mode == 1
+            ? "列表循环"
+            : (root.play-mode == 2 ? "单曲循环" : "随机"));
+
+    // 初始设备下标只同步一次，列表动态刷新不会覆盖用户当前选择。
     init => {
-        // 初始设备下标由 bridge 根据保存的设备 ID 解析，组件只负责投影。
         root.output-index = root.initial-output-index;
     }
-    // 每行独立的百分比音量；SliderRow 改动只作用于 row-index。
-    in-out property <float> volume: 100;
-    // active 开关改变路由槽位的启停状态。
+
+    // 转发开关变化。
     callback active-toggled(bool);
-    // 音量变化值，单位为百分比。
+    // 转发音量变化。
     callback volume-edited(float);
-    // 进程/麦克风静音切换；文件源通过独立播放控制处理。
+    // 进程/麦克风静音变化。
     callback mute-toggled();
-    // 输出设备切换；Rust 负责重新绑定该槽位的 render target。
+    // 输出设备变化。
     callback output-changed(int);
-    // 更多菜单动作码，按源类型由 SourceActionsMenu 产生。
-    callback action(int);
-    // 请求打开当前行菜单，坐标是窗口绝对坐标，供 PopupWindow 定位。
+    // 右上角菜单请求，参数是窗口绝对坐标。
     callback actions-requested(length, length);
-    // 菜单关闭通知，RoutePage 会清理选中槽位。
+    // 菜单关闭通知。
     callback actions-closed();
-    // 文件源暂停/继续回调，不影响其他音频卡片。
+    // 文件源播放或暂停。
     callback pause();
-    // 文件源停止回调，仅停止本行对应的播放流。
+    // 文件源停止；入口保留给操作菜单。
     callback stop();
-    // 父级 PopupWindow 的可见状态镜像，仅用于行边框/交互条件。
-    in property <bool> actions-open: false;
+    // 文件源上一首。
+    callback previous();
+    // 文件源下一首。
+    callback next-track();
+    // 文件源播放模式循环切换。
+    callback play-mode-cycled();
+    // 源操作菜单动作码。
+    callback action(int);
 
-    // 启用状态用卡片左侧窄竖线标记，不改变卡片外框厚度。
-    height: 112px;
     width: 100%;
+    height: 160px;
     background: Theme.content-card;
-    border-radius: Theme.radiusCard;
+    border-radius: 12px;
     border-width: 1px;
-    border-color: Theme.borderStrong;
-    Rectangle {
-        x: 0px;
-        y: 12px;
-        width: 3px;
-        height: root.height - 24px;
-        border-radius: 2px;
-        background: root.active ? Theme.accent : transparent;
-    }
-
-    Rectangle {
-        x: 16px;
-        y: (root.height - self.height) / 2;
-        width: 56px;
-        height: 56px;
-        border-radius: 12px;
-        background: root.kind == 0
-            ? Theme.accentSoft
-            : (root.kind == 1 ? #EEE9FF : #DDF6F0);
-            // 文件和麦克风依赖字体字形，进程图像叠加在同一图标框内。
-        if root.kind != 0: Text {
-            text: root.icon;
-            font-family: "Segoe MDL2 Assets";
-            color: root.kind == 2 ? #188E7A : Theme.accent;
-            font-size: 28px;
-            horizontal-alignment: center;
-            vertical-alignment: center;
-        }
-        Image {
-            x: (parent.width - self.width) / 2;
-            y: (parent.height - self.height) / 2;
-            width: 36px;
-            height: 36px;
-            image-fit: contain;
-            source: root.icon-image;
-        }
-    }
+    border-color: root.actions-open ? Theme.accent : Theme.borderStrong;
 
     HorizontalLayout {
-        height: 100%;
-        padding-left: 8px;
-        padding-right: 8px;
-        spacing: 6px;
+        padding-left: 16px;
+        padding-right: 16px;
+        padding-top: 12px;
+        padding-bottom: 12px;
+        spacing: 12px;
 
-        Rectangle {
-            width: 76px;
-            height: 1px;
-            background: transparent;
-        }
-
-        VerticalLayout {
-            min-width: 108px;
-            preferred-width: 168px;
-            horizontal-stretch: 1;
-            alignment: LayoutAlignment.center;
-            HorizontalLayout {
-                width: 100%;
-                height: 24px;
-                spacing: 8px;
+        // 左侧源标识从卡片左边缘开始，避免布局剩余空间把内容推向右侧。
+        HorizontalLayout {
+            min-width: 230px;
+            max-width: 250px;
+            spacing: 12px;
+            Rectangle {
+                width: 64px;
+                height: 64px;
+                border-radius: 14px;
+                background: root.kind == 0
+                    ? Theme.accentSoft
+                    : (root.kind == 1 ? #DDF6EA : #DDEBFF);
+                if root.kind != 0: Text {
+                    text: root.icon;
+                    font-family: "Segoe MDL2 Assets";
+                    color: root.kind == 1 ? #18A67A : Theme.accent;
+                    font-size: 31px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                Image {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    width: 44px;
+                    height: 44px;
+                    image-fit: contain;
+                    source: root.icon-image;
+                }
+            }
+            VerticalLayout {
+                horizontal-stretch: 1;
+                spacing: 5px;
+                alignment: LayoutAlignment.center;
                 Text {
                     text: root.title;
                     color: Theme.text;
-                    font-size: 15px;
-                    font-weight: 600;
-                    horizontal-stretch: 1;
+                    font-size: 16px;
+                    font-weight: 700;
                     overflow: elide;
-                    vertical-alignment: center;
+                }
+                Text {
+                    text: root.detail == ""
+                        ? root.subtitle
+                        : "\{root.subtitle} · \{root.detail}";
+                    color: Theme.text2;
+                    font-size: 12px;
+                    overflow: elide;
+                }
+                Rectangle {
+                    width: 82px;
+                    height: 26px;
+                    border-radius: 7px;
+                    background: root.status-active ? Theme.accentSoft : Theme.border;
+                    Text {
+                        text: root.status;
+                        color: root.status-active ? Theme.accent : Theme.text2;
+                        font-size: 12px;
+                        font-weight: 600;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
                 }
             }
-            // 麦克风展示两行设备信息；其他源使用单行副标题。
-            if root.kind == 2: VerticalLayout {
-                width: 100%;
-                height: 34px;
-                spacing: 2px;
-                Text {
-                    text: root.subtitle;
-                    color: Theme.text2;
-                    font-size: 11px;
-                    overflow: elide;
+        }
+
+        // 文件卡片独有的上一首、播放、下一首、模式和进度区。
+        if root.kind == 1: VerticalLayout {
+            min-width: 220px;
+            max-width: 240px;
+            spacing: 8px;
+            alignment: LayoutAlignment.center;
+            HorizontalLayout {
+                height: 42px;
+                spacing: 8px;
+                alignment: LayoutAlignment.center;
+                PmButton {
+                    label: "\u{E892}";
+                    icon-only: true;
+                    button-width: 38px;
+                    enabled: root.route-running && root.active;
+                    clicked => { root.previous(); }
                 }
+                PmButton {
+                    label: root.status == "播放中" ? "\u{E769}" : "\u{E768}";
+                    icon-only: true;
+                    filled: true;
+                    button-width: 42px;
+                    enabled: root.route-running && root.active;
+                    clicked => { root.pause(); }
+                }
+                PmButton {
+                    label: "\u{E893}";
+                    icon-only: true;
+                    button-width: 38px;
+                    enabled: root.route-running && root.active;
+                    clicked => { root.next-track(); }
+                }
+                Rectangle {
+                    width: 76px;
+                    height: 38px;
+                    border-radius: 19px;
+                    background: Theme.card;
+                    border-width: 1px;
+                    border-color: Theme.borderStrong;
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        spacing: 5px;
+                        alignment: LayoutAlignment.center;
+                        Text {
+                            text: root.mode-icon;
+                            font-family: "Segoe MDL2 Assets";
+                            color: root.play-mode == 0 ? Theme.text2 : Theme.accent;
+                            font-size: 16px;
+                        }
+                        Text {
+                            text: root.mode-label;
+                            color: Theme.text2;
+                            font-size: 9px;
+                            overflow: elide;
+                        }
+                    }
+                    // 单击同一控件循环四种模式，不创建四个并列开关。
+                    TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.play-mode-cycled(); }
+                    }
+                }
+            }
+            Rectangle {
+                width: 100%;
+                height: 5px;
+                border-radius: 3px;
+                background: Theme.border;
+                Rectangle {
+                    width: parent.width * max(0, min(1, root.progress));
+                    height: 100%;
+                    border-radius: 3px;
+                    background: Theme.accent;
+                }
+            }
+            HorizontalLayout {
+                height: 18px;
                 Text {
-                    text: root.detail;
+                    text: root.position-text;
                     color: Theme.text3;
                     font-size: 11px;
-                    overflow: elide;
                 }
-            }
-            // 非麦克风源的副标题位于同一垂直位置，保证行对齐。
-            if root.kind != 2: Text {
-                text: root.subtitle;
-                color: Theme.text2;
-                font-size: 11px;
-                overflow: elide;
-            }
-            // 文件源额外展示播放状态，来自音频播放槽而非 active 开关。
-            if root.kind == 1: Text {
-                text: root.status;
-                color: root.status == "播放中" ? Theme.accent : Theme.text2;
-                font-size: 11px;
-                overflow: elide;
-            }
-            // 进程源展示 bridge 提供的进程详情。
-            if root.kind == 0: Text {
-                text: root.detail;
-                color: Theme.text3;
-                font-size: 11px;
-                overflow: elide;
+                Rectangle { horizontal-stretch: 1; background: transparent; }
+                Text {
+                    text: root.duration-text;
+                    color: Theme.text3;
+                    font-size: 11px;
+                }
             }
         }
 
+        // 信息与设备设置之间的纵向分隔线。
+        Rectangle {
+            width: 1px;
+            height: 100%;
+            background: Theme.border;
+        }
+
+        // 右侧设置区与参考图一致按输出、转发音量、预览音量排列。
         VerticalLayout {
-            min-width: 120px;
-            preferred-width: 176px;
             horizontal-stretch: 1;
+            min-width: 250px;
+            spacing: 7px;
             alignment: LayoutAlignment.center;
-            Text {
-                text: "输出设备";
-                color: Theme.text2;
-                font-size: 11px;
+            HorizontalLayout {
+                height: 36px;
+                spacing: 10px;
+                Text {
+                    text: "\u{E7F4}";
+                    font-family: "Segoe MDL2 Assets";
+                    color: Theme.text2;
+                    font-size: 18px;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: "输出设备";
+                    width: 72px;
+                    color: Theme.text2;
+                    font-size: 13px;
+                    vertical-alignment: center;
+                }
+                MarqueeComboBox {
+                    horizontal-stretch: 1;
+                    min-width: 140px;
+                    height: 34px;
+                    model: root.outputs;
+                    current-index <=> root.output-index;
+                    enabled: !root.route-running;
+                    selected(value) => {
+                        root.output-changed(root.output-index);
+                    }
+                }
             }
-            // 输出下拉只在未运行时允许改变设备，防止运行中重建全局目标。
-            MarqueeComboBox {
-                width: 100%;
-                height: 34px;
-                model: root.outputs;
-                // 设备下拉的双向绑定先更新本行下标，再通知宿主执行设备校验。
-                current-index <=> root.output-index;
-                enabled: !root.route-running;
-                    // selected 事件携带当前下标；回调由宿主做范围和设备校验。
-                selected(value) => {
-                    root.output-changed(root.output-index);
+            HorizontalLayout {
+                height: 36px;
+                spacing: 10px;
+                Text {
+                    text: "\u{E767}";
+                    font-family: "Segoe MDL2 Assets";
+                    color: Theme.text2;
+                    font-size: 18px;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: "转发音量";
+                    width: 72px;
+                    color: Theme.text2;
+                    font-size: 13px;
+                    vertical-alignment: center;
+                }
+                SliderRow {
+                    horizontal-stretch: 1;
+                    show-label: false;
+                    value <=> root.volume;
+                    edited(value) => { root.volume-edited(value); }
+                }
+                // 保留原静音能力，但收进音量行，避免破坏参考图主布局。
+                if root.kind != 1: PmButton {
+                    label: root.muted ? "\u{E74F}" : "\u{E767}";
+                    icon-only: true;
+                    button-width: 30px;
+                    clicked => { root.mute-toggled(); }
+                }
+            }
+            if root.kind != 2: HorizontalLayout {
+                height: 36px;
+                spacing: 10px;
+                Text {
+                    text: "\u{E767}";
+                    font-family: "Segoe MDL2 Assets";
+                    color: Theme.text3;
+                    font-size: 18px;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: "预览音量";
+                    width: 72px;
+                    color: Theme.text3;
+                    font-size: 13px;
+                    vertical-alignment: center;
+                }
+                // 本轮仅提供不可交互占位，不向 bridge 上报或保存数值。
+                SliderRow {
+                    horizontal-stretch: 1;
+                    show-label: false;
+                    enabled: false;
+                    value: 0;
+                    value-text: "-";
+                }
+                if root.kind != 1: Rectangle {
+                    width: 30px;
+                    background: transparent;
                 }
             }
         }
 
+        // 最右侧开关只改变当前卡片，不启动文件解码。
         VerticalLayout {
-            horizontal-stretch: 2;
             min-width: 110px;
+            max-width: 110px;
             alignment: LayoutAlignment.center;
-            Text {
-                text: "音量";
-                color: Theme.text2;
-                font-size: 11px;
-            }
-            // 每一行拥有独立音量控件，双向绑定不共享其他卡片状态。
-            SliderRow {
-                show-label: false;
-                // 滑块值与当前源双向绑定，编辑回调只上送本行音量。
-                value <=> root.volume;
-                edited(value) => { root.volume-edited(value); }
-            }
-        }
-
-        HorizontalLayout {
-            width: 258px;
-            vertical-stretch: 1;
-            alignment: LayoutAlignment.center;
-            spacing: 8px;
-            VerticalLayout {
-                width: 124px;
+            HorizontalLayout {
+                height: 38px;
+                spacing: 10px;
                 alignment: LayoutAlignment.center;
-                HorizontalLayout {
-                    width: 100%;
-                    height: 36px;
-                    spacing: 6px;
-                    alignment: LayoutAlignment.end;
-                    // 进程/麦克风显示静音；文件源改为暂停和停止控制。
-                    if root.kind != 1: PmButton {
-                        label: root.muted ? "\u{E74F}" : "\u{E767}";
-                        icon-only: true;
-                        button-width: 36px;
-                        clicked => { root.mute-toggled(); }
-                    }
-                    // 暂停按钮只对已启用且正在运行的文件槽位开放。
-                    if root.kind == 1: PmButton {
-                        label: root.status == "播放中" ? "\u{E769}" : "\u{E768}";
-                        icon-only: true;
-                        button-width: 36px;
-                        enabled: root.route-running && root.active;
-                        clicked => { root.pause(); }
-                    }
-                    // 停止按钮仅结束本行音频流，保留其他源的播放状态。
-                    if root.kind == 1: PmButton {
-                        label: "\u{E71A}";
-                        icon-only: true;
-                        button-width: 36px;
-                        enabled: root.route-running
-                            && root.active
-                            && (root.status == "播放中" || root.paused);
-                        clicked => { root.stop(); }
-                    }
-                    // 菜单按钮在运行中仍允许文件源操作，其他类型需停止转发。
-                    PmButton {
-                        label: "\u{E712}";
-                        icon-only: true;
-                        button-width: 36px;
-                        enabled: !root.route-running || root.kind == 1;
-                        // 坐标交给父级 PopupWindow，避免行组件持有弹层生命周期。
-                        clicked => {
-                            root.actions-requested(
-                                root.absolute-position.x + root.width - 246px,
-                                root.absolute-position.y
-                                    + (root.height - 36px) / 2 + 36px
-                            );
-                        }
-                    }
-                }
-            }
-            VerticalLayout {
-                width: 1px;
-                height: 100%;
-                vertical-stretch: 1;
-                alignment: LayoutAlignment.center;
-                Rectangle {
-                    width: 1px;
-                    height: 36px;
-                    background: Theme.border;
-                }
-            }
-            VerticalLayout {
-                width: 126px;
-                height: 100%;
-                vertical-stretch: 1;
-                alignment: LayoutAlignment.center;
-                HorizontalLayout {
-                    width: 126px;
-                    height: 36px;
-                    spacing: 8px;
-                    alignment: LayoutAlignment.center;
-                    VerticalLayout {
-                        width: 42px;
-                        height: 36px;
-                        alignment: LayoutAlignment.center;
-                        Rectangle {
-                            width: 42px;
-                            height: 22px;
-                            border-radius: 11px;
-                            background: root.active ? Theme.accent : Theme.borderStrong;
-                            Rectangle {
-                                x: root.active ? 22px : 2px;
-                                y: 2px;
-                                width: 18px;
-                                height: 18px;
-                                border-radius: 9px;
-                                background: Theme.card;
-                            }
-                                // 启用开关在运行中锁定进程/麦克风，文件槽位允许独立启停。
-                            // 点击开关只切换当前行的 active，不触碰其他槽位。
-                            TouchArea {
-                                enabled: !root.route-running || root.kind == 1;
-                                clicked => { root.active-toggled(!root.active); }
-                            }
-                        }
-                    }
                 Text {
                     text: "启用转发";
                     color: Theme.text;
                     font-size: 13px;
                     vertical-alignment: center;
                 }
+                Rectangle {
+                    width: 48px;
+                    height: 26px;
+                    border-radius: 13px;
+                    background: root.active ? Theme.accent : Theme.borderStrong;
+                    Rectangle {
+                        x: root.active ? 24px : 2px;
+                        y: 2px;
+                        width: 22px;
+                        height: 22px;
+                        border-radius: 11px;
+                        background: Theme.card;
+                    }
+                    // 文件槽运行中仍可单独关闭；进程/麦克风运行时保持原锁定规则。
+                    TouchArea {
+                        enabled: !root.route-running || root.kind == 1;
+                        mouse-cursor: pointer;
+                        clicked => { root.active-toggled(!root.active); }
+                    }
+                }
             }
         }
     }
 
+    // 原“...”菜单入口改为卡片右上角上三角；动作内容和 PopupWindow 不变。
+    Rectangle {
+        x: root.width - 34px;
+        y: 8px;
+        width: 26px;
+        height: 24px;
+        border-radius: 6px;
+        background: root.actions-open ? Theme.accentSoft : transparent;
+        Text {
+            text: "\u{E70E}";
+            font-family: "Segoe MDL2 Assets";
+            color: root.actions-open ? Theme.accent : Theme.text2;
+            font-size: 15px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+        // 坐标锚定上三角下方，菜单由 RoutePage 的 PopupWindow 承载。
+        TouchArea {
+            enabled: !root.route-running || root.kind == 1;
+            mouse-cursor: pointer;
+            clicked => {
+                root.actions-requested(
+                    root.absolute-position.x + root.width - 230px,
+                    root.absolute-position.y + 34px
+                );
+            }
+        }
     }
 }

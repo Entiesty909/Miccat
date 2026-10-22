@@ -48,7 +48,7 @@ Miccat 是 Windows 桌面进程音频路由器：以 WASAPI Process Loopback 捕
 
 - [`docs/step-55-header-and-pink-theme.md`](docs/step-55-header-and-pink-theme.md)：顶栏、窗口图标、淡粉主题、卡片可读性、图片 API 和渲染优化。
 - [`docs/step-54-main-window-three-column-layout.md`](docs/step-54-main-window-three-column-layout.md)：三栏主窗口、状态栏排列/尺寸、音量浮层和刷新失效源清理。
-- [`docs/step-53-route-audio-controls-and-dialog-layout.md`](docs/step-53-route-audio-controls-and-dialog-layout.md)：路由文件槽位控制、添加源布局及麦克风提交/名称。
+- [`docs/step-53-route-audio-controls-and-dialog-layout.md`](docs/step-53-route-audio-controls-and-dialog-layout.md)：三类路由卡片、分类队列切歌、四种播放模式、文件槽进度及添加源窗口。
 - [`docs/step-52-route-card-visual-polish.md`](docs/step-52-route-card-visual-polish.md)：路由卡片紧凑列、真实图标和滚动条避让。
 - [`docs/step-51-popup-dialog-windows.md`](docs/step-51-popup-dialog-windows.md)：独立窗口呈现、原生拖动、位置恢复和重复显示重绘。
 - [`docs/step-50-multi-source-routing.md`](docs/step-50-multi-source-routing.md)：多源、卡片状态隔离、重复源校验、麦克风关停与空闲性能。

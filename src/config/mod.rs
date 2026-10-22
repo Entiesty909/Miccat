@@ -112,6 +112,9 @@ pub struct RouteConfig {
     /// 与 `audio_source_paths` 对齐的音频卡片启用状态。
     #[serde(default)]
     pub audio_source_enabled: Vec<bool>,
+    /// 与 `audio_source_paths` 对齐的播放模式：0 顺序、1 列表循环、2 单曲循环、3 随机。
+    #[serde(default)]
+    pub audio_source_play_modes: Vec<u8>,
 }
 
 /// 三路混音增益。

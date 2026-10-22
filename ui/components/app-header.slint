@@ -21,6 +21,8 @@ component ThemePreset inherits Rectangle {
     }
 }
 export component AppHeader inherits Rectangle {
+    // 当前页面索引；添加源只在路由页显示。
+    in property <int> page: 0;
     // 当前转发引擎是否运行。
     in property <bool> running: false;
     // 后台线缆任务进行时禁止启动/停止按钮。
@@ -29,6 +31,8 @@ export component AppHeader inherits Rectangle {
     in property <int> theme-index: 0;
     // Rust 构建版本，保持与 Cargo package 版本一致。
     in property <string> version: "";
+    // 请求打开添加音频源窗口。
+    callback source-add-requested();
     // 请求切换转发状态。
     callback start-stop();
     // 用户从主题菜单选择预设。
@@ -97,6 +101,13 @@ export component AppHeader inherits Rectangle {
             background: transparent;
         }
 
+        // 添加源入口位于全局顶栏；只有路由页创建该按钮。
+        if root.page == 0: PmButton {
+            label: "＋  添加音频源";
+            filled: true;
+            button-width: 138px;
+            clicked => { root.source-add-requested(); }
+        }
         // 顶栏主动作从底部状态栏移到品牌操作区。
         PmButton {
             label: root.running ? "\u{E71A}  停止" : "\u{E768}  开始转发";

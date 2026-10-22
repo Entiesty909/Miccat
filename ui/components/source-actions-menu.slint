@@ -13,7 +13,7 @@ export component SourceActionsMenu inherits Rectangle {
     callback closed();
 
     // 音频源菜单比进程/麦克风多出定位和快捷键动作，因此高度随 kind 改变。
-    height: root.kind == 1 ? 188px : 126px;
+    height: root.kind == 1 ? 224px : 126px;
     background: Theme.card;
     border-width: 1px;
     border-color: Theme.borderStrong;
@@ -63,6 +63,11 @@ export component SourceActionsMenu inherits Rectangle {
         if root.kind == 1: MenuItem {
             label: "设置快捷键";
             clicked => { root.action(1); }
+        }
+        // 停止只结束当前文件卡片，不改变启用转发状态。
+        if root.kind == 1: MenuItem {
+            label: "停止播放";
+            clicked => { root.action(8); }
         }
         // 删除动作码 4 由 bridge 负责停止并移除对应路由槽位。
         MenuItem {

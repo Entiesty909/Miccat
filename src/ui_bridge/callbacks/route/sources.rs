@@ -270,7 +270,13 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
                             });
                         index.and_then(|index| cache.audio_entries.get(index).cloned())
                     };
-                    entry.map_or(Ok(()), |entry| engine.play_file_source(&entry, slot))
+                    let result =
+                        entry.map_or(Ok(()), |entry| engine.play_file_source(&entry, slot, false));
+                    if result.is_ok() {
+                        let mut cache = cache.borrow_mut();
+                        set_slot(&mut cache.audio_finished_handled, slot, true);
+                    }
+                    result
                 }
             };
             if let Err(error) = result {
@@ -302,7 +308,7 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
         let save_queue = state.save_queue.clone();
         let state_for_update = state.clone();
         let ui_weak = ui.as_weak();
-        // action 是 Slint 约定的菜单编号：1 绑热键、2 单独转发、3 编辑、4 删除、5/6/7 替换。
+        // action 编号：1 热键、2 单独转发、3 定位、4 删除、5/6/7 替换、8 停止文件。
         move |index, action| {
             let Some(ui) = ui_weak.upgrade() else { return };
             let Some(kind) = source_kind(&ui, index) else {
@@ -359,6 +365,11 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
                         &ui,
                         &state_for_update,
                     );
+                }
+                8 if kind == 1 => {
+                    if let Some(slot) = source_slot(&ui, index, 1) {
+                        let _ = engine.stop_file_source(slot);
+                    }
                 }
                 4 => {
                     delete_source(&ui, &cache, &engine, kind, index);
@@ -437,6 +448,8 @@ fn delete_source(
             if file_slot < cache_state.route_audio_entries.len() {
                 cache_state.route_audio_entries.remove(file_slot);
                 remove_slot(&mut cache_state.route_audio_enabled, file_slot);
+                remove_slot(&mut cache_state.audio_play_modes, file_slot);
+                remove_slot(&mut cache_state.audio_finished_handled, file_slot);
                 remove_slot(&mut cache_state.audio_volumes, file_slot);
                 remove_slot(&mut cache_state.audio_muted_volumes, file_slot);
                 remove_slot(&mut cache_state.audio_output_ids, file_slot);
@@ -518,6 +531,8 @@ fn toggle_file_source(
         {
             cache_state.route_audio_entries.push(index);
             cache_state.route_audio_enabled.push(false);
+            cache_state.audio_play_modes.push(0);
+            cache_state.audio_finished_handled.push(false);
             cache_state
                 .audio_volumes
                 .push(engine.sfx_volume_for_slot(file_slot));

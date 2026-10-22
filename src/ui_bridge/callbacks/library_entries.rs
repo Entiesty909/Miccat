@@ -202,6 +202,9 @@ fn register_3(ui: &MainWindow, state: &AppState) {
                 if file_slot < cache_state.route_audio_enabled.len() {
                     cache_state.route_audio_enabled[file_slot] = false;
                 }
+                if file_slot < cache_state.audio_finished_handled.len() {
+                    cache_state.audio_finished_handled[file_slot] = false;
+                }
             } else {
                 if super::route::sources::duplicate_audio(
                     &cache_state.route_audio_entries,
@@ -215,6 +218,8 @@ fn register_3(ui: &MainWindow, state: &AppState) {
                 // 新槽位的默认值来自当前配置和所选设备，但后续每张卡片可独立修改。
                 cache_state.route_audio_entries.push(actual_index);
                 cache_state.route_audio_enabled.push(false);
+                cache_state.audio_play_modes.push(0);
+                cache_state.audio_finished_handled.push(false);
                 cache_state.audio_volumes.push(app_config.borrow().mix.sfx);
                 cache_state.audio_muted_volumes.push(None);
                 let output_id = cache_state

@@ -64,13 +64,13 @@ audio/com ─────────────→ platform::com
 - `AppConfig`：本地持久化配置，路径 `%APPDATA%\\Miccat\\config.json`；`theme_index` 保存上次所选主题。
   - `AppConfig.audio_category_icons`：分类路径到 glyph/图标文件路径的持久化映射。
   - `AudioEntry.name`、`icon_glyph`、`icon_path`：软件显示名称与图标配置；不改磁盘文件名。
-  - `src/ui_bridge/sources.rs`：将进程、当前音频文件和物理麦克风投影为路由源行；麦克风源行固定显示“麦克风”，副标题使用所选物理设备的 Windows 友好名称，`update_dynamic` 只写实时峰值/音量/状态，不重建静态模型。
- - `UiCache` 的 `process_volumes` / `audio_volumes` 与对应输出 ID 按卡片槽位保存；卡片操作不再读写同一 kind 的共享增益或输出目标。
-- `AudioEngine` 为最多 4 个进程槽和 4 个文件槽保留独立原子增益；SFX 槽位状态区分停止、播放、暂停和完成，暂停保持解码位置。
+  - `src/ui_bridge/sources.rs`：将进程、当前音频文件和物理麦克风投影为路由源行；文件行同时投影分类、播放模式、100 ns 位置和进度，`update_dynamic` 只写实时峰值/音量/状态/进度，不重建静态模型。
+ - `UiCache` 的 `process_volumes` / `audio_volumes` 与对应输出 ID 按卡片槽位保存；`audio_play_modes` 与文件槽对齐，完成态去重标记只用于 50 ms 轮询。
+- `AudioEngine` 为最多 4 个进程槽和 4 个文件槽保留独立原子增益；SFX 槽位状态区分停止、播放、暂停和完成，并以独立 `AtomicU64` 发布 100 ns 播放位置。
 - `UiCache.route_audio_entry`：待加入路由或当前路由使用的音频条目实际下标；仍是桥接派生状态，不替代引擎播放状态。
 - `UiCache.route_file_enabled`：用户为文件源选择的启用状态；与全局路由启停和文件播放器播放状态分离。
-- `UiCache.route_audio_entries` 与 `route_audio_enabled`：多个已加入路由的音频条目及其启用状态；不保存 PCM。
-  文件源的路由启用不启动解码；播放状态由引擎 SFX 槽位提供，UI 每 50 ms 更新对应行，卡片播放按钮才创建/恢复流。
+- `UiCache.route_audio_entries`、`route_audio_enabled` 与 `audio_play_modes`：多个文件槽的当前库条目、启用状态和播放模式；前后切歌及自然续播只在条目所属精确分类内选择，不保存 PCM。
+  文件源的路由启用不启动解码；播放状态和位置由引擎 SFX 槽位提供，UI 每 50 ms 更新对应行，卡片播放按钮才创建/恢复流。
 - `OutputConfig.device_ids` 持久化多选 render 设备 ID；`process_output_ids` / `file_output_ids` 保存卡片级目标。
 - `OutputConfig.mic_output_id` 保存麦克风源可选目标；未设置时跟随路由主输出。物理麦克风是捕获端，不能作为 WASAPI render 目标；虚拟麦克风选项将录音端映射到配对播放端。
 Slint 属性只作为显示投影和事件契约，不保存 PCM。

@@ -2,7 +2,6 @@
 
 import { ScrollView } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
-import { PmButton } from "../components/button.slint";
 import { SourceRow } from "../components/source-row.slint";
 import { SourceActionsMenu } from "../components/source-actions-menu.slint";
 // 路由页把 Rust bridge 的源槽位数组映射为可独立操作的 SourceRow，并承载添加/替换入口。
@@ -55,6 +54,14 @@ export component RoutePage inherits Rectangle {
     in-out property <[string]> outputs: [];
     // 每槽位文件暂停状态，独立于 active 和其他源。
     in-out property <[bool]> source-paused: [];
+    // 每槽位文件播放模式。
+    in-out property <[int]> source-play-modes: [];
+    // 每槽位文件播放进度。
+    in-out property <[float]> source-progresses: [];
+    // 每槽位文件当前时间文本。
+    in-out property <[string]> source-position-texts: [];
+    // 每槽位文件总时长文本。
+    in-out property <[string]> source-duration-texts: [];
     // 音频库文件名列表，供添加文件详情使用。
     in-out property <[string]> audio-entries: [];
     // 音频库元数据文本数组。
@@ -95,10 +102,6 @@ export component RoutePage inherits Rectangle {
     in-out property <length> source-menu-height: 96px;
     // 转发运行态，控制刷新和设备编辑的可用性。
     in-out property <bool> running: false;
-    // 重新枚举进程/设备。
-    callback refresh();
-    // 请求打开添加源窗口。
-    callback source-add-requested();
     // 请求添加进程源。
     callback process-add();
     // 请求导入音频文件。
@@ -117,6 +120,12 @@ export component RoutePage inherits Rectangle {
     callback source-pause(int);
     // 指定文件槽位停止。
     callback source-stop(int);
+    // 指定文件槽位上一首。
+    callback source-previous(int);
+    // 指定文件槽位下一首。
+    callback source-next-track(int);
+    // 指定文件槽位循环切换播放模式。
+    callback source-play-mode-cycled(int);
     // 指定槽位输出设备变更。
     callback source-output-changed(int, int);
     // 打开设置页，并由宿主选择默认分组。
@@ -136,35 +145,18 @@ export component RoutePage inherits Rectangle {
     background: transparent;
 
     VerticalLayout {
-        padding-left: 38px;
-        padding-right: 38px;
-        padding-top: 18px;
-        padding-bottom: 18px;
-        spacing: 13px;
-
-
-        HorizontalLayout {
-            height: 38px;
-            spacing: 8px;
-            Text {
-                text: "当前音频源";
-                font-size: 15px;
-                font-weight: 600;
-                vertical-alignment: TextVerticalAlignment.center;
-            }
-            Rectangle { horizontal-stretch: 1; background: transparent; }
-            // 添加按钮只发出打开面板请求，具体页签和校验由宿主决定。
-            PmButton {
-                label: "＋  添加音频源";
-                filled: true;
-                clicked => { root.source-add-requested(); }
-            }
-            // 刷新按钮在运行态禁用，避免枚举期间改变源槽位数组。
-            PmButton {
-                label: "刷新进程";
-                enabled: !root.running;
-                clicked => { root.refresh(); }
-            }
+        // 页面留出紧凑安全边距；添加入口已移至顶栏，卡片从内容区左上开始。
+        padding-left: 16px;
+        padding-right: 16px;
+        padding-top: 12px;
+        padding-bottom: 12px;
+        spacing: 8px;
+        Text {
+            height: 28px;
+            text: "当前音频源";
+            font-size: 15px;
+            font-weight: 600;
+            vertical-alignment: TextVerticalAlignment.center;
         }
 
         VerticalLayout {
@@ -234,6 +226,18 @@ export component RoutePage inherits Rectangle {
                         paused: index < root.source-paused.length
                             ? root.source-paused[index]
                             : false;
+                        play-mode: index < root.source-play-modes.length
+                            ? root.source-play-modes[index]
+                            : 0;
+                        progress: index < root.source-progresses.length
+                            ? root.source-progresses[index]
+                            : 0;
+                        position-text: index < root.source-position-texts.length
+                            ? root.source-position-texts[index]
+                            : "";
+                        duration-text: index < root.source-duration-texts.length
+                            ? root.source-duration-texts[index]
+                            : "";
                         // 仅当前槽位打开 PopupWindow；其他卡片不受菜单生命周期影响。
                         actions-open: source-menu-popup.is-open
                             && root.source-menu-index == index;
@@ -244,7 +248,7 @@ export component RoutePage inherits Rectangle {
                                 ? root.source-kinds[index]
                                 : 0;
                             root.source-menu-height = root.source-menu-kind == 1
-                                ? 188px
+                                ? 224px
                                 : 126px;
                             root.source-menu-x = min(
                                 max(0px, x - root.absolute-position.x),
@@ -290,6 +294,11 @@ export component RoutePage inherits Rectangle {
                         // 文件播放控制仅作用于当前文件槽位。
                         pause => { root.source-pause(index); }
                         stop => { root.source-stop(index); }
+                        previous => { root.source-previous(index); }
+                        next-track => { root.source-next-track(index); }
+                        play-mode-cycled => {
+                            root.source-play-mode-cycled(index);
+                        }
                     }
                 }
             }

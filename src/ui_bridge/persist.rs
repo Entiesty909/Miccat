@@ -238,6 +238,19 @@ pub(super) fn restore_saved_selection(
                 .unwrap_or(false)
         })
         .collect();
+    cache_state.audio_play_modes = audio_sources
+        .iter()
+        .map(|(saved_slot, _)| {
+            saved
+                .route
+                .audio_source_play_modes
+                .get(*saved_slot)
+                .copied()
+                .filter(|mode| *mode < 4)
+                .unwrap_or(0)
+        })
+        .collect();
+    cache_state.audio_finished_handled = vec![false; audio_sources.len()];
     cache_state.route_audio_entry = cache_state.route_audio_entries.first().copied();
     // 单卡片字段仅作兼容/界面默认值，多卡片列表才是实际路由状态。
     cache_state.route_file_enabled = cache_state
@@ -337,6 +350,7 @@ pub(super) fn persist_config(
         .filter_map(|index| c.audio_entries.get(*index).map(|entry| entry.path.clone()))
         .collect();
     saved.route.audio_source_enabled = c.route_audio_enabled.clone();
+    saved.route.audio_source_play_modes = c.audio_play_modes.clone();
     saved.mix.master = (ui.get_master_volume() / 100.0).clamp(0.0, 1.0);
     // 主音量 UI 使用百分比，配置统一保存为限制在 [0, 1] 的线性值。
     saved.mix.process_volumes = c.process_volumes.clone();
@@ -359,7 +373,7 @@ pub(super) fn save_process_selection(
     app_config: &Rc<RefCell<config::AppConfig>>,
     save_queue: &SaveQueue,
 ) {
-    let (names, disabled_slots, audio_paths, audio_enabled) = {
+    let (names, disabled_slots, audio_paths, audio_enabled, audio_play_modes) = {
         // 配置使用稳定名称和路径，不依赖进程/音频库刷新后的瞬时列表下标。
         // 在释放缓存借用后再修改 AppConfig，避免 RefCell 重入；保存队列接收独立快照。
         let cache = cache.borrow();
@@ -395,6 +409,7 @@ pub(super) fn save_process_selection(
             disabled_slots,
             audio_paths,
             cache.route_audio_enabled.clone(),
+            cache.audio_play_modes.clone(),
         )
     };
     let mut config = app_config.borrow_mut();
@@ -404,6 +419,7 @@ pub(super) fn save_process_selection(
     config.route.disabled_process_slots = disabled_slots;
     config.route.audio_source_paths = audio_paths;
     config.route.audio_source_enabled = audio_enabled;
+    config.route.audio_source_play_modes = audio_play_modes;
     save_queue.schedule();
 }
 

@@ -101,6 +101,14 @@ export component MainWindow inherits Window {
     in-out property <[bool]> source-paused: [];
     // 每槽位输出设备下标。
     in-out property <[int]> source-output-indices: [];
+    // 每槽位文件播放模式。
+    in-out property <[int]> source-play-modes: [];
+    // 每槽位文件播放进度。
+    in-out property <[float]> source-progresses: [];
+    // 每槽位文件当前时间文本。
+    in-out property <[string]> source-position-texts: [];
+    // 每槽位文件总时长文本。
+    in-out property <[string]> source-duration-texts: [];
     // 文件源默认输出设备下标。
     in-out property <int> file-output-index: 0;
     // 文件源音量百分比。
@@ -321,6 +329,12 @@ export component MainWindow inherits Window {
     callback source-pause(int);
     // 停止指定文件源。
     callback source-stop(int);
+    // 播放指定文件源的上一首。
+    callback source-previous(int);
+    // 播放指定文件源的下一首。
+    callback source-next-track(int);
+    // 循环切换指定文件源播放模式。
+    callback source-play-mode-cycled(int);
     // 切换麦克风混音。
     callback mic-mix-changed(bool);
     // 切换全部输出设备显示。
@@ -449,10 +463,13 @@ export component MainWindow inherits Window {
             height: 100%;
             AppHeader {
                 width: 100%;
+                page: root.page;
+                running: root.running;
                 cable-busy: root.cable-busy;
                 theme-index: Theme.theme-index;
                 version: root.app-version;
                 start-stop => { root.start-stop(); }
+                source-add-requested => { root.source-add-requested(); }
                 theme-selected(index) => { root.theme-selected(index); }
                 refresh => { root.refresh(); }
             }
@@ -509,6 +526,10 @@ export component MainWindow inherits Window {
                 edit-custom-icon-path <=> root.audio-edit-custom-icon-path;
                 source-paused <=> root.source-paused;
                 source-output-indices <=> root.source-output-indices;
+                source-play-modes <=> root.source-play-modes;
+                source-progresses <=> root.source-progresses;
+                source-position-texts <=> root.source-position-texts;
+                source-duration-texts <=> root.source-duration-texts;
                 outputs <=> root.devices;
                 output-index <=> root.device-index;
                 mics <=> root.mics;
@@ -593,7 +614,6 @@ export component MainWindow inherits Window {
                 microphone-input-volume-edited(value) => {
                     root.microphone-input-volume-edited(value);
                 }
-                source-add-requested => { root.source-add-requested(); }
                 refresh => { root.refresh(); }
                 process-add => { root.process-add(); }
                 add-files => { root.add-audio-files(); }
@@ -615,6 +635,11 @@ export component MainWindow inherits Window {
                 settings-requested(section) => {
                     root.page = 2;
                     root.settings-section-index = section;
+                }
+                source-previous(index) => { root.source-previous(index); }
+                source-next-track(index) => { root.source-next-track(index); }
+                source-play-mode-cycled(index) => {
+                    root.source-play-mode-cycled(index);
                 }
                 edit-accepted(name, icon, path) => {
                     root.audio-edit-accepted(name, icon, path);

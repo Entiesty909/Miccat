@@ -251,6 +251,13 @@ impl AudioEngine {
                 .collect::<Vec<_>>(),
         );
         let sfx_states_thread = sfx_states.clone();
+        // 每个槽位独立发布已播放位置，UI 读取不会阻塞实时混音线程。
+        let sfx_positions = Arc::new(
+            (0..super::SFX_SLOTS)
+                .map(|_| std::sync::atomic::AtomicU64::new(0))
+                .collect::<Vec<_>>(),
+        );
+        let sfx_positions_thread = sfx_positions.clone();
         // mixer 只消费命令通道，SFX 槽状态通过原子数组提供给 UI 轮询。
         // mixer 在线程内消费命令并写入各槽环；句柄保存到 sources 后才能被 stop 回收。
         let sfx_thread = thread::Builder::new()
@@ -262,6 +269,7 @@ impl AudioEngine {
                     sfx_stop_thread,
                     sfx_peak_thread,
                     sfx_states_thread,
+                    sfx_positions_thread,
                     sfx_rx,
                 )
             })
@@ -296,6 +304,8 @@ impl AudioEngine {
             // 最近块峰值供 UI 读取，生命周期与 mixer 绑定。
             sources.sfx_peak = Some(sfx_peak);
             // 槽状态原子供 UI 轮询，清理时先复位再停止 mixer。
+            // 进度原子与状态原子共用槽位协议，生命周期随 mixer 结束。
+            sources.sfx_positions = Some(sfx_positions);
             sources.sfx_states = Some(sfx_states);
             // mixer 句柄由 sources 持有，停止时发布标志后 join，避免线程泄漏。
             sources.sfx = Some(sfx_thread);

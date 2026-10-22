@@ -131,6 +131,8 @@ struct SourceThreads {
     sfx_peak: Option<Arc<AtomicU32>>,
     /// 每个 SFX 槽状态的原子编码，避免读取线程参与混音。
     sfx_states: Option<Arc<Vec<AtomicU8>>>,
+    /// 每个 SFX 槽已播放位置，单位为 100 纳秒；混音线程无锁发布给 UI。
+    sfx_positions: Option<Arc<Vec<std::sync::atomic::AtomicU64>>>,
     /// SFX mixer 线程句柄。
     sfx: Option<JoinHandle<()>>,
 }
@@ -399,6 +401,14 @@ impl AudioEngine {
                 state.store(0, Ordering::Relaxed);
             }
         }
+        if let Ok(sources) = self.sources.lock()
+            && let Some(positions) = &sources.sfx_positions
+        {
+            // 输出图释放后进度必须回到零，避免新路由首帧显示旧文件位置。
+            for position in positions.iter() {
+                position.store(0, Ordering::Relaxed);
+            }
+        }
         // 取出停止令牌和句柄后再 join，避免在 sources 锁内等待 mixer 回收。
         let (s, t) = self
             .sources
@@ -412,8 +422,10 @@ impl AudioEngine {
         if let Some(t) = t {
             let _ = t.join();
         }
-        if let Ok(mut s) = self.sources.lock() {
-            s.sfx_tx = None;
+        if let Ok(mut sources) = self.sources.lock() {
+            sources.sfx_tx = None;
+            sources.sfx_states = None;
+            sources.sfx_positions = None;
         }
     }
     /// 读取指定进程源的实时峰值并做一次衰减。

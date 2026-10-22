@@ -13,6 +13,8 @@ export component SliderRow inherits HorizontalLayout {
     in-out property <float> value: 100;
 // 是否显示左侧标签。
     in property <bool> show-label: true;
+// 可选覆盖显示文本；用于尚未接线的占位滑块。
+    in property <string> value-text: "";
 // 用户拖动结束或数值改变时向 bridge 上报。
     callback edited(float);
 
@@ -36,7 +38,7 @@ export component SliderRow inherits HorizontalLayout {
     }
     Text {
         width: 44px;
-        text: "\{Math.round(root.value)}%";
+        text: root.value-text == "" ? "\{Math.round(root.value)}%" : root.value-text;
         color: root.enabled ? Theme.text : Theme.text3;
         font-size: 13px;
         font-weight: 600;

@@ -328,19 +328,20 @@ impl AudioEngine {
 
 /// AudioEngine 的路由文件槽 API；每个槽独立发送 SFX 命令，slot 对应音频卡片下标。
 impl AudioEngine {
-    /// 把条目追加到指定音频卡片槽位的路由 SFX 混音器，不停止其它文件流。
+    /// 在指定音频卡片槽位播放条目；循环参数由卡片播放模式决定，不读取库内试听设置。
     pub fn play_file_source(
         &self,
         entry: &crate::config::AudioEntry,
         slot: usize,
+        looped: bool,
     ) -> Result<(), Error> {
         let sender = self.sfx_sender()?;
         let request = FilePlaybackRequest {
             target: PlaybackTarget::Route,
+            looped,
             ..FilePlaybackRequest::from(entry)
         };
         let path = request.path.clone();
-        let looped = request.looped;
         // 该线程只负责解码并把 receiver 交给指定槽；槽位停止由 SFX 命令完成，不阻塞调用方。
         thread::Builder::new()
             .name("engine-file-source".into())
@@ -388,6 +389,20 @@ impl AudioEngine {
             3 => super::FileSourceState::Finished,
             _ => super::FileSourceState::Stopped,
         }
+    }
+    /// 读取指定路由文件槽已播放位置，单位为 100 纳秒。
+    pub(crate) fn file_source_position_hns(&self, slot: usize) -> u64 {
+        self.sources
+            .lock()
+            .ok()
+            .and_then(|sources| {
+                sources
+                    .sfx_positions
+                    .as_ref()
+                    .and_then(|positions| positions.get(slot))
+                    .map(|position| position.load(Ordering::Relaxed))
+            })
+            .unwrap_or(0)
     }
 
     /// 暂停或恢复指定路由音频卡片槽位，保留当前解码位置。

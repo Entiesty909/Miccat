@@ -71,6 +71,14 @@ export component PageHost inherits Rectangle {
     in-out property <[bool]> source-paused: [];
     // 每槽位输出设备下标。
     in-out property <[int]> source-output-indices: [];
+    // 每槽位文件播放模式。
+    in-out property <[int]> source-play-modes: [];
+    // 每槽位文件播放进度。
+    in-out property <[float]> source-progresses: [];
+    // 每槽位文件当前时间文本。
+    in-out property <[string]> source-position-texts: [];
+    // 每槽位文件总时长文本。
+    in-out property <[string]> source-duration-texts: [];
     // 输出设备列表。
     in-out property <[string]> outputs: [];
     // 默认输出设备下标。
@@ -210,10 +218,8 @@ export component PageHost inherits Rectangle {
     // 关于文本。
     in-out property <string> about-text: "";
 
-    // 路由/设备刷新请求。
+    // 设置页设备刷新请求；路由页不再显示独立刷新进程按钮。
     callback refresh();
-    // 打开添加源窗口。
-    callback source-add-requested();
     // 添加进程请求。
     callback process-add();
     // 导入音频文件请求。
@@ -234,6 +240,12 @@ export component PageHost inherits Rectangle {
     callback source-pause(int);
     // 源停止。
     callback source-stop(int);
+    // 文件源上一首。
+    callback source-previous(int);
+    // 文件源下一首。
+    callback source-next-track(int);
+    // 文件源播放模式循环切换。
+    callback source-play-mode-cycled(int);
     // 打开音频库。
     callback open-library();
     // 打开设置并指定分组。
@@ -368,6 +380,10 @@ export component PageHost inherits Rectangle {
         source-muted <=> root.source-muted;
         source-paused <=> root.source-paused;
         source-output-indices <=> root.source-output-indices;
+        source-play-modes <=> root.source-play-modes;
+        source-progresses <=> root.source-progresses;
+        source-position-texts <=> root.source-position-texts;
+        source-duration-texts <=> root.source-duration-texts;
         outputs <=> root.outputs;
         output-index <=> root.output-index;
         mics <=> root.mics;
@@ -376,9 +392,6 @@ export component PageHost inherits Rectangle {
         source-replace-index <=> root.source-replace-index;
         source-add-tab <=> root.source-add-tab;
         running <=> root.running;
-        // 页面级入口事件交给宿主处理，RoutePage 不持有业务状态。
-        source-add-requested => { root.source-add-requested(); }
-        refresh => { root.refresh(); }
         audio-entry-add-route(actual) => {
             root.audio-entry-add-route-index(actual);
         }
@@ -408,6 +421,11 @@ export component PageHost inherits Rectangle {
         source-action(index, code) => { root.source-action(index, code); }
         source-pause(index) => { root.source-pause(index); }
         source-stop(index) => { root.source-stop(index); }
+        source-previous(index) => { root.source-previous(index); }
+        source-next-track(index) => { root.source-next-track(index); }
+        source-play-mode-cycled(index) => {
+            root.source-play-mode-cycled(index);
+        }
         // 导航事件切换宿主页面或打开设置，不在组件内改变路由数据。
         open-library => { root.open-library(); }
         open-settings => { root.settings-requested(1); }

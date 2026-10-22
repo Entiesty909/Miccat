@@ -1,4 +1,6 @@
 //! route 相关 Slint 回调注册：把 UI 事件翻译为缓存、持久化配置和音频引擎操作。
+/// 路由音频卡片的分类队列、前后切歌和播放模式。
+pub(super) mod audio_queue;
 /// 后台刷新进程/设备列表，避免路由注册逻辑直接阻塞 UI。
 mod refresh;
 /// 源卡片的类型映射、槽位状态与运行中热切换。
@@ -12,6 +14,7 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
     register_1(ui, state);
     register_2(ui, state);
     sources::register(ui, state);
+    audio_queue::register(ui, state);
     register_add_source_mic_output(state);
 }
 

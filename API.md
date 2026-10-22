@@ -36,12 +36,13 @@
 - `set_monitor_default(enabled)` / `set_monitor_volume(v)`：启用系统默认设备试听及设置试听音量。
 - `play_file(entry, start_hns, target)` 启动音频库流；`PlaybackTarget::Both` 同时送路由和本机监听，`Monitor` 仅监听，`Route` 仅送活动路由。
 - `stop_file()` 停止播放；`file_state()` 返回播放快照，位置单位为 100 ns。
+- `play_file_source(entry, slot, looped)` 替换指定路由文件槽；`file_source_state(slot)` 返回停止/播放/暂停/完成，`file_source_position_hns(slot)` 返回 100 ns 播放位置。
 `stop()` 停止并回收路由与播放线程；路由需按顺序显式打开输出、设置进程源及可选麦克风源。
 
 `EngineStatus` 值包括 `Idle`、`Running`、`ProcessExited`、`DeviceGone` 和 `Error(String)`。
 文件 seek 当前由调用方停止后再次调用 `play_file()`；没有独立 `seek_file()` API。
 音频源行的输出下拉绑定全局设备选择；多选输出 ID 保存于 `OutputConfig.device_ids`。
-进程行启用只改变 `UiCache.disabled_pids`；文件行启用只改变 `UiCache.route_file_enabled`，不启动全局转发。全局路由由 `start-stop` 回调控制；每张文件卡片的播放/暂停/停止操作按其 SFX 槽位执行，不操作音频库全局播放器。
+进程行启用只改变 `UiCache.disabled_pids`；文件行启用只改变对应槽位启用状态，不启动全局转发。文件卡片按所属精确分类处理上一首/下一首；四种模式保存在 `RouteConfig.audio_source_play_modes`，自然结束由 50 ms 轮询只处理一次。
 源行静音为运行期操作，不改写持久化音量；源音量滑块更新 AudioEngine 增益和配置。Popover 峰值标记为 dBFS；增益 dB 为相对 100% 音量倍率。
 内部命令通道、ring 和 WASAPI session 不属于 UI API。
 

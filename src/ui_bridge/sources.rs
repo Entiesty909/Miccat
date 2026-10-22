@@ -41,6 +41,14 @@ pub(super) struct SourceRows {
     paused: Vec<bool>,
     /// 每行保存的输出设备下标，映射到当前设备模型而非持久化 ID。
     output_indices: Vec<i32>,
+    /// 文件卡片播放模式；非文件行固定为顺序模式占位。
+    play_modes: Vec<i32>,
+    /// 文件播放进度 0..=1；非文件行固定为零。
+    progresses: Vec<f32>,
+    /// 文件当前播放位置文本；非文件行为空。
+    position_texts: Vec<slint::SharedString>,
+    /// 文件总时长文本；非文件行为空。
+    duration_texts: Vec<slint::SharedString>,
     // 这些并行数组共同构成按行索引的 Slint 模型，长度不变量由 `is_aligned` 校验。
 }
 
@@ -84,6 +92,12 @@ pub(super) struct FileRowInput {
     pub(super) peak: f32,
     /// 输出设备下标。
     pub(super) output_index: i32,
+    /// 卡片播放模式编码。
+    pub(super) play_mode: u8,
+    /// 当前播放位置，单位为 100 纳秒。
+    pub(super) position_hns: u64,
+    /// 条目总时长，单位为 100 纳秒。
+    pub(super) duration_hns: u64,
 }
 
 /// 物理麦克风源行的业务数据。
@@ -120,6 +134,10 @@ impl SourceRows {
         self.muted.push(input.volume <= 0.001);
         self.paused.push(false);
         self.output_indices.push(input.output_index);
+        self.play_modes.push(0);
+        self.progresses.push(0.0);
+        self.position_texts.push("".into());
+        self.duration_texts.push("".into());
     }
 
     /// 添加音频文件源行，并统一写入播放状态、音量和输出下标。
@@ -129,8 +147,8 @@ impl SourceRows {
         self.icon_images
             .push(crate::platform::icon::file_icon(&input.path));
         self.titles.push(input.name.into());
-        self.subtitles.push("音频文件".into());
-        self.details.push(input.detail.into());
+        self.subtitles.push(input.detail.into());
+        self.details.push("".into());
         self.statuses.push(input.status.into());
         self.active.push(input.active);
         self.volumes.push(input.volume * 100.0);
@@ -140,6 +158,13 @@ impl SourceRows {
         self.muted.push(input.volume <= 0.001);
         self.paused.push(input.paused);
         self.output_indices.push(input.output_index);
+        self.play_modes.push(i32::from(input.play_mode));
+        self.progresses
+            .push(progress(input.position_hns, input.duration_hns));
+        self.position_texts
+            .push(super::format::format_duration_hns(input.position_hns).into());
+        self.duration_texts
+            .push(super::format::format_duration_hns(input.duration_hns).into());
     }
 
     /// 添加物理麦克风源行；麦克风没有文件播放状态，但仍保持完整行模型。
@@ -148,7 +173,8 @@ impl SourceRows {
         self.icons.push("\u{E720}".into());
         self.icon_images.push(slint::Image::default());
         self.titles.push("麦克风".into());
-        self.subtitles.push(input.name.into());
+        self.subtitles
+            .push(format!("{} · 麦克风", input.name).into());
         self.details.push("".into());
         self.statuses.push(input.status.into());
         self.active.push(input.active);
@@ -159,6 +185,10 @@ impl SourceRows {
         self.muted.push(input.volume <= 0.001);
         self.paused.push(false);
         self.output_indices.push(input.output_index);
+        self.play_modes.push(0);
+        self.progresses.push(0.0);
+        self.position_texts.push("".into());
+        self.duration_texts.push("".into());
     }
 
     /// 每个数组都代表同一张卡片的一个属性列，因此只要有一列漏写，Slint 就会把相邻来源错配。
@@ -180,6 +210,10 @@ impl SourceRows {
             self.muted.len(),
             self.paused.len(),
             self.output_indices.len(),
+            self.play_modes.len(),
+            self.progresses.len(),
+            self.position_texts.len(),
+            self.duration_texts.len(),
         ]
         .into_iter()
         .all(|length| length == count)
@@ -258,6 +292,34 @@ impl SourceRows {
                 ui.set_source_output_indices(ModelRc::new(VecModel::from(values)));
             },
         );
+        set_if_changed(
+            &ui.get_source_play_modes(),
+            self.play_modes.clone(),
+            |values| {
+                ui.set_source_play_modes(ModelRc::new(VecModel::from(values)));
+            },
+        );
+        set_if_changed(
+            &ui.get_source_progresses(),
+            self.progresses.clone(),
+            |values| {
+                ui.set_source_progresses(ModelRc::new(VecModel::from(values)));
+            },
+        );
+        set_if_changed(
+            &ui.get_source_position_texts(),
+            self.position_texts.clone(),
+            |values| {
+                ui.set_source_position_texts(ModelRc::new(VecModel::from(values)));
+            },
+        );
+        set_if_changed(
+            &ui.get_source_duration_texts(),
+            self.duration_texts.clone(),
+            |values| {
+                ui.set_source_duration_texts(ModelRc::new(VecModel::from(values)));
+            },
+        );
     }
 }
 
@@ -298,7 +360,7 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
         rows.push_process(ProcessRowInput {
             name: process.name.clone(),
             pid,
-            status: "".into(),
+            status: if enabled { "运行中" } else { "已停用" }.into(),
             icon_image: crate::platform::icon::process_icon(pid),
             active: enabled,
             volume,
@@ -339,11 +401,26 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
                     .collect::<Vec<_>>()
             }
         };
-        // 每个文件行绑定自己的播放槽位，状态和音量都从该槽读取，不能共享第一条文件的状态。
+        // 每个文件行绑定自己的播放槽位，状态、进度和音量都从该槽读取。
         for (slot, entry, enabled) in audio_entries {
             let playback = state.engine.file_source_state(slot);
             let playing = playback == crate::engine::FileSourceState::Playing;
             let paused = playback == crate::engine::FileSourceState::Paused;
+            let position_hns = state.engine.file_source_position_hns(slot);
+            let extension = std::path::Path::new(&entry.path)
+                .extension()
+                .and_then(|value| value.to_str())
+                .map(str::to_uppercase)
+                .unwrap_or_else(|| "音频".into());
+            let category = crate::library::category_leaf(&entry.category);
+            let detail = format!("本地音频 · {extension} · {category}");
+            let play_mode = state
+                .cache
+                .borrow()
+                .audio_play_modes
+                .get(slot)
+                .copied()
+                .unwrap_or(0);
             let volume = state
                 .cache
                 .borrow()
@@ -359,7 +436,7 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
                     .as_deref()
                     .unwrap_or(entry.path.as_str())
                     .into(),
-                detail: "".into(),
+                detail,
                 status: file_source_status(playback).into(),
                 active: enabled,
                 paused,
@@ -379,6 +456,9 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
                         .and_then(Option::as_deref),
                     output_fallback,
                 ),
+                play_mode,
+                position_hns,
+                duration_hns: entry.duration_hns,
             });
         }
     }
@@ -406,7 +486,7 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
         let peak = state.engine.mic_peak();
         rows.push_microphone(MicrophoneRowInput {
             name: mic_name,
-            status: "".into(),
+            status: if mix_mic { "已连接" } else { "未启用" }.into(),
             active: mix_mic,
             volume: state.engine.mic_volume(),
             peak,
@@ -427,7 +507,8 @@ pub(super) fn update_dynamic(ui: &MainWindow, state: &AppState) {
     let mut file_slot = 0usize;
     for row in 0..kinds.row_count() {
         let kind = kinds.row_data(row).unwrap_or(-1);
-        let (peak, volume, active, paused, status) = match kind {
+        let (peak, volume, active, paused, status, progress_value, position, duration) = match kind
+        {
             0 => {
                 let mut slot = process_slot;
                 let mut peak = 0.0;
@@ -453,7 +534,10 @@ pub(super) fn update_dynamic(ui: &MainWindow, state: &AppState) {
                         .unwrap_or_else(|| state.engine.process_volume(slot)),
                     active,
                     false,
-                    "",
+                    if active { "运行中" } else { "已停用" },
+                    0.0,
+                    String::new(),
+                    String::new(),
                 )
             }
             1 => {
@@ -466,6 +550,13 @@ pub(super) fn update_dynamic(ui: &MainWindow, state: &AppState) {
                     .unwrap_or(cache.route_file_enabled);
                 file_slot += 1;
                 let playback = state.engine.file_source_state(slot);
+                let position_hns = state.engine.file_source_position_hns(slot);
+                let duration_hns = cache
+                    .route_audio_entries
+                    .get(slot)
+                    .and_then(|index| cache.audio_entries.get(*index))
+                    .map(|entry| entry.duration_hns)
+                    .unwrap_or(0);
                 (
                     if playback == crate::engine::FileSourceState::Playing {
                         state.engine.sfx_peak()
@@ -480,6 +571,9 @@ pub(super) fn update_dynamic(ui: &MainWindow, state: &AppState) {
                     active,
                     playback == crate::engine::FileSourceState::Paused,
                     file_source_status(playback),
+                    progress(position_hns, duration_hns),
+                    super::format::format_duration_hns(position_hns),
+                    super::format::format_duration_hns(duration_hns),
                 )
             }
             2 => (
@@ -487,7 +581,14 @@ pub(super) fn update_dynamic(ui: &MainWindow, state: &AppState) {
                 state.engine.mic_volume(),
                 ui.get_mix_mic(),
                 false,
-                "",
+                if ui.get_mix_mic() {
+                    "已连接"
+                } else {
+                    "未启用"
+                },
+                0.0,
+                String::new(),
+                String::new(),
             ),
             _ => continue,
         };
@@ -524,6 +625,20 @@ pub(super) fn update_dynamic(ui: &MainWindow, state: &AppState) {
         if statuses.row_data(row).as_ref() != Some(&status) {
             statuses.set_row_data(row, status);
         }
+        let progresses = ui.get_source_progresses();
+        if progresses.row_data(row) != Some(progress_value) {
+            progresses.set_row_data(row, progress_value);
+        }
+        let positions = ui.get_source_position_texts();
+        let position: slint::SharedString = position.into();
+        if positions.row_data(row).as_ref() != Some(&position) {
+            positions.set_row_data(row, position);
+        }
+        let durations = ui.get_source_duration_texts();
+        let duration: slint::SharedString = duration.into();
+        if durations.row_data(row).as_ref() != Some(&duration) {
+            durations.set_row_data(row, duration);
+        }
     }
 }
 
@@ -542,6 +657,14 @@ where
         && (0..next.len()).all(|index| current.row_data(index).as_ref() == Some(&next[index]));
     if !same {
         apply(next);
+    }
+}
+/// 将 100 纳秒位置转换为进度比例；未知时长保持零。
+fn progress(position_hns: u64, duration_hns: u64) -> f32 {
+    if duration_hns == 0 {
+        0.0
+    } else {
+        (position_hns as f64 / duration_hns as f64).clamp(0.0, 1.0) as f32
     }
 }
 
