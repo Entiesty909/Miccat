@@ -1,4 +1,4 @@
-//! 常驻状态栏：显示转发状态、音源数量、总线音量与启停操作。
+//! 常驻状态栏：显示运行摘要、音源电平入口、总线音量与问题中心入口。
 
 import { Theme } from "../theme.slint";
 import { DiagState } from "../overlays/global-overlays.slint";
@@ -12,9 +12,9 @@ export component StatusBar inherits Rectangle {
     in property <string> status-text: "未运行";
     // 0 普通、1 成功、2 警告、3 错误；仅决定指示灯颜色。
     in property <int> status-kind: 0;
-    // 错误短句在底栏左侧显示，详情按钮紧邻错误文本。
+    // 保留桥接层的错误输入契约；底栏不展示错误，诊断入口统一放在右侧徽标。
     in property <string> error-text: "";
-    // 状态灯和状态文案保留在错误区之后，不再承载启停按钮。
+    // 状态灯和状态文案始终位于底栏左侧。
     // 当前路由源数量，用于摘要文字和电平弹层高度。
     in property <int> source-count: 0;
     // 源标题按槽位下标对齐，供弹层逐行显示。
@@ -69,38 +69,6 @@ export component StatusBar inherits Rectangle {
         padding-right: 12px;
         spacing: 7px;
 
-        // 错误提示固定在底栏最左侧，详情链接保留足够点击宽度。
-        if root.error-text != "": VerticalLayout {
-            width: 330px;
-            height: 100%;
-            alignment: center;
-            HorizontalLayout {
-                width: 330px;
-                height: 36px;
-                spacing: 8px;
-                Text {
-                    text: root.error-text;
-                    width: 246px;
-                    color: Theme.danger;
-                    font-size: 15px;
-                    overflow: elide;
-                    vertical-alignment: center;
-                }
-                Text {
-                    text: "详情";
-                    width: 66px;
-                    color: Theme.accent;
-                    font-size: 15px;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                    TouchArea {
-                        mouse-cursor: pointer;
-                        clicked => { DiagState.toggle(); }
-                    }
-                }
-            }
-        }
-
         // 状态指示区使用固定控件高度并在全高包装中垂直居中。
         VerticalLayout {
             height: 100%;
@@ -150,6 +118,10 @@ export component StatusBar inherits Rectangle {
                 width: 144px;
                 height: 36px;
                 background: transparent;
+                // 音源计数为可点击弹层入口，悬停时说明其操作。
+                Tooltip {
+                    text: @markdown("查看各音频源电平");
+                }
                 HorizontalLayout {
                     spacing: 3px;
                     Text {
@@ -229,6 +201,7 @@ export component StatusBar inherits Rectangle {
                 danger: true;
                 button-width: 48px;
                 button-height: 33px;
+                hint: "打开问题中心";
                 clicked => { DiagState.toggle(); }
             }
         }

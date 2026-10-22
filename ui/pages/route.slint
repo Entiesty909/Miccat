@@ -126,6 +126,8 @@ export component RoutePage inherits Rectangle {
     callback source-next-track(int);
     // 指定文件槽位循环切换播放模式。
     callback source-play-mode-cycled(int);
+    // 用户释放文件卡片进度滑块时请求该槽位从归一化位置继续播放。
+    callback source-progress-seek(int, float);
     // 指定槽位输出设备变更。
     callback source-output-changed(int, int);
     // 打开设置页，并由宿主选择默认分组。
@@ -141,7 +143,7 @@ export component RoutePage inherits Rectangle {
     // 编辑麦克风输入增益。
     callback microphone-input-volume-edited(float);
 
-    // 没有源时显示空态；有源时由 ScrollView 承载可滚动槽位列表。
+    // 空态与源列表分离，路由卡片在内容区直接向上排列。
     background: transparent;
 
     VerticalLayout {
@@ -151,13 +153,6 @@ export component RoutePage inherits Rectangle {
         padding-top: 12px;
         padding-bottom: 12px;
         spacing: 8px;
-        Text {
-            height: 28px;
-            text: "当前音频源";
-            font-size: 15px;
-            font-weight: 600;
-            vertical-alignment: TextVerticalAlignment.center;
-        }
 
         VerticalLayout {
             vertical-stretch: 1;
@@ -189,7 +184,7 @@ export component RoutePage inherits Rectangle {
                     }
                 }
             }
-                // 每个 SourceRow 绑定同一槽位下标，缺失的并行数组使用安全默认值。
+            // 所有 SourceRow 保持同一模型槽位下标；底部额外留出按钮操作空间。
             ScrollView {
                 width: 100%;
                 vertical-stretch: 1;
@@ -197,6 +192,7 @@ export component RoutePage inherits Rectangle {
                 VerticalLayout {
                     width: 100%;
                     padding-right: 18px;
+                    padding-bottom: 24px;
                     spacing: 8px;
                     for title[index] in root.source-titles: SourceRow {
                         kind: index < root.source-kinds.length
@@ -241,7 +237,7 @@ export component RoutePage inherits Rectangle {
                         // 仅当前槽位打开 PopupWindow；其他卡片不受菜单生命周期影响。
                         actions-open: source-menu-popup.is-open
                             && root.source-menu-index == index;
-                        // 计算菜单高度和窗口坐标，边界裁剪保证菜单留在页面内。
+                        // 空间不足时把菜单锚定在按钮上方，而不是贴在页面底边。
                         actions-requested(x, y) => {
                             root.source-menu-index = index;
                             root.source-menu-kind = index < root.source-kinds.length
@@ -254,10 +250,10 @@ export component RoutePage inherits Rectangle {
                                 max(0px, x - root.absolute-position.x),
                                 max(0px, root.width - 230px)
                             );
-                            root.source-menu-y = min(
-                                max(0px, y - root.absolute-position.y),
-                                max(0px, root.height - root.source-menu-height)
-                            );
+                            let menu-y = y - root.absolute-position.y;
+                            root.source-menu-y = menu-y + root.source-menu-height <= root.height
+                                ? max(0px, menu-y)
+                                : max(0px, menu-y - root.source-menu-height - 38px);
                             // show 会创建/显示临时弹层，关闭时由 actions-closed 清理索引。
                             source-menu-popup.show();
                         }
@@ -298,6 +294,9 @@ export component RoutePage inherits Rectangle {
                         next-track => { root.source-next-track(index); }
                         play-mode-cycled => {
                             root.source-play-mode-cycled(index);
+                        }
+                        progress-seek(value) => {
+                            root.source-progress-seek(index, value);
                         }
                     }
                 }

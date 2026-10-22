@@ -8,52 +8,51 @@ import { DiagRow, UnseenBadge } from "../components/diagnostic-row.slint";
 // 全局问题中心抽屉：展示诊断详情与日志级别，数据和动作由共享状态提供。
 // 诊断面板把列表索引和日志级别编辑统一转发给全局状态，不在 UI 内持久化。
 export component DiagnosticPanel inherits Rectangle {
-    // 抽屉是否显示及当前页面标签；显隐生命周期由全局状态管理。
+    // 抽屉是否显示；显隐生命周期由全局状态管理。
     in-out property <bool> open: false;
-// 当前选中的诊断面板标签。
+    // 当前标签页：0 问题、1 日志。
     in-out property <int> tab: 0;
-    // 问题未读数与当前列表长度。
+    // 未读问题数量。
     in-out property <int> unseen: 0;
-// 当前诊断记录数量。
+    // 当前诊断记录数量。
     in-out property <int> count: 0;
     // 诊断字段按同一列表索引对齐，由诊断桥接层填充。
     in-out property <[int]> severities: [];
-// 诊断标题数组，与其他诊断字段按同一索引对齐。
+    // 诊断标题数组，与其他诊断字段按同一索引对齐。
     in-out property <[string]> titles: [];
-// 诊断来源数组，与 titles 按同一索引对齐。
+    // 诊断来源数组，与 titles 按同一索引对齐。
     in-out property <[string]> sources: [];
-// 诊断时间数组，与 titles 按同一索引对齐。
+    // 诊断时间数组，与 titles 按同一索引对齐。
     in-out property <[string]> times: [];
-// 诊断详情数组，与 titles 按同一索引对齐。
+    // 诊断详情数组，与 titles 按同一索引对齐。
     in-out property <[string]> details: [];
-// 诊断建议数组，与 titles 按同一索引对齐。
+    // 诊断建议数组，与 titles 按同一索引对齐。
     in-out property <[string]> hints: [];
     // 当前选择项索引，-1 表示尚未选择有效记录。
     in-out property <int> selected: -1;
-    // 默认日志级别及各分类名称/级别，用于日志标签页编辑。
+    // 默认日志级别，0 关闭到 5 跟踪。
     in-out property <int> debug-master: 3;
-// 日志分类显示名称数组。
+    // 日志分类显示名称数组。
     in-out property <[string]> debug-category-labels: [];
-// 日志分类级别数组，与 labels 按同一索引对齐。
+    // 日志分类级别数组，与 labels 按同一索引对齐。
     in-out property <[int]> debug-category-levels: [];
     // 面板交互均以回调请求外部执行，避免组件直接修改诊断存储。
     callback close();
-// 请求选中诊断记录。
+    // 请求选中诊断记录。
     callback select(int);
-// 请求清空所有诊断记录。
+    // 请求清空所有诊断记录。
     callback clear-all();
-// 请求复制当前记录详情。
+    // 请求复制当前记录详情。
     callback copy();
-// 请求删除当前选中记录。
+    // 请求删除当前选中记录。
     callback remove();
-// 请求打开日志文件。
+    // 请求打开日志文件。
     callback open-log();
-// 请求修改默认日志级别。
+    // 请求修改默认日志级别。
     callback debug-master-changed(int);
-// 请求修改指定日志分类级别。
+    // 请求修改指定日志分类级别。
     callback debug-category-changed(int, int);
 
-    // 级别下拉的中文文本映射回下标（0 关闭 … 5 跟踪）。
     // 将下拉框中文选项反查为桥接层使用的级别编号，未知项落到跟踪级别。
     pure function level-index(text: string) -> int {
         if text == "关闭" {
@@ -78,55 +77,50 @@ export component DiagnosticPanel inherits Rectangle {
     height: 100%;
     background: transparent;
 
-    // 半透明遮罩：点击空白处关闭。
-    // 打开状态决定遮罩生命周期；空白点击只发出关闭请求。
+    // 抽屉外透明命中区：空白点击只发出关闭请求。
     TouchArea {
         visible: root.open;
         clicked => { root.close(); }
     }
 
-    // 右侧抽屉面板，固定 480px 宽。
+    // 右侧抽屉留出独立的标题、页签和操作区，内容只在中间滚动。
     Rectangle {
         visible: root.open;
         x: max(0px, root.width - 480px);
         width: min(480px, root.width);
         height: 100%;
         background: Theme.card;
-        Rectangle { x: 0px; width: 1px; height: 100%; background: Theme.border; }
+        Rectangle {
+            width: 1px;
+            height: 100%;
+            background: Theme.borderStrong;
+        }
         // 面板内吞掉点击，避免误触遮罩关闭。
         TouchArea { }
 
         VerticalLayout {
-            // 标题栏。
+            // 标题与未读数固定在抽屉顶部，关闭按钮保持独立命中区。
             Rectangle {
-                height: 52px;
+                height: 68px;
                 background: Theme.card;
                 HorizontalLayout {
-                    padding-left: 16px;
-                    padding-right: 8px;
-                    spacing: 8px;
+                    padding-left: 20px;
+                    padding-right: 12px;
+                    spacing: 10px;
                     Text {
                         text: "问题中心";
-                        color: Theme.text; font-size: 15px; font-weight: 600;
-                        vertical-alignment: TextVerticalAlignment.center;
+                        color: Theme.text;
+                        font-size: 18px;
+                        font-weight: 600;
+                        vertical-alignment: center;
                     }
-                    if root.unseen > 0: UnseenBadge { count: root.unseen; }
-                    PmButton {
-                        label: "问题";
-                        flat: true;
-                        selected: root.tab == 0;
-                        // 页签切换只更新本地面板索引，具体数据仍由桥接状态提供。
-                        button-width: 64px;
-                        clicked => { root.tab = 0; }
+                    if root.unseen > 0: UnseenBadge {
+                        count: root.unseen;
                     }
-                    PmButton {
-                        label: "日志";
-                        flat: true;
-                        selected: root.tab == 1;
-                        button-width: 64px;
-                        clicked => { root.tab = 1; }
+                    Rectangle {
+                        horizontal-stretch: 1;
+                        background: transparent;
                     }
-                    Rectangle { horizontal-stretch: 1; background: transparent; }
                     PmButton {
                         label: "\u{E711}";
                         icon-only: true;
@@ -137,23 +131,82 @@ export component DiagnosticPanel inherits Rectangle {
                     }
                 }
             }
-            Rectangle { width: 100%; height: 1px; background: Theme.border; }
+            // 问题和日志页签占独立一行，不与标题或未读徽标争宽度。
+            Rectangle {
+                height: 48px;
+                background: Theme.card;
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    spacing: 6px;
+                    PmButton {
+                        label: "问题";
+                        flat: true;
+                        selected: root.tab == 0;
+                        button-width: 80px;
+                        // 页签切换只更新面板索引，具体数据仍由桥接状态提供。
+                        clicked => { root.tab = 0; }
+                    }
+                    PmButton {
+                        label: "日志";
+                        flat: true;
+                        selected: root.tab == 1;
+                        button-width: 80px;
+                        clicked => { root.tab = 1; }
+                    }
+                    Rectangle {
+                        horizontal-stretch: 1;
+                        background: transparent;
+                    }
+                }
+                Rectangle {
+                    y: parent.height - 1px;
+                    width: 100%;
+                    height: 1px;
+                    background: Theme.border;
+                }
+            }
 
-            // tab 0：问题列表 + 详情 + 底部操作。
+            // 问题页将列表、当前详情和全局操作分区，只有列表与详情内容滚动。
             if root.tab == 0: VerticalLayout {
                 vertical-stretch: 1;
                 min-height: 0px;
+                Rectangle {
+                    height: 44px;
+                    background: Theme.card;
+                    HorizontalLayout {
+                        padding-left: 20px;
+                        padding-right: 20px;
+                        spacing: 8px;
+                        Text {
+                            text: "问题列表";
+                            color: Theme.text;
+                            font-size: 13px;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: "\{root.count} 条";
+                            color: Theme.text2;
+                            font-size: 12px;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
                 ScrollView {
                     vertical-stretch: 1;
                     min-height: 100px;
                     VerticalLayout {
                         width: 100%;
-                        if root.count == 0: Text {
-                            text: "暂无问题";
-                            color: Theme.text3; font-size: 13px;
-                            height: 120px;
-                            horizontal-alignment: center;
-                            vertical-alignment: TextVerticalAlignment.center;
+                        if root.count == 0: Rectangle {
+                            height: 144px;
+                            Text {
+                                text: "暂无问题";
+                                color: Theme.text2;
+                                font-size: 13px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
                         }
                         // 逐字段检查长度，避免桥接数据更新不同步时索引越界。
                         for i in root.count: DiagRow {
@@ -164,82 +217,167 @@ export component DiagnosticPanel inherits Rectangle {
                             source: i < root.sources.length ? root.sources[i] : "";
                             time: i < root.times.length ? root.times[i] : "";
                             selected: i == root.selected;
-                            // 选择行先更新高亮索引，再通知宿主同步详情。
-                            picked => { root.selected = i; root.select(i); }
+                            // 先更新高亮索引，再通知宿主同步详情。
+                            picked => {
+                                root.selected = i;
+                                root.select(i);
+                            }
                         }
                     }
                 }
-                // 详情区：仅在选中有效项时显示。
+                // 未选中记录时不占用详情区，把空间完整留给列表。
                 if root.selected >= 0 && root.selected < root.count: Rectangle {
-                    height: 200px;
-                    background: Theme.card;
-                    Rectangle { y: 0px; width: 100%; height: 1px; background: Theme.border; }
+                    height: 230px;
+                    background: Theme.field;
+                    Rectangle {
+                        width: 100%;
+                        height: 1px;
+                        background: Theme.borderStrong;
+                    }
                     VerticalLayout {
-                        padding: 12px;
+                        padding-left: 20px;
+                        padding-right: 20px;
+                        padding-top: 12px;
+                        padding-bottom: 12px;
                         spacing: 8px;
                         Text {
-                            text: root.selected < root.details.length
-                                ? root.details[root.selected]
-                                : "";
+                            text: "问题详情";
                             color: Theme.text2;
-                            font-family: "Consolas";
-                            font-size: 12px;
-                            wrap: word-wrap;
+                            font-size: 11px;
+                            font-weight: 600;
                         }
-                        if root.selected < root.hints.length: Text {
-                            text: root.hints[root.selected];
-                            color: Theme.warn;
-                            font-size: 12px;
-                            wrap: word-wrap;
+                        Text {
+                            text: root.selected < root.titles.length
+                                ? root.titles[root.selected]
+                                : "";
+                            color: Theme.text;
+                            font-size: 13px;
+                            font-weight: 600;
+                            overflow: elide;
+                        }
+                        ScrollView {
+                            vertical-stretch: 1;
+                            min-height: 0px;
+                            VerticalLayout {
+                                width: 100%;
+                                spacing: 8px;
+                                Text {
+                                    text: root.selected < root.details.length
+                                        ? root.details[root.selected]
+                                        : "";
+                                    color: Theme.text2;
+                                    font-family: "Consolas";
+                                    font-size: 12px;
+                                    wrap: word-wrap;
+                                }
+                                if root.selected < root.hints.length: Text {
+                                    text: root.hints[root.selected];
+                                    color: Theme.warn;
+                                    font-size: 12px;
+                                    wrap: word-wrap;
+                                }
+                            }
                         }
                         HorizontalLayout {
                             spacing: 8px;
                             alignment: end;
-                            // 详情操作作用于当前 selected 记录，由桥接层执行剪贴板或删除。
-                            PmButton { label: "复制详情"; clicked => { root.copy(); } }
-                            PmButton { label: "移除这条"; clicked => { root.remove(); } }
+                            // 详情操作只作用于当前选中项，由桥接层执行。
+                            PmButton {
+                                label: "复制详情";
+                                clicked => { root.copy(); }
+                            }
+                            PmButton {
+                                label: "移除这条";
+                                clicked => { root.remove(); }
+                            }
                         }
                     }
                 }
-                // 底部操作条。
                 Rectangle {
-                    height: 56px;
+                    height: 60px;
                     background: Theme.card;
-                    Rectangle { y: 0px; width: 100%; height: 1px; background: Theme.border; }
+                    Rectangle {
+                        width: 100%;
+                        height: 1px;
+                        background: Theme.border;
+                    }
                     HorizontalLayout {
-                        padding-left: 16px; padding-right: 16px;
+                        padding-left: 20px;
+                        padding-right: 20px;
                         spacing: 8px;
                         alignment: end;
-                        // 底部操作条统一提供清空列表和打开日志入口。
-                        PmButton { label: "清空"; clicked => { root.clear-all(); } }
-                        PmButton { label: "打开日志"; clicked => { root.open-log(); } }
+                        // 列表级操作保留清空及打开日志文件两个入口。
+                        PmButton {
+                            label: "清空";
+                            clicked => { root.clear-all(); }
+                        }
+                        PmButton {
+                            label: "打开日志";
+                            clicked => { root.open-log(); }
+                        }
                     }
                 }
             }
 
-            // tab 1：日志开关。
+            // 日志页将默认级别、分类级别与即时生效提示分开。
             if root.tab == 1: VerticalLayout {
                 vertical-stretch: 1;
                 min-height: 0px;
-                padding: 16px;
-                spacing: 10px;
-                HorizontalLayout {
-                    spacing: 10px;
-                    Text {
-                        text: "默认级别";
-                        color: Theme.text;
-                        font-size: 13px;
-                        horizontal-stretch: 1;
-                        vertical-alignment: TextVerticalAlignment.center;
-                    }
-                    // 主级别选择变化立即请求桥接层更新全局日志阈值。
-                    ComboBox {
-                        width: 160px; model: ["关闭", "错误", "警告", "信息", "调试", "跟踪"];
-                        current-index <=> root.debug-master;
-                        // 主日志级别改变后立即请求桥接层更新阈值。
-                        selected(v) => {
-                            root.debug-master-changed(root.level-index(v));
+                Rectangle {
+                    height: 102px;
+                    background: Theme.field;
+                    VerticalLayout {
+                        padding-left: 20px;
+                        padding-right: 20px;
+                        padding-top: 14px;
+                        padding-bottom: 14px;
+                        spacing: 8px;
+                        Text {
+                            text: "默认日志级别";
+                            color: Theme.text;
+                            font-size: 13px;
+                            font-weight: 600;
                         }
+                        HorizontalLayout {
+                            spacing: 10px;
+                            Text {
+                                text: "适用于未单独设置的分类";
+                                color: Theme.text2;
+                                font-size: 12px;
+                                horizontal-stretch: 1;
+                                vertical-alignment: center;
+                            }
+                            ComboBox {
+                                width: 148px;
+                                model: ["关闭", "错误", "警告", "信息", "调试", "跟踪"];
+                                current-index <=> root.debug-master;
+                                // 主级别改变后立即请求桥接层更新阈值。
+                                selected(v) => {
+                                    root.debug-master-changed(root.level-index(v));
+                                }
+                            }
+                        }
+                    }
+                }
+                Rectangle {
+                    height: 48px;
+                    background: Theme.card;
+                    HorizontalLayout {
+                        padding-left: 20px;
+                        padding-right: 20px;
+                        Text {
+                            text: "分类日志级别";
+                            color: Theme.text;
+                            font-size: 13px;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                        }
+                    }
+                    Rectangle {
+                        y: parent.height - 1px;
+                        width: 100%;
+                        height: 1px;
+                        background: Theme.border;
                     }
                 }
                 ScrollView {
@@ -247,39 +385,74 @@ export component DiagnosticPanel inherits Rectangle {
                     min-height: 0px;
                     VerticalLayout {
                         width: 100%;
-                        spacing: 8px;
-                        // 每个分类按名称索引呈现独立级别；数据短暂缺项时显示信息级别。
-                        for i in root.debug-category-labels.length: HorizontalLayout {
-                            spacing: 10px;
-                            Text {
-                                text: root.debug-category-labels[i];
-                                color: Theme.text2;
-                                font-size: 13px;
-                                horizontal-stretch: 1;
-                                vertical-alignment: TextVerticalAlignment.center;
-                                overflow: elide;
+                        // 分类名称和级别同索引对应，短暂缺项时显示信息级别。
+                        for i in root.debug-category-labels.length: Rectangle {
+                            height: 56px;
+                            background: Theme.card;
+                            Rectangle {
+                                y: parent.height - 1px;
+                                width: 100%;
+                                height: 1px;
+                                background: Theme.border;
                             }
-                            ComboBox {
-                                width: 160px; model: ["关闭", "错误", "警告", "信息", "调试", "跟踪"];
-                                current-index: i < root.debug-category-levels.length
-                                    ? root.debug-category-levels[i]
-                                    : 3;
-                                // 分类级别只提交索引和值，避免 UI 直接修改日志配置。
-                                selected(v) => {
-                                    root.debug-category-changed(
-                                        i,
-                                        root.level-index(v)
-                                    );
+                            HorizontalLayout {
+                                padding-left: 20px;
+                                padding-right: 20px;
+                                spacing: 12px;
+                                Text {
+                                    text: root.debug-category-labels[i];
+                                    color: Theme.text2;
+                                    font-size: 13px;
+                                    horizontal-stretch: 1;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                }
+                                ComboBox {
+                                    width: 148px;
+                                    model: ["关闭", "错误", "警告", "信息", "调试", "跟踪"];
+                                    current-index: i < root.debug-category-levels.length
+                                        ? root.debug-category-levels[i]
+                                        : 3;
+                                    // 分类级别只提交索引和值，不在 UI 持久化配置。
+                                    selected(v) => {
+                                        root.debug-category-changed(
+                                            i,
+                                            root.level-index(v)
+                                        );
+                                    }
                                 }
                             }
                         }
                     }
                 }
-                Text {
-                    text: "修改即时生效；问题中心始终记录警告与错误。";
-                    color: Theme.text3;
-                    font-size: 11px;
-                    wrap: word-wrap;
+                Rectangle {
+                    height: 84px;
+                    background: Theme.field;
+                    Rectangle {
+                        width: 100%;
+                        height: 1px;
+                        background: Theme.border;
+                    }
+                    VerticalLayout {
+                        padding-left: 20px;
+                        padding-right: 20px;
+                        padding-top: 10px;
+                        padding-bottom: 10px;
+                        spacing: 4px;
+                        Text {
+                            text: "修改即时生效；问题中心始终记录警告与错误。";
+                            color: Theme.text2;
+                            font-size: 11px;
+                            wrap: word-wrap;
+                        }
+                        HorizontalLayout {
+                            alignment: end;
+                            PmButton {
+                                label: "打开日志";
+                                clicked => { root.open-log(); }
+                            }
+                        }
+                    }
                 }
             }
         }

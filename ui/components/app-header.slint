@@ -106,6 +106,7 @@ export component AppHeader inherits Rectangle {
             label: "＋  添加音频源";
             filled: true;
             button-width: 138px;
+            hint: "打开添加音频源窗口";
             clicked => { root.source-add-requested(); }
         }
         // 顶栏主动作从底部状态栏移到品牌操作区。
@@ -114,6 +115,7 @@ export component AppHeader inherits Rectangle {
             filled: true;
             danger: root.running;
             button-width: 124px;
+            hint: root.running ? "停止转发" : "开始转发";
             enabled: !root.cable-busy;
             clicked => { root.start-stop(); }
         }
@@ -124,6 +126,7 @@ export component AppHeader inherits Rectangle {
             icon-only: true;
             flat: true;
             button-width: 38px;
+            hint: "选择主题";
             clicked => { root.toggle-theme-menu(); }
         }
         PmButton {
@@ -131,6 +134,7 @@ export component AppHeader inherits Rectangle {
             icon-only: true;
             flat: true;
             button-width: 38px;
+            hint: "刷新进程和设备";
             clicked => { root.refresh(); }
         }
     }

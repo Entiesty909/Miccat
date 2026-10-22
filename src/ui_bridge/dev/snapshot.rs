@@ -395,11 +395,10 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
             .window()
             .take_snapshot()
             .map_err(|error| Error::InvalidArgs(error.to_string()))?;
-        dispatch_left_click(&ui, slint::LogicalPosition::new(1224.0, 126.0));
-        let _ = ui
-            .window()
-            .take_snapshot()
-            .map_err(|error| Error::InvalidArgs(error.to_string()))?;
+        dispatch_left_click(&ui, slint::LogicalPosition::new(1224.0, 90.0));
+        // 箭头先完成 150ms 的翻转，再按真实计时器回调打开 PopupWindow。
+        std::thread::sleep(std::time::Duration::from_millis(180));
+        slint::platform::update_timers_and_animations();
     }
     // 右键模拟必须经过事件分发，才能覆盖空白区域与分类行各自的命中逻辑。
     if simulate_empty_category_right_click {

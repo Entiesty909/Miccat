@@ -13,7 +13,7 @@
 | `--list-devices` | 无 | 输出 WASAPI ID、Tab、设备友好名；包含当前过滤策略允许的输出端 |
 | `--capture <pid>` | `--wav capture.wav`，`--seconds 5` | Process Loopback 捕获并写 PCM16 WAV |
 | `--route <pid>` | 必须 `--device <wasapi-id>`；`--seconds 8` | 临时路由进程声；运行至少 0.5 秒后停止 |
-| `--snapshot-ui` | `--out snap.raw`；`--page route\|player\|settings`，默认 `player`；`--source-dialog-click-tab process\|audio\|microphone` 模拟并断言类型卡切换；`--source-menu-click` 点击路由第一条源的更多按钮并渲染弹层 | 软件渲染 UI RGBA 快照；菜单参数只能用于对应页面 |
+| `--snapshot-ui` | `--out snap.raw`；`--page route\|player\|settings`，默认 `player`；`--source-dialog-click-tab process\|audio\|microphone` 模拟并断言类型卡切换；`--source-menu-click` 点击路由第一条源右上角上三角，等待 150 ms 后渲染弹层 | 软件渲染 UI RGBA 快照；菜单参数只能用于对应页面 |
 | `--probe-playback <file>` | seconds=8, start=0, out=probe.wav | 逐采样探针 |
 
 `--probe-playback` 可加 `--sfx` 或 `--raw`；非 raw 模式另写 `<out>.ref.wav`。
@@ -36,11 +36,11 @@
 - `set_monitor_default(enabled)` / `set_monitor_volume(v)`：启用系统默认设备试听及设置试听音量。
 - `play_file(entry, start_hns, target)` 启动音频库流；`PlaybackTarget::Both` 同时送路由和本机监听，`Monitor` 仅监听，`Route` 仅送活动路由。
 - `stop_file()` 停止播放；`file_state()` 返回播放快照，位置单位为 100 ns。
-- `play_file_source(entry, slot, looped)` 替换指定路由文件槽；`file_source_state(slot)` 返回停止/播放/暂停/完成，`file_source_position_hns(slot)` 返回 100 ns 播放位置。
+- `play_file_source(entry, slot, looped, start_hns, paused)` 从 100 ns 媒体位置替换指定路由文件槽并保留暂停态；`file_source_state(slot)` 返回停止/播放/暂停/完成，`file_source_position_hns(slot)` 返回 100 ns 播放位置。同槽停止或再次 seek 会使较早的后台解码结果失效。
 `stop()` 停止并回收路由与播放线程；路由需按顺序显式打开输出、设置进程源及可选麦克风源。
 
 `EngineStatus` 值包括 `Idle`、`Running`、`ProcessExited`、`DeviceGone` 和 `Error(String)`。
-文件 seek 当前由调用方停止后再次调用 `play_file()`；没有独立 `seek_file()` API。
+音频库播放器 seek 由调用方停止后再次调用 `play_file()`；路由文件卡片的进度滑块只在播放/暂停态可拖动，松开后以目标位置再次调用 `play_file_source()`，不启动未播放的源。没有独立 `seek_file()` API。
 音频源行的输出下拉绑定全局设备选择；多选输出 ID 保存于 `OutputConfig.device_ids`。
 进程行启用只改变 `UiCache.disabled_pids`；文件行启用只改变对应槽位启用状态，不启动全局转发。文件卡片按所属精确分类处理上一首/下一首；四种模式保存在 `RouteConfig.audio_source_play_modes`，自然结束由 50 ms 轮询只处理一次。
 源行静音为运行期操作，不改写持久化音量；源音量滑块更新 AudioEngine 增益和配置。Popover 峰值标记为 dBFS；增益 dB 为相对 100% 音量倍率。

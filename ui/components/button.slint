@@ -27,6 +27,8 @@ export component PmButton inherits Rectangle {
     in property <bool> has-icon-image: false;
     // 高度默认跟随标准控件尺寸；紧凑状态栏可按需缩小。
     in property <length> button-height: Theme.controlHeight;
+    // 图标按钮悬停时显示操作说明；空值不创建提示浮层。
+    in property <string> hint: "";
 
     height: root.button-height;
     min-width: root.button-width;
@@ -72,6 +74,10 @@ export component PmButton inherits Rectangle {
         height: 24px;
         image-fit: contain;
         source: root.icon-image;
+    }
+    // 使用 Slint 原生 Tooltip，延迟出现并随指针离开关闭，不占按钮布局空间。
+    if root.hint != "": Tooltip {
+        text: @markdown("\{root.hint}");
     }
 
     // 透明命中区只负责把启用按钮的点击事件转发给调用方。

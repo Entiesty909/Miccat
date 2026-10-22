@@ -221,6 +221,7 @@ fn probe_playback(
             slot: 0,
             sample_rate: rate,
             channels,
+            start_hns,
             volume: 1.0,
             rx,
         })

@@ -34,7 +34,7 @@ AudioEngine::set_volume(value) / set_mic_volume(value) / set_sfx_volume(value)
 AudioEngine::set_master_volume(value)
 AudioEngine::volume() / process_volume(slot) / mic_volume() / sfx_volume_for_slot(slot)
 AudioEngine::play_file(entry, start_hns, target)
-AudioEngine::play_file_source(entry, slot, looped)
+AudioEngine::play_file_source(entry, slot, looped, start_hns, paused)
 AudioEngine::stop_file_source(slot)
 AudioEngine::set_file_source_paused(slot, paused)
 AudioEngine::file_source_state(slot) / file_source_position_hns(slot)
@@ -45,9 +45,10 @@ AudioEngine::stop()
 
 `SourceOutputRoutes` 为进程槽和音频文件槽分别保存 render 下标；未使用独立路由时，`open_outputs()` 将所有槽位送到全部目标。进程/文件增益按槽位使用原子值，渲染线程不会因修改一张卡片而读取另一张卡片的增益。
 
-`play_file_source(entry, slot, looped)` 在 SFX mixer 中替换同槽旧流、保留其它槽流；`stop_file_source(slot)` 只停止指定文件卡片。暂停/恢复通过槽位命令保持当前解码位置；状态原子提供停止、播放、暂停和自然完成，位置原子以 100 ns 为单位供 UI 轮询。
+`play_file_source(entry, slot, looped, start_hns, paused)` 从指定的 100 ns 媒体位置解码，在 SFX mixer 中替换同槽旧流、保留其它槽流；`stop_file_source(slot)` 只停止指定文件卡片。每槽的命令代数锁防止较早的解码线程在拖动进度或停止后覆盖较新的流；锁只用于控制线程，不进音频实时循环。暂停/恢复通过槽位命令保持当前解码位置；状态原子提供停止、播放、暂停和自然完成，位置原子以 100 ns 为单位供 UI 轮询。
 路由卡片启用状态不触发播放。全局或单独路由启动只建立输出与输入源；用户点击音频卡片播放按钮后才调用 `play_file_source()`。分类队列和四种播放模式由桥接层选择条目并重新投递同一槽；关闭该卡片时停止该槽，重新启用不自动续播。
 路由启动的文件槽位只读取路由卡片的 `audio_output_ids`；没有卡片级目标时回退到当前主输出，不再因为历史 `file_output_id` 打开未使用的虚拟端点。
+启动时 `route_start::routed_outputs` 仅收集已启用源的 render ID；禁用文件槽仍保留有效占位索引，不打开其原设备。两只配对虚拟端点均启用时仍由引擎拒绝并保留原错误。
 
 设备 ID 列表为空时，启动路由回退为单个 `device_id`。
 源行中的进程/文件/麦克风音量调用相应 AudioEngine 原子增益并写入 `MixConfig`。

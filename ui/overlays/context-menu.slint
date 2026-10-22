@@ -59,6 +59,8 @@ export component ContextMenu inherits Rectangle {
     // 背景按下只关闭菜单，菜单项自身的点击由子控件消费。
     // 背景按下时关闭两类菜单；打开状态回写父级以同步生命周期。
     TouchArea {
+        // 菜单收起时让卡片点击穿过全屏覆盖层。
+        visible: root.category-open || root.entry-open;
         pointer-event(event) => {
             if (event.kind == PointerEventKind.down) {
                 root.category-open = false;

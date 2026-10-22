@@ -270,8 +270,9 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
                             });
                         index.and_then(|index| cache.audio_entries.get(index).cloned())
                     };
-                    let result =
-                        entry.map_or(Ok(()), |entry| engine.play_file_source(&entry, slot, false));
+                    let result = entry.map_or(Ok(()), |entry| {
+                        engine.play_file_source(&entry, slot, false, 0, false)
+                    });
                     if result.is_ok() {
                         let mut cache = cache.borrow_mut();
                         set_slot(&mut cache.audio_finished_handled, slot, true);
@@ -283,6 +284,45 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
                 super::super::super::diagnostics::report_error(&ui, &error);
             }
             super::super::super::sources::update(&ui, &state_for_update);
+        });
+    }
+    {
+        let engine = state.engine.clone();
+        let cache = state.cache.clone();
+        let ui_weak = ui.as_weak();
+        // 滑块释放才换算目标媒体位置；停播或未知时长不产生隐式播放。
+        ui.on_source_progress_seek(move |index, ratio| {
+            let Some(ui) = ui_weak.upgrade() else { return };
+            if !ui.get_running() || source_kind(&ui, index) != Some(1) {
+                return;
+            }
+            let Some(slot) = source_slot(&ui, index, 1) else {
+                return;
+            };
+            let paused = match engine.file_source_state(slot) {
+                crate::engine::FileSourceState::Playing => false,
+                crate::engine::FileSourceState::Paused => true,
+                _ => return,
+            };
+            let entry = {
+                let cache = cache.borrow();
+                cache
+                    .route_audio_entries
+                    .get(slot)
+                    .and_then(|index| cache.audio_entries.get(*index))
+                    .cloned()
+            };
+            let Some(entry) = entry.filter(|entry| entry.duration_hns > 0) else {
+                return;
+            };
+            let target = (f64::from(ratio.clamp(0.0, 1.0)) * entry.duration_hns as f64) as u64;
+            // 先撤掉旧流，再异步解码新位置；同槽代次阻止晚完成的旧请求回写。
+            let result = engine
+                .stop_file_source(slot)
+                .and_then(|_| engine.play_file_source(&entry, slot, false, target, paused));
+            if let Err(error) = result {
+                super::super::super::diagnostics::report_error(&ui, &error);
+            }
         });
     }
     {

@@ -123,8 +123,8 @@ impl SourceRows {
         self.icons.push("\u{E7F4}".into());
         self.icon_images.push(input.icon_image);
         self.titles.push(input.name.into());
-        self.subtitles.push("进程音频".into());
-        self.details.push(format!("PID: {}", input.pid).into());
+        self.subtitles.push(format!("PID：{}", input.pid).into());
+        self.details.push("".into());
         self.statuses.push(input.status.into());
         self.active.push(input.active);
         self.volumes.push(input.volume * 100.0);
@@ -173,8 +173,7 @@ impl SourceRows {
         self.icons.push("\u{E720}".into());
         self.icon_images.push(slint::Image::default());
         self.titles.push("麦克风".into());
-        self.subtitles
-            .push(format!("{} · 麦克风", input.name).into());
+        self.subtitles.push(input.name.into());
         self.details.push("".into());
         self.statuses.push(input.status.into());
         self.active.push(input.active);
@@ -407,13 +406,8 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
             let playing = playback == crate::engine::FileSourceState::Playing;
             let paused = playback == crate::engine::FileSourceState::Paused;
             let position_hns = state.engine.file_source_position_hns(slot);
-            let extension = std::path::Path::new(&entry.path)
-                .extension()
-                .and_then(|value| value.to_str())
-                .map(str::to_uppercase)
-                .unwrap_or_else(|| "音频".into());
             let category = crate::library::category_leaf(&entry.category);
-            let detail = format!("本地音频 · {extension} · {category}");
+            let detail = category.to_string();
             let play_mode = state
                 .cache
                 .borrow()

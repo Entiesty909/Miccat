@@ -28,8 +28,14 @@ export component MainWindow inherits Window {
     preferred-height: 800px;
     // 窗口底色保持不透明；淡粉图片绘制其上，避免初始加载时透出其它窗口。
     background: Theme.page-bg;
+    // 尺寸不匹配时使用原图与页面遮罩；后台合成对应尺寸后再切换。
+    property <bool> pink-composite-fits: Theme.pink-mode
+        && Theme.pink-composite-width == Math.round(root.width / 1px)
+        && Theme.pink-composite-height == Math.round(root.height / 1px);
     if Theme.pink-mode: Image {
-        source: Theme.pink-background-image;
+        source: root.pink-composite-fits
+            ? Theme.pink-composite-image
+            : Theme.pink-background-image;
         width: 100%;
         height: 100%;
         image-fit: cover;
@@ -42,6 +48,9 @@ export component MainWindow inherits Window {
     init => {
         Palette.color-scheme = ColorScheme.light;
     }
+    // 窗口尺寸变化时重新生成背景，不在 UI 线程重采样图片。
+    changed width => { root.theme-size-changed(); }
+    changed height => { root.theme-size-changed(); }
 
     // 当前页索引：0 路由、1 音频库、2 设置。
     in-out property <int> page: 0;
@@ -51,7 +60,7 @@ export component MainWindow inherits Window {
     in-out property <string> status-text: "未运行";
     // 0 普通、1 成功、2 警告、3 错误，供状态栏选择指示色。
     in-out property <int> status-kind: 0;
-    // 当前错误文本；非空时状态栏显示错误和详情入口。
+    // 最近一次用户错误短句由 bridge 保留；详情入口在问题中心。
     in-out property <string> error-text: "";
     // 转发引擎是否运行，驱动顶栏按钮和设备控件禁用条件。
     in-out property <bool> running: false;
@@ -293,8 +302,12 @@ export component MainWindow inherits Window {
     callback source-add-requested();
     // 用户从主题悬浮菜单选择预设。
     callback theme-selected(int);
-    // 淡粉主题图片解码完成后由 Rust 回写到主窗口及独立窗口。
+    // 淡粉主题图片完成后台获取后注入窗口与两个独立窗口。
     callback theme-image-ready(image);
+    // 背景预合成仅由已下载图片与当前窗口尺寸派生。
+    callback theme-composite-ready(image, int, int);
+    // 主窗口逻辑尺寸发生变化时异步重建一次背景。
+    callback theme-size-changed();
     // 绑定音频条目快捷键。
     callback audio-entry-hotkey-bind();
     // 编辑总线音量，参数为百分比。
@@ -335,6 +348,8 @@ export component MainWindow inherits Window {
     callback source-next-track(int);
     // 循环切换指定文件源播放模式。
     callback source-play-mode-cycled(int);
+    // 路由文件槽进度定位；参数为混合源行号与 0..=1 比例。
+    callback source-progress-seek(int, float);
     // 切换麦克风混音。
     callback mic-mix-changed(bool);
     // 切换全部输出设备显示。
@@ -495,6 +510,7 @@ export component MainWindow inherits Window {
                 width: 100%;
                 vertical-stretch: 1;
                 min-height: 0px;
+                pink-background-precomposed: root.pink-composite-fits;
                 // 页面索引由顶栏和 Rust bridge 共同驱动，决定当前可见页面。
                 page: root.page;
                 processes <=> root.processes;
@@ -640,6 +656,9 @@ export component MainWindow inherits Window {
                 source-next-track(index) => { root.source-next-track(index); }
                 source-play-mode-cycled(index) => {
                     root.source-play-mode-cycled(index);
+                }
+                source-progress-seek(index, value) => {
+                    root.source-progress-seek(index, value);
                 }
                 edit-accepted(name, icon, path) => {
                     root.audio-edit-accepted(name, icon, path);

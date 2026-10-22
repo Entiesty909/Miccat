@@ -1,9 +1,16 @@
 //! 主题选择桥接：切换统一调色板，并异步获取淡粉主题图片。
 
+use std::cell::RefCell;
+use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
+use std::time::Duration;
 
 use slint::private_unstable_api::re_exports::ColorScheme;
-use slint::{ComponentHandle, Image, Rgba8Pixel, SharedPixelBuffer};
+use slint::{ComponentHandle, Image, Rgba8Pixel, SharedPixelBuffer, Timer, TimerMode};
+
+mod composite;
 
 use super::state::AppWindows;
 use super::{AppState, MainWindow, Palette, Theme};
@@ -16,15 +23,48 @@ pub(super) fn initialize(ui: &MainWindow, windows: &AppWindows, index: i32) {
 
 /// 注册主题选择与图片回写；网络请求不在 Slint 线程中执行。
 pub(super) fn register(ui: &MainWindow, state: &AppState) {
+    let original = Rc::new(RefCell::new(None::<SharedPixelBuffer<Rgba8Pixel>>));
+    let resize_timer = Rc::new(Timer::default());
+    let generation = Arc::new(AtomicU64::new(0));
+
     let windows = state.windows.clone();
     let ui_for_image = ui.as_weak();
+    let source = original.clone();
+    let timer = resize_timer.clone();
+    let version = generation.clone();
     ui.on_theme_image_ready(move |image| {
+        *source.borrow_mut() = image.to_rgba8();
         if let Some(ui) = ui_for_image.upgrade() {
             ui.global::<Theme>()
                 .set_pink_background_image(image.clone());
+            schedule_pink_composite(&ui, &source, &timer, &version);
         }
         windows.add_source.set_pink_background_image(image.clone());
         windows.audio_edit.set_pink_background_image(image);
+    });
+
+    let ui_weak = ui.as_weak();
+    ui.on_theme_composite_ready(move |image, width, height| {
+        let Some(ui) = ui_weak.upgrade() else { return };
+        if ui.global::<Theme>().get_theme_index() != 2
+            || logical_window_size(&ui) != (width as u32, height as u32)
+        {
+            return;
+        }
+        let theme = ui.global::<Theme>();
+        theme.set_pink_composite_image(image);
+        theme.set_pink_composite_width(width);
+        theme.set_pink_composite_height(height);
+    });
+
+    let ui_weak = ui.as_weak();
+    let source = original.clone();
+    let timer = resize_timer.clone();
+    let version = generation.clone();
+    ui.on_theme_size_changed(move || {
+        if let Some(ui) = ui_weak.upgrade() {
+            schedule_pink_composite(&ui, &source, &timer, &version);
+        }
     });
 
     let windows = state.windows.clone();
@@ -36,6 +76,9 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
             return;
         }
         let Some(ui) = ui_weak.upgrade() else { return };
+        resize_timer.stop();
+        generation.fetch_add(1, Ordering::Relaxed);
+        *original.borrow_mut() = None;
         app_config.borrow_mut().theme_index = index;
         save_queue.schedule();
         apply_theme_index(&ui, &windows, index);
@@ -65,8 +108,11 @@ fn apply_theme_index(ui: &MainWindow, windows: &AppWindows, index: i32) {
 
 /// 切换预设时立即清除旧图片，避免新主题首帧沿用上一张背景。
 fn clear_pink_background(ui: &MainWindow, windows: &AppWindows) {
-    ui.global::<Theme>()
-        .set_pink_background_image(slint::Image::default());
+    let theme = ui.global::<Theme>();
+    theme.set_pink_composite_width(0);
+    theme.set_pink_composite_height(0);
+    theme.set_pink_composite_image(Image::default());
+    theme.set_pink_background_image(Image::default());
     windows
         .add_source
         .set_pink_background_image(slint::Image::default());
@@ -83,6 +129,71 @@ const PINK_BACKGROUND_HEIGHT: u32 = 800;
 /// 远程图片的透明像素以淡粉色为底合成，输出始终不透明。
 const PINK_BACKGROUND_BASE: [u32; 3] = [255, 240, 246];
 
+/// Slint 长度是逻辑像素，壁纸缓冲尺寸必须按窗口 DPI 逆换算。
+fn logical_window_size(ui: &MainWindow) -> (u32, u32) {
+    let physical = ui.window().size();
+    let scale = ui.window().scale_factor().max(0.1);
+    (
+        (physical.width as f32 / scale).round() as u32,
+        (physical.height as f32 / scale).round() as u32,
+    )
+}
+
+/// 连续拉伸时只重启短计时器；落稳后在 worker 中生成当前尺寸的单张背景图。
+fn schedule_pink_composite(
+    ui: &MainWindow,
+    source: &Rc<RefCell<Option<SharedPixelBuffer<Rgba8Pixel>>>>,
+    timer: &Rc<Timer>,
+    generation: &Arc<AtomicU64>,
+) {
+    if ui.global::<Theme>().get_theme_index() != 2 || source.borrow().is_none() {
+        return;
+    }
+    let ticket = generation.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
+    let source = source.clone();
+    let generation = generation.clone();
+    let ui_weak = ui.as_weak();
+    timer.start(
+        TimerMode::SingleShot,
+        Duration::from_millis(180),
+        move || {
+            let Some(ui) = ui_weak.upgrade() else { return };
+            let (width, height) = logical_window_size(&ui);
+            if width == 0 || height == 0 {
+                return;
+            }
+            let Some(pixels) = source.borrow().as_ref().cloned() else {
+                return;
+            };
+            let ui_weak = ui.as_weak();
+            let generation = generation.clone();
+            if let Err(error) = thread::Builder::new()
+                .name("pink-theme-composite".into())
+                .spawn(move || {
+                    let composite = composite::render(&pixels, width, height);
+                    let _ = slint::invoke_from_event_loop(move || {
+                        if generation.load(Ordering::Relaxed) != ticket {
+                            return;
+                        }
+                        let Some(ui) = ui_weak.upgrade() else { return };
+                        if ui.global::<Theme>().get_theme_index() == 2
+                            && logical_window_size(&ui) == (width, height)
+                        {
+                            ui.invoke_theme_composite_ready(
+                                Image::from_rgba8(composite),
+                                width as i32,
+                                height as i32,
+                            );
+                        }
+                    });
+                })
+            {
+                tracing::warn!("淡粉背景合成线程启动失败：{error}");
+            }
+        },
+    );
+}
+
 /// 后台下载、解码和预裁剪淡粉图片；回写前检查主题仍为粉色。
 fn request_pink_background(ui: &MainWindow) {
     let ui_weak = ui.as_weak();
@@ -98,6 +209,7 @@ fn request_pink_background(ui: &MainWindow) {
                     return;
                 }
             };
+            // 解码在后台完成，UI 线程只交换共享像素句柄。
             let _ = slint::invoke_from_event_loop(move || {
                 let Some(ui) = ui_weak.upgrade() else { return };
                 if ui.global::<Theme>().get_theme_index() != 2 {

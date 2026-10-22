@@ -161,6 +161,8 @@ pub struct AudioEngine {
     monitor: monitor::SharedMonitor,
     /// 文件播放状态及取消令牌。
     playback: Arc<Mutex<playback::PlaybackControl>>,
+    /// 路由文件槽最近播放请求的代次，后台解码完成时据此丢弃旧 seek 请求。
+    file_source_generations: Vec<Arc<Mutex<u64>>>,
     /// 当前输出图；取出后才能安全停止并替换所有线程。
     output: Mutex<Option<OutputState>>,
     /// 当前各类源线程及其命令通道。
@@ -194,6 +196,9 @@ impl AudioEngine {
             sources: Mutex::new(SourceThreads::default()),
             monitor: monitor::shared(),
             playback: playback::shared(),
+            file_source_generations: (0..FILE_SOURCE_SLOTS)
+                .map(|_| Arc::new(Mutex::new(0)))
+                .collect(),
         }
     }
 

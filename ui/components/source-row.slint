@@ -3,6 +3,7 @@
 import { Theme } from "../theme.slint";
 import { MarqueeComboBox } from "marquee-combo-box.slint";
 import { PmButton } from "button.slint";
+import { Slider } from "std-widgets.slint";
 import { SliderRow } from "slider-row.slint";
 
 // 三类源共用同一横向骨架；文件源在信息区与设置区之间插入播放控制。
@@ -15,11 +16,11 @@ export component SourceRow inherits Rectangle {
     in property <string> icon: "";
     // 进程或文件的真实图标；空图像时显示回退字形。
     in property <image> icon-image;
-    // 卡片主标题。
+    // 进程名、音频库备注名或“麦克风”。
     in property <string> title: "";
-    // 来源类型、格式和分类等次要信息。
+    // 进程 PID、音频分类或物理麦克风型号。
     in property <string> subtitle: "";
-    // 进程 PID 等补充信息。
+    // 保持并行行模型的旧详情字段；本卡片不显示。
     in property <string> detail: "";
     // 运行、连接或文件播放状态。
     in property <string> status: "";
@@ -47,8 +48,14 @@ export component SourceRow inherits Rectangle {
     in property <string> position-text: "";
     // 文件总时长文本。
     in property <string> duration-text: "";
+    // 拖动时仅保存本卡片的临时位置；引擎进度仍由 bridge 权威发布。
+    property <float> seek-draft: 0;
+    // 拖动期间暂不让定时轮询覆盖滑块。
+    property <bool> seeking-progress: false;
     // 菜单打开态只用于强调右上角入口。
     in property <bool> actions-open: false;
+    // 点击后先翻转上三角，再由计时器请求弹出菜单。
+    property <bool> menu-opening: false;
     // 当前状态是否使用强调色。
     property <bool> status-active: root.status == "运行中"
         || root.status == "已连接"
@@ -56,13 +63,21 @@ export component SourceRow inherits Rectangle {
     // 播放模式按钮图标随模式切换。
     property <string> mode-icon: root.play-mode == 3
         ? "\u{E8B1}"
-        : (root.play-mode == 0 ? "\u{E8FD}" : "\u{E8EE}");
-    // 播放模式短标签用于消除图标歧义。
+        : (root.play-mode == 0
+            ? "\u{E8FD}"
+            : (root.play-mode == 1 ? "\u{E8EE}" : "\u{E8ED}"));
+    // 模式说明仅用作 Tooltip，不常驻在按钮中。
     property <string> mode-label: root.play-mode == 0
-        ? "顺序"
+        ? "顺序播放"
         : (root.play-mode == 1
             ? "列表循环"
-            : (root.play-mode == 2 ? "单曲循环" : "随机"));
+            : (root.play-mode == 2 ? "单曲循环" : "随机播放"));
+    // 转发开关的说明随当前状态改变。
+    property <string> toggle-hint: root.active ? "关闭转发" : "启用转发";
+    // 运行中已启用的卡片不允许弹出操作菜单。
+    property <string> menu-hint: root.route-running && root.active
+        ? "转发中不可操作"
+        : "源操作";
 
     // 初始设备下标只同步一次，列表动态刷新不会覆盖用户当前选择。
     init => {
@@ -91,6 +106,8 @@ export component SourceRow inherits Rectangle {
     callback next-track();
     // 文件源播放模式循环切换。
     callback play-mode-cycled();
+    // 用户释放进度滑块后提交 0..=1 的目标位置。
+    callback progress-seek(float);
     // 源操作菜单动作码。
     callback action(int);
 
@@ -100,6 +117,30 @@ export component SourceRow inherits Rectangle {
     border-radius: 12px;
     border-width: 1px;
     border-color: root.actions-open ? Theme.accent : Theme.borderStrong;
+    // 定时器与图标翻转时长一致；重复点击不会叠加菜单请求。
+    Timer {
+        interval: 150ms;
+        running: root.menu-opening;
+        triggered => {
+            root.menu-opening = false;
+            if (!root.route-running || !root.active) {
+                root.actions-requested(
+                    root.absolute-position.x + root.width - 230px,
+                    root.absolute-position.y + 34px
+                );
+            }
+        }
+    }
+
+    // 开启的卡片沿左侧显示蓝色标识，不占用内容布局宽度。
+    Rectangle {
+        x: 0px;
+        y: 12px;
+        width: 4px;
+        height: parent.height - 24px;
+        border-radius: 2px;
+        background: root.active ? #1677E8 : transparent;
+    }
 
     HorizontalLayout {
         padding-left: 16px;
@@ -108,12 +149,14 @@ export component SourceRow inherits Rectangle {
         padding-bottom: 12px;
         spacing: 12px;
 
-        // 左侧源标识从卡片左边缘开始，避免布局剩余空间把内容推向右侧。
-        HorizontalLayout {
-            min-width: 230px;
-            max-width: 250px;
-            spacing: 12px;
+        // 图标和信息在整张卡片高度内居中，进程与麦克风有完整标题宽度。
+        Rectangle {
+            width: root.kind == 1 ? 240px : 320px;
+            height: 100%;
+            background: transparent;
             Rectangle {
+                x: 0px;
+                y: (parent.height - self.height) / 2;
                 width: 64px;
                 height: 64px;
                 border-radius: 14px;
@@ -138,7 +181,9 @@ export component SourceRow inherits Rectangle {
                 }
             }
             VerticalLayout {
-                horizontal-stretch: 1;
+                x: 76px;
+                width: parent.width - 76px;
+                height: 100%;
                 spacing: 5px;
                 alignment: LayoutAlignment.center;
                 Text {
@@ -147,14 +192,18 @@ export component SourceRow inherits Rectangle {
                     font-size: 16px;
                     font-weight: 700;
                     overflow: elide;
+                    Tooltip {
+                        text: @markdown("\{root.kind == 1 ? root.subtitle : root.title}");
+                    }
                 }
-                Text {
-                    text: root.detail == ""
-                        ? root.subtitle
-                        : "\{root.subtitle} · \{root.detail}";
+                if root.kind != 1: Text {
+                    text: root.subtitle;
                     color: Theme.text2;
                     font-size: 12px;
                     overflow: elide;
+                    Tooltip {
+                        text: @markdown("\{root.subtitle}");
+                    }
                 }
                 Rectangle {
                     width: 82px;
@@ -175,8 +224,7 @@ export component SourceRow inherits Rectangle {
 
         // 文件卡片独有的上一首、播放、下一首、模式和进度区。
         if root.kind == 1: VerticalLayout {
-            min-width: 220px;
-            max-width: 240px;
+            width: 220px;
             spacing: 8px;
             alignment: LayoutAlignment.center;
             HorizontalLayout {
@@ -187,6 +235,7 @@ export component SourceRow inherits Rectangle {
                     label: "\u{E892}";
                     icon-only: true;
                     button-width: 38px;
+                    hint: "上一曲";
                     enabled: root.route-running && root.active;
                     clicked => { root.previous(); }
                 }
@@ -195,6 +244,7 @@ export component SourceRow inherits Rectangle {
                     icon-only: true;
                     filled: true;
                     button-width: 42px;
+                    hint: root.status == "播放中" ? "暂停" : "播放";
                     enabled: root.route-running && root.active;
                     clicked => { root.pause(); }
                 }
@@ -202,51 +252,37 @@ export component SourceRow inherits Rectangle {
                     label: "\u{E893}";
                     icon-only: true;
                     button-width: 38px;
+                    hint: "下一曲";
                     enabled: root.route-running && root.active;
                     clicked => { root.next-track(); }
                 }
-                Rectangle {
-                    width: 76px;
-                    height: 38px;
-                    border-radius: 19px;
-                    background: Theme.card;
-                    border-width: 1px;
-                    border-color: Theme.borderStrong;
-                    HorizontalLayout {
-                        padding-left: 8px;
-                        padding-right: 8px;
-                        spacing: 5px;
-                        alignment: LayoutAlignment.center;
-                        Text {
-                            text: root.mode-icon;
-                            font-family: "Segoe MDL2 Assets";
-                            color: root.play-mode == 0 ? Theme.text2 : Theme.accent;
-                            font-size: 16px;
-                        }
-                        Text {
-                            text: root.mode-label;
-                            color: Theme.text2;
-                            font-size: 9px;
-                            overflow: elide;
-                        }
-                    }
-                    // 单击同一控件循环四种模式，不创建四个并列开关。
-                    TouchArea {
-                        mouse-cursor: pointer;
-                        clicked => { root.play-mode-cycled(); }
-                    }
+                // 一个图标按钮循环四种模式，文字只出现在悬停提示中。
+                PmButton {
+                    label: root.mode-icon;
+                    icon-only: true;
+                    button-width: 38px;
+                    hint: root.mode-label;
+                    clicked => { root.play-mode-cycled(); }
                 }
             }
-            Rectangle {
+            // 滑动时显示草稿位置，松开后才把定位交给引擎；停播时不会误启动。
+            Slider {
                 width: 100%;
-                height: 5px;
-                border-radius: 3px;
-                background: Theme.border;
-                Rectangle {
-                    width: parent.width * max(0, min(1, root.progress));
-                    height: 100%;
-                    border-radius: 3px;
-                    background: Theme.accent;
+                height: 20px;
+                minimum: 0;
+                maximum: 1;
+                value: root.seeking-progress ? root.seek-draft : root.progress;
+                enabled: root.route-running
+                    && root.active
+                    && (root.status == "播放中" || root.status == "已暂停")
+                    && root.duration-text != "";
+                changed(value) => {
+                    root.seek-draft = value;
+                    root.seeking-progress = true;
+                }
+                released(value) => {
+                    root.seeking-progress = false;
+                    root.progress-seek(value);
                 }
             }
             HorizontalLayout {
@@ -296,8 +332,8 @@ export component SourceRow inherits Rectangle {
                     vertical-alignment: center;
                 }
                 MarqueeComboBox {
-                    horizontal-stretch: 1;
-                    min-width: 140px;
+                    width: 300px;
+                    horizontal-stretch: 0;
                     height: 34px;
                     model: root.outputs;
                     current-index <=> root.output-index;
@@ -305,6 +341,10 @@ export component SourceRow inherits Rectangle {
                     selected(value) => {
                         root.output-changed(root.output-index);
                     }
+                }
+                Rectangle {
+                    horizontal-stretch: 1;
+                    background: transparent;
                 }
             }
             HorizontalLayout {
@@ -325,16 +365,22 @@ export component SourceRow inherits Rectangle {
                     vertical-alignment: center;
                 }
                 SliderRow {
-                    horizontal-stretch: 1;
+                    width: 300px;
+                    horizontal-stretch: 0;
                     show-label: false;
                     value <=> root.volume;
                     edited(value) => { root.volume-edited(value); }
+                }
+                Rectangle {
+                    horizontal-stretch: 1;
+                    background: transparent;
                 }
                 // 保留原静音能力，但收进音量行，避免破坏参考图主布局。
                 if root.kind != 1: PmButton {
                     label: root.muted ? "\u{E74F}" : "\u{E767}";
                     icon-only: true;
                     button-width: 30px;
+                    hint: root.muted ? "取消静音" : "静音";
                     clicked => { root.mute-toggled(); }
                 }
             }
@@ -357,11 +403,16 @@ export component SourceRow inherits Rectangle {
                 }
                 // 本轮仅提供不可交互占位，不向 bridge 上报或保存数值。
                 SliderRow {
-                    horizontal-stretch: 1;
+                    width: 300px;
+                    horizontal-stretch: 0;
                     show-label: false;
                     enabled: false;
                     value: 0;
                     value-text: "-";
+                }
+                Rectangle {
+                    horizontal-stretch: 1;
+                    background: transparent;
                 }
                 if root.kind != 1: Rectangle {
                     width: 30px;
@@ -390,6 +441,9 @@ export component SourceRow inherits Rectangle {
                     height: 26px;
                     border-radius: 13px;
                     background: root.active ? Theme.accent : Theme.borderStrong;
+                    Tooltip {
+                        text: @markdown("\{root.toggle-hint}");
+                    }
                     Rectangle {
                         x: root.active ? 24px : 2px;
                         y: 2px;
@@ -416,24 +470,59 @@ export component SourceRow inherits Rectangle {
         width: 26px;
         height: 24px;
         border-radius: 6px;
-        background: root.actions-open ? Theme.accentSoft : transparent;
+        background: root.actions-open || root.menu-opening ? Theme.accentSoft : transparent;
+        Tooltip {
+            text: @markdown("\{root.menu-hint}");
+        }
+        // 软件渲染器不支持旋转变换；上下箭头交错下移和淡入模拟翻下。
         Text {
+            width: parent.width;
+            height: parent.height;
+            y: root.menu-opening || root.actions-open ? 3px : 0px;
+            opacity: root.menu-opening || root.actions-open ? 0 : 1;
             text: "\u{E70E}";
             font-family: "Segoe MDL2 Assets";
-            color: root.actions-open ? Theme.accent : Theme.text2;
+            color: root.route-running && root.active ? Theme.text3 : Theme.text2;
             font-size: 15px;
             horizontal-alignment: center;
             vertical-alignment: center;
+            animate y {
+                duration: 150ms;
+                easing: ease-in-out;
+            }
+            animate opacity {
+                duration: 150ms;
+                easing: ease-in-out;
+            }
+        }
+        Text {
+            width: parent.width;
+            height: parent.height;
+            y: root.menu-opening || root.actions-open ? 0px : -3px;
+            opacity: root.menu-opening || root.actions-open ? 1 : 0;
+            text: "\u{E70D}";
+            font-family: "Segoe MDL2 Assets";
+            color: Theme.accent;
+            font-size: 15px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            animate y {
+                duration: 150ms;
+                easing: ease-in-out;
+            }
+            animate opacity {
+                duration: 150ms;
+                easing: ease-in-out;
+            }
         }
         // 坐标锚定上三角下方，菜单由 RoutePage 的 PopupWindow 承载。
         TouchArea {
-            enabled: !root.route-running || root.kind == 1;
+            enabled: !root.route-running || !root.active;
             mouse-cursor: pointer;
             clicked => {
-                root.actions-requested(
-                    root.absolute-position.x + root.width - 230px,
-                    root.absolute-position.y + 34px
-                );
+                if (!root.menu-opening && !root.actions-open) {
+                    root.menu-opening = true;
+                }
             }
         }
     }

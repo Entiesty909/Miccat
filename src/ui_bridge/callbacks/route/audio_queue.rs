@@ -164,7 +164,7 @@ fn play_slot(ui: &MainWindow, state: &AppState, slot: usize, entry_index: usize)
         cache.audio_finished_handled[slot] = true;
         entry
     };
-    if let Err(error) = state.engine.play_file_source(&entry, slot, false) {
+    if let Err(error) = state.engine.play_file_source(&entry, slot, false, 0, false) {
         super::super::super::diagnostics::report_error(ui, &error);
         return;
     }

@@ -13,6 +13,12 @@ export global Theme {
     in-out property <int> theme-index: 0;
     // 淡粉主题的远程背景图，由 Rust 下载并在 UI 线程注入。
     in-out property <image> pink-background-image;
+    // 主窗口已将页面浅粉遮罩烘入整幅壁纸；另两个独立窗口仍使用原图。
+    in-out property <image> pink-composite-image;
+    // 与预合成图匹配的主窗口逻辑宽度；尺寸变化时回退原图+透明遮罩。
+    in-out property <int> pink-composite-width: 0;
+    // 与预合成图匹配的主窗口逻辑高度。
+    in-out property <int> pink-composite-height: 0;
     // 兼容现有组件对深色状态的读取。
     out property <bool> dark-mode: root.theme-index == 1;
     // 粉色主题只允许在该分支显示图片背景。

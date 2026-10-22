@@ -15,6 +15,7 @@ UI 渲染问题     → `--snapshot-ui --out <file>` 出真 RGBA 图；`--page r
 
 - 运行期警告/错误自动进入**问题中心**：状态栏右侧「⚠ N 个问题」按钮打开右侧抽屉，
   可看详情（含 `E-XXX` 诊断代码与 HRESULT）、建议动作、复制详情、移除单条、清空。
+  底栏左侧只显示运行状态，不显示错误短句或“详情”；错误详情统一经右侧问题徽标或设置页入口查看。
 - 「问题中心 → 日志」标签页按 **11 个组件分类**（捕获/渲染/播放解码/设备/引擎/配置/热键/进程/界面/线缆/平台）
   单独设置日志级别，**改动即时生效**并写入 `AppConfig.debug`，重启后保持。
 - 过滤规则：控制台固定 `info`（`RUST_LOG` 可覆盖）；**日志文件**按开关走；
@@ -89,16 +90,18 @@ Live Preview 只保留属性、模型和回调；改变 Rust 代码直接使用�
 - 页面渲染：`--snapshot-ui --page route|player|settings --out <file>`；音源选择器使用独立 `AddSourceWindow`，通过 `--page route --source-dialog-tab process|audio|microphone` 快照。
 - 三栏窗口布局：路由/播放器/设置快照均应是全宽顶部品牌操作栏、中央图标侧栏与主页面、全宽底栏；侧栏不延伸到顶栏或底栏。悬停侧栏不应出现 Tooltip。
 - 音量拖动提示使用无背景纯文字 `PopupWindow`；Rust 仅在拖动期间以 `GetCursorPos`/`ScreenToClient` 轮询主窗口逻辑坐标，跟随光标离开主窗口。若提示不动，检查窗口句柄、`volume-adjusting`、`volume-pointer-valid` 和 `cursor_position_in_client()`。
-- 主题弹层/设置默认音频/编辑菜单/添加源窗口不随黑白主题变化：先确认 `Theme.theme-index` 和 `Palette.color-scheme` 在主窗口回调中同步，再检查相关组件是否仍使用硬编码背景/边框色。粉色窗口底色必须不透明，三页非卡片区使用 `Theme.page-overlay` 提高文字可读性，内容卡片单独使用 `Theme.content-card`；弹层继续用 `Theme.card`。图片 API 无效响应最多重试三次。
+- 主题弹层/设置默认音频/编辑菜单/添加源窗口不随黑白主题变化：先确认 `Theme.theme-index` 和 `Palette.color-scheme` 在主窗口回调中同步。粉色壁纸由 `theme.rs` 下载裁剪，`theme/composite.rs` 按主窗逻辑尺寸将三页 72% 遮罩合成到单图；`Theme.pink-composite-width/height` 不等于主窗尺寸时自动回退原图与 `Theme.page-overlay`，180 ms 尺寸防抖后更新图片。若粉色滚动卡顿，核对合成尺寸和图片下载成功；弹层仍读取 `Theme.card`。图片 API 无效响应最多重试三次。
 - 状态栏声纹弹层使用 `--snapshot-ui --page route --source-meter --out <file>` 快照；示例峰值为静音值，仅核对布局，不替代实时音频验证。
-- `--source-menu-click` 向路由第一条源右上角上三角发送左键并生成菜单快照，用于核对独立 `PopupWindow` 命中。
+- `--source-menu-click` 向路由第一条源右上角上三角发送左键并生成菜单快照；需先等待 150 ms 翻转计时器，运行中已启用的卡片不得弹出菜单。
 - 快照默认读取真实配置和设备模型；路由快照会选择首个可用进程、音频和物理麦覆盖三类卡片布局。诊断参数会显式注入示例诊断条目，音频时长补全只留在内存中，不写回配置。
 - `--source-dialog-click-tab process|audio|microphone` 从另一类型开始向独立窗口发送 Slint 左键事件并断言 `selected-tab` 改变；`scripts\smoke.cmd` 覆盖三种目标。
 - 跑马灯下拉：主页源卡片与添加进程对话框使用 `MarqueeComboBox`；检查 `ListView` 选项上的 `TouchArea.has-hover`、`Text.preferred-width` 和 `MarqueeText` Timer。关闭弹窗后选项子树应销毁，计时器停止。
 - 长文本不滚动：先确认实测显示宽度大于选项视口，且鼠标确实悬停在该选项；短文本保持静止。
 - 路由和设置页刷新共用异步列表刷新：worker 枚举进程/物理麦/输出设备，`status.rs` 在 UI 线程应用整组结果；进程图标只在列表刷新时读取，不在 50 ms 状态轮询中读取。
 - 麦克风下拉变更通过 `mic-mix-changed` 保存当前 ID；选“不混入”时混麦自动关闭。
-- 路由音频卡片状态、进度或切歌异常：状态和 100 ns 位置分别来自 `file_source_state(slot)` / `file_source_position_hns(slot)`；前后切歌检查当前条目的精确分类，完成态检查 `audio_finished_handled` 是否只消费一次。启用卡片或启动全局/单独转发不应自动解码；手动播放才调用 `play_file_source(entry, slot, false)`。
+- 路由音频卡片状态、进度或切歌异常：状态和 100 ns 位置分别来自 `file_source_state(slot)` / `file_source_position_hns(slot)`；前后切歌检查当前条目的精确分类，完成态检查 `audio_finished_handled` 是否只消费一次。启用卡片或启动全局/单独转发不应自动解码；手动播放才调用 `play_file_source(entry, slot, false, 0, false)`。进度滑块仅播放或暂停时可拖动，松开后经 `source-progress-seek(index, fraction)` 重建目标槽流，检查代数锁防止旧解码任务覆写新位置；暂停时 seek 保持暂停。
+- 配对虚拟设备两端冲突：检查本次启动快照中已启用的进程、文件及麦克风输出目标；禁用卡片的设备不能进入 `routed_outputs` 的 `output_ids`，两端都启用仍应拒绝。
+- 卡片文案或对齐异常：进程标题来自真实进程名，副标题只显示 PID；文件标题来自 `AudioEntry.name`（音频库备注名），分类留在条目/悬停信息；麦克风副标题为真实设备友好名。图标在卡片高度居中，模式图标不常驻文字，按钮说明使用原生 Tooltip；已启用卡片左侧固定蓝色竖线。
 - 添加源麦克风输出选择：索引 0 表示跟随路由主输出，其余索引对应 `UiCache.dests[index - 1]`；配置落在 `AppConfig.output.mic_output_id`，运行中下拉禁用。
 - 添加源/编辑窗口被主窗遮挡或无法拖动：确认 `ui/windows.slint` 未启用 `no-frame`，`src/platform/window.rs::activate_window()` 在 `show()` 后成功前置；Win32 样式应有 `WS_CAPTION`，独立窗口没有 owner，主窗口保持 enabled。
 - 窗口重新打开白屏：运行 `--snapshot-ui --page route --source-dialog-tab process --source-dialog-reopen`；该烟测会隐藏并重开同一AddSourceWindow，比较两帧像素。

@@ -8,15 +8,14 @@
 `ui/app-window.slint`：窗口骨架与焦点作用域；纵向排列全宽顶栏、中央内容行、全宽底栏，并承载全局菜单遮罩。
 `ui/components/app-header.slint`：58px 品牌操作栏；图标、Miccat 字样和版本靠左，路由页的“添加音频源”与全局操作靠右并垂直居中。添加入口复用原独立窗口回调；路由页不再重复显示添加和“刷新进程”按钮。
 `ui/components/sidebar-nav.slint`：45px 仅图标路由、音频库、设置侧栏；只占中央页面行高度，点击切换主页面，无 Tooltip。
-`ui/components/status-bar.slint`：48px 底栏左侧错误/详情、中间状态，右侧按“音源入口—总音量滑块—诊断计数”排列；拖动时只显示无背景纯文字 Popup，由屏幕级光标坐标驱动，可跟随鼠标离开主窗口。
+`ui/components/status-bar.slint`：36px 底栏左侧仅显示转发状态，右侧排列音源入口、总音量滑块和诊断问题数；原错误短句/详情按钮不再占底栏，详情统一从问题中心进入。
 - `ui/themes/light.slint`、`dark.slint`、`pink.slint`：分别保存三套颜色 token；`ui/theme.slint` 只做主题索引调度。标准 `CheckBox`/`LineEdit` 由 `Palette.color-scheme` 同步黑白主题，所有自定义窗口/右键菜单/跑马灯弹层读取 Theme token。
-主题预设弹层仅显示 2×2 风格色块，不显示文字标签；主题选择保存在 `AppConfig.theme_index`，下次启动时首帧恢复。粉色窗口底色不透明，原图作为窗口内背景绘制；三页非卡片内容区使用 72% 不透明浅粉遮罩，页面内容卡片独立使用 60% 不透明表面，字段为 92% 不透明；弹层仍使用 90% 不透明的 `Theme.card`。
+主题预设弹层仅显示 2×2 风格色块，不显示文字标签；主题选择保存在 `AppConfig.theme_index`，下次启动时首帧恢复。粉色窗口底色不透明，原图作为窗口内背景绘制；页面 72% 浅粉遮罩在后台按当前窗口逻辑尺寸预合成到一张不透明壁纸，顶栏/侧栏/底栏仍保留原图；下载中或拖动窗口到新尺寸时暂用原图与透明遮罩，180 ms 尺寸防抖后切回预合成图。页面内容卡片仍为 60% 不透明表面，字段为 92% 不透明；弹层仍使用 90% 不透明的 `Theme.card`。
 `ui/overlays/context-menu.slint`：遮罩、分类/条目菜单、坐标钳制和动作转发。
-`ui/overlays/diagnostic-panel.slint`、`ui/overlays/global-overlays.slint`：右侧抽屉式问题中心（问题列表 + 日志开关）、
-`DiagState` 全局状态与顶层覆盖层宿主；状态栏与设置页直接读写该全局，不经 `app-window` 透传。
+`ui/overlays/diagnostic-panel.slint`、`ui/overlays/global-overlays.slint`：右侧问题中心抽屉分为标题、问题/日志页签、可滚动列表、当前详情和操作区，日志分类独立滚动；`DiagState` 维持唯一数据和操作出口，状态栏徽标及设置页入口复用同一面板。
 `ui/components/diagnostic-row.slint`、`ui/components/diagnostics-card.slint`：问题行/徽标与设置页诊断卡片。
-`ui/pages/route.slint`、`ui/components/source-row.slint`：三类卡片统一为“图标与状态—文件播放区（仅音频）—分隔线—输出/转发音量/预览占位—启用转发”。预览音量是禁用占位，不读写配置；原 `...` 入口改为右上角上三角并继续打开同一个独立 `PopupWindow`。
-音频文件卡片显示所属音频库分类、上一首/播放暂停/下一首，以及一个循环切换顺序播放、列表循环、单曲循环、随机播放的模式按钮；进度和时长来自对应 SFX 槽。
+`ui/pages/route.slint`、`ui/components/source-row.slint`：三类卡片统一为“居中的图标与源信息—文件播放区（仅音频）—分隔线—输出/转发音量/预览占位—启用转发”。进程两行显示进程名与 `PID：数字`，文件只显示音频库备注名，麦克风两行显示固定标题及设备型号；文件分类属于当前条目，悬停名称可查看。输出下拉固定 300px，预览音量是禁用占位；已启用卡片左侧固定蓝色竖线。右上角上三角在 150 ms 下翻过渡后打开源操作菜单，转发中且已启用的卡片禁用此入口。末行保留 24px 滚动操作空间。
+播放模式只有一个图标按钮，循环切换顺序播放、列表循环、单曲循环、随机播放；说明与路由页其它按钮一样使用 Slint 原生 Tooltip，非按钮正文。文件卡片进度条可在播放或暂停时拖动，松开后由引擎按该槽位从指定的 100 ns 媒体位置重新解码，暂停态保持暂停；未播放时不通过拖动触发播放。
 - `ui/components/add-source-panel.slint`：按真实进程、音频库和物理麦模型添加路由源；音频/麦克风双栏各自成卡、不包额外底色容器；麦克风列表从首个真实设备起纵向排列，添加麦克风成功后关闭独立窗口；路由麦克风源行第一行固定显示“麦克风”，第二行灰色小字显示所选物理设备的 Windows 友好名称。普通“添加音频源”入口每次重置为第一个“进程”Tab；替换动作仍显式打开对应源类型。设置区可选择跟随全局输出或指定输出。
 `ui/components/audio-source-list.slint`、`audio-source-details.slint`：分别显示可搜索的真实音频条目列表和所选条目的元数据/路由音量设置。
 `ui/components/source-actions-menu.slint`：源卡片右上角上三角菜单；由独立 `PopupWindow` 承载，按源类型提供替换、删除、单独转发，文件源另含定位、快捷键和停止播放。
@@ -41,8 +40,9 @@ Rust 桥接：
 - `src/library.rs` 提供分类路径、可见索引、递归变更和文件验证规则。
 - 文件播放与试听通过 `AudioEngine` API；桥接不直接调用 decode、SFX 或 PreviewEngine。
 - `ui_bridge` 仍访问 `audio::device` / `audio::policy`、原生文件选择器和 VB-CABLE 安装；`src/platform/window.rs` 在独立窗口显示后将其带到前台，不设置 owner，不禁用主窗口。
-- 顶栏刷新图标和设置页刷新入口在 worker 枚举所有列表，50 ms 状态定时器把结果写回 Slint；设备分类开关走同一刷新路径。
+- 设置页刷新入口在 worker 枚举所有列表，50 ms 状态定时器把结果写回 Slint；设备分类开关走同一刷新路径。
   - Process、file、mic 各自的 render ID 保存到 `OutputConfig`；进程和文件卡片额外按槽位保存独立 render ID，启动时 `SourceOutputRoutes` 将每个输入送到自己的 render 端点。
+  - 启动路由只把已启用进程/文件/麦克风的输出设备交给引擎冲突校验；关闭的卡片保留自己的设备配置，但不因配对端点阻止启动。
   - 进程行开关只切换当前进程的启用状态，关闭后保留卡片；删除动作才从路由源集合移除进程。
   - 文件行启用只代表路由配置，不启动播放；全局或单独转发启动后仍保持静音，由用户点击卡片播放按钮启动对应 SFX 槽。
   - 文件播放/暂停/停止只操作当前卡片的 SFX 槽；停止后按钮显示播放三角，暂停时点击恢复原位置。
@@ -55,7 +55,7 @@ Rust 桥接：
 -  添加/替换进程前检查 PID 是否已在其它卡片；添加/替换音频前检查音频库实际条目下标，重复项拒绝提交并保留当前替换目标。
 -  添加源麦克风的输出目标保存到 `AppConfig.output.mic_output_id`；默认“跟随全局默认设备”时清除单独目标。
 -  输出设备下拉框的容器宽度固定；选中名称过长时只移动文字，使用往返横向滚动，不改变下拉框和列宽。
--  源操作状态由路由页统一维护，同一时间只显示一个源菜单；菜单展开时隐藏对应 `...` 触发按钮，点击另一源的菜单会切换到新菜单。
+- 源操作状态由路由页统一维护，同一时间只显示一个源菜单；上三角在翻转过渡完成后才请求 `PopupWindow`，菜单关闭或页面切换后恢复入口；转发中启用的卡片禁止打开操作菜单。
 - `resources/icon.ico` 同时用于主窗口、添加源窗口、音频库条目/分类编辑窗口，并作为 Windows exe 的数字资源 ID 1 嵌入，以显示在标题栏与任务栏；不显示在页签栏或路由卡片。
 - `SaveQueue` 以 300 ms 防抖串行写配置，退出时 flush。
 - 诊断：`src/diagnostics/` 汇总 WARN/ERROR，`ui_bridge/diagnostics.rs` 每 50 ms 把快照灌入 `DiagState`；

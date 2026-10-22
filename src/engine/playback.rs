@@ -191,6 +191,7 @@ fn start_streams(
             slot: super::PLAYBACK_SLOT,
             sample_rate: info.sample_rate,
             channels: info.channels,
+            start_hns,
             volume: 1.0,
             rx,
         });
@@ -328,13 +329,27 @@ impl AudioEngine {
 
 /// AudioEngine 的路由文件槽 API；每个槽独立发送 SFX 命令，slot 对应音频卡片下标。
 impl AudioEngine {
-    /// 在指定音频卡片槽位播放条目；循环参数由卡片播放模式决定，不读取库内试听设置。
+    /// 在指定音频卡片槽位从媒体位置播放；可保持原暂停态，循环设置由卡片控制。
     pub fn play_file_source(
         &self,
         entry: &crate::config::AudioEntry,
         slot: usize,
         looped: bool,
+        start_hns: u64,
+        paused: bool,
     ) -> Result<(), Error> {
+        let generation = self
+            .file_source_generations
+            .get(slot)
+            .cloned()
+            .ok_or(Error::RenderInit("file source slot out of range"))?;
+        let ticket = {
+            let mut current = generation
+                .lock()
+                .map_err(|_| Error::RenderInit("file source lock poisoned"))?;
+            *current = current.wrapping_add(1);
+            *current
+        };
         let sender = self.sfx_sender()?;
         let request = FilePlaybackRequest {
             target: PlaybackTarget::Route,
@@ -348,23 +363,43 @@ impl AudioEngine {
             .spawn(move || {
                 // 解码线程只向指定槽投递；失败时 sender 生命周期由调用方观察。
                 let cancel = Arc::new(AtomicBool::new(false));
-                let Ok((info, rx)) = decode::stream_to_channel(path, 0, looped, cancel) else {
+                let Ok((info, rx)) = decode::stream_to_channel(path, start_hns, looped, cancel)
+                else {
                     return;
                 };
-                let _ = sender.send(SfxCommand::PlayStream {
-                    slot,
-                    sample_rate: info.sample_rate,
-                    channels: info.channels,
-                    volume: 1.0,
-                    rx,
-                });
+                // 旧解码请求不得在后续 seek/stop 之后覆盖同一槽位；检查与投递共用短锁。
+                if let Ok(current) = generation.lock()
+                    && *current == ticket
+                {
+                    let _ = sender.send(SfxCommand::PlayStream {
+                        slot,
+                        sample_rate: info.sample_rate,
+                        channels: info.channels,
+                        start_hns,
+                        volume: 1.0,
+                        rx,
+                    });
+                    if paused {
+                        let _ = sender.send(SfxCommand::SetPaused { slot, paused: true });
+                    }
+                }
             })
             .map(|_| ())
             .map_err(|_| Error::RenderInit("spawn file source"))
     }
     /// 停止指定音频卡片槽位的路由流，不影响其他卡片。
     pub fn stop_file_source(&self, slot: usize) -> Result<(), Error> {
-        self.sfx_sender()?
+        let sender = self.sfx_sender()?;
+        let generation = self
+            .file_source_generations
+            .get(slot)
+            .ok_or(Error::RenderInit("file source slot out of range"))?;
+        let mut current = generation
+            .lock()
+            .map_err(|_| Error::RenderInit("file source lock poisoned"))?;
+        *current = current.wrapping_add(1);
+        // 在同一短锁内投递停止命令，阻止尚在解码的旧请求随后重新占用该槽。
+        sender
             .send(SfxCommand::StopSlot(slot))
             .map_err(|_| Error::RenderInit("sfx is closed"))
     }

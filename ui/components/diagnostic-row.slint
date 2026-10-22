@@ -4,24 +4,35 @@ import { Theme } from "../theme.slint";
 
 // 严重级别圆点：severity 由诊断数据提供，0 灰、1 黄、2 红。
 export component SeverityDot inherits Rectangle {
-    // 诊断级别枚举值。
+    // 诊断级别枚举值；0 普通、1 警告、2 错误。
     in property <int> severity: 0;
-    // 圆点本身没有交互，只把级别映射交给组件外观实现。
+    width: 8px;
+    height: 8px;
+    border-radius: 4px;
+    background: root.severity == 2
+        ? Theme.danger
+        : (root.severity == 1 ? Theme.warn : Theme.text3);
 }
 
 // 未读数徽标：显示问题中心当前累计的未读条数。
 export component UnseenBadge inherits Rectangle {
     // 未读数量，由诊断状态聚合提供。
     in property <int> count: 0;
-    // 徽标宽度随数字变化，避免未读数变化挤压标题栏布局。
+    width: max(22px, badge-count.preferred-width + 12px);
+    height: 20px;
+    border-radius: 10px;
+    background: Theme.danger;
     HorizontalLayout {
-        padding-left: 5px; padding-right: 5px;
+        padding-left: 6px;
+        padding-right: 6px;
         alignment: center;
-        Text {
+        badge-count := Text {
             text: "\{root.count}";
             color: Theme.onAccent;
             font-size: 11px;
-            vertical-alignment: TextVerticalAlignment.center;
+            font-weight: 600;
+            horizontal-alignment: center;
+            vertical-alignment: center;
         }
     }
 }
@@ -40,29 +51,60 @@ export component DiagRow inherits Rectangle {
     in property <bool> selected: false;
     // 点击该行时通知父级更新当前选择项。
     callback picked();
-    height: 52px;
+    height: 64px;
     background: root.selected ? Theme.accentSoft : Theme.card;
-    Rectangle { y: parent.height - 1px; width: 100%; height: 1px; background: Theme.border; }
+    Rectangle {
+        y: parent.height - 1px;
+        width: 100%;
+        height: 1px;
+        background: Theme.border;
+    }
     HorizontalLayout {
-        padding-left: 16px;
-        padding-right: 12px;
-        spacing: 10px;
-        SeverityDot { severity: root.severity; }
+        padding-left: 18px;
+        padding-right: 18px;
+        spacing: 12px;
+        VerticalLayout {
+            width: 8px;
+            height: 100%;
+            alignment: center;
+            SeverityDot { severity: root.severity; }
+        }
         VerticalLayout {
             horizontal-stretch: 1;
             min-width: 0px;
-            spacing: 2px;
-            Text { text: root.title; color: Theme.text; font-size: 13px; overflow: elide; }
+            alignment: center;
+            spacing: 4px;
             Text {
-                text: "\{root.source} · \{root.time}";
-                color: Theme.text3;
-                font-size: 11px;
+                text: root.title;
+                color: Theme.text;
+                font-size: 13px;
+                font-weight: root.selected ? 600 : 400;
                 overflow: elide;
+            }
+            HorizontalLayout {
+                spacing: 6px;
+                Text {
+                    text: root.source;
+                    color: Theme.text2;
+                    font-size: 11px;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+                Text {
+                    text: root.time;
+                    color: Theme.text3;
+                    font-size: 11px;
+                    overflow: elide;
+                    horizontal-alignment: right;
+                }
             }
         }
     }
     // 行级命中区覆盖整行，点击只报告选择而不直接改诊断数据。
-    ta := TouchArea { mouse-cursor: pointer; clicked => { root.picked(); } }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.picked(); }
+    }
     states [
         hovered when ta.has-hover: { background: Theme.accentSoft; }
     ]

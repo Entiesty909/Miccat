@@ -27,6 +27,8 @@ pub enum SfxCommand {
         sample_rate: u32,
         /// 源流声道数；交错样本每帧包含该数量的值。
         channels: u16,
+        /// 流起始媒体位置，100 ns；seek 后进度不能重新从零计数。
+        start_hns: u64,
         /// 初始线性音量，接收后限制在 0..=1。
         volume: f32,
         /// 解码线程发送的有界块接收端。
@@ -76,6 +78,7 @@ pub fn run_sfx_loop(
                 SfxCommand::PlayStream {
                     // 新流覆盖同槽位旧流，避免一个卡片同时消费两条解码通道。
                     slot,
+                    start_hns,
                     sample_rate,
                     channels,
                     volume,
@@ -87,13 +90,14 @@ pub fn run_sfx_loop(
                         state.store(1, Ordering::Relaxed);
                     }
                     if let Some(position) = positions.get(slot) {
-                        // 新流从头开始，先清零上一次播放留下的位置。
-                        position.store(0, Ordering::Relaxed);
+                        // 新流从请求的媒体位置计数，避免 seek 后进度先跳回零。
+                        position.store(start_hns, Ordering::Relaxed);
                     }
                     players.push(SfxPlayer::Stream(StreamPlayer::new(
                         slot,
                         sample_rate,
                         channels,
+                        start_hns,
                         volume,
                         positions.clone(),
                         rx,
@@ -217,6 +221,7 @@ impl StreamPlayer {
         slot: usize,
         sample_rate: u32,
         channels: u16,
+        start_hns: u64,
         volume: f32,
         positions: Arc<Vec<AtomicU64>>,
         rx: Receiver<StreamChunk>,
@@ -229,7 +234,7 @@ impl StreamPlayer {
             rx,
             buffer: Vec::with_capacity(64_000),
             position: 0.0,
-            played_frames: 0.0,
+            played_frames: start_hns as f64 * f64::from(sample_rate) / 10_000_000.0,
             positions,
             done: false,
             finished: false,
@@ -321,7 +326,7 @@ mod tests {
         })
         .unwrap();
         let positions = Arc::new(vec![AtomicU64::new(0)]);
-        let mut player = StreamPlayer::new(0, 48_000, 1, 1.0, positions, rx);
+        let mut player = StreamPlayer::new(0, 48_000, 1, 0, 1.0, positions, rx);
         let format = AudioFormat {
             sample_rate: 48_000,
             channels: 1,
@@ -338,5 +343,27 @@ mod tests {
         player.paused = false;
         player.mix_into(&mut output, format);
         assert_eq!(output, [0.5; 4]);
+    }
+    /// 从中途恢复时对外位置必须保持媒体时间，而不是把当前片段当作零点。
+    #[test]
+    fn seeked_stream_reports_absolute_media_position() {
+        let (tx, rx) = mpsc::channel();
+        tx.send(StreamChunk {
+            samples: vec![0.25; 8],
+            done: false,
+        })
+        .unwrap();
+        let positions = Arc::new(vec![AtomicU64::new(0)]);
+        let mut player = StreamPlayer::new(0, 48_000, 1, 5_000_000, 1.0, positions.clone(), rx);
+        let format = AudioFormat {
+            sample_rate: 48_000,
+            channels: 1,
+            kind: SampleKind::F32,
+        };
+        let mut output = [0.0; 4];
+        player.mix_into(&mut output, format);
+        assert_eq!(output, [0.25; 4]);
+        let position = positions[0].load(std::sync::atomic::Ordering::Relaxed);
+        assert!((5_000_800..=5_000_900).contains(&position));
     }
 }

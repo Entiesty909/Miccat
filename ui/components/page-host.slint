@@ -9,6 +9,8 @@ import { Theme } from "../theme.slint";
 export component PageHost inherits Rectangle {
     // 页面索引：0 路由、1 音频库、2 设置；切换时条件组件重建。
     in property <int> page: 0;
+    // 当前主窗口的页面浅粉遮罩是否已经烘入与尺寸匹配的背景图。
+    in property <bool> pink-background-precomposed: false;
     // 进程名称数组，由 bridge 刷新。
     in-out property <[string]> processes: [];
     // 进程 PID 数组，用于添加源去重。
@@ -246,6 +248,8 @@ export component PageHost inherits Rectangle {
     callback source-next-track(int);
     // 文件源播放模式循环切换。
     callback source-play-mode-cycled(int);
+    // 指定文件槽释放进度滑块后提交目标位置。
+    callback source-progress-seek(int, float);
     // 打开音频库。
     callback open-library();
     // 打开设置并指定分组。
@@ -343,9 +347,8 @@ export component PageHost inherits Rectangle {
     // 默认通信设备切换。
     callback set-default-communications-toggled(bool);
 
-    // 淡粉模式下给三页非卡片内容增加半透明浅色底层，保护文字对比度。
-    background: Theme.page-overlay;
-
+    // 淡粉主题给非卡片区域铺浅色遮罩，背景图仍属于主窗口。
+    background: root.pink-background-precomposed ? transparent : Theme.page-overlay;
     // 条件组件按 page 重建，保证隐藏页面不继续接收交互。
     // 路由页仅负责把桥接数组投影到页面，并将用户事件原样上送。
     if root.page == 0: RoutePage {
@@ -425,6 +428,9 @@ export component PageHost inherits Rectangle {
         source-next-track(index) => { root.source-next-track(index); }
         source-play-mode-cycled(index) => {
             root.source-play-mode-cycled(index);
+        }
+        source-progress-seek(index, value) => {
+            root.source-progress-seek(index, value);
         }
         // 导航事件切换宿主页面或打开设置，不在组件内改变路由数据。
         open-library => { root.open-library(); }
