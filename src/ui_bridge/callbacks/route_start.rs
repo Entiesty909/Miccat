@@ -3,6 +3,7 @@
 use super::super::*;
 use crate::audio::device::{self, DestDevice};
 use crate::audio::policy;
+use crate::engine::PlaybackTarget;
 /// 提供源卡片菜单触发的单源路由启动路径。
 mod source_only;
 pub(super) use source_only::start_source_only;
@@ -42,10 +43,53 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
         handle_start_stop(&ui, &state);
     });
 }
+/// 保存引擎重建输出图前的路由卡片试听位置；库内播放不在此范围内。
+fn route_preview(state: &AppState) -> Option<(usize, config::AudioEntry, u64)> {
+    let cache = state.cache.borrow();
+    let slot = cache.route_preview_slot?;
+    let entry = cache
+        .route_audio_entries
+        .get(slot)
+        .and_then(|index| cache.audio_entries.get(*index))?
+        .clone();
+    let file = state.engine.file_state();
+    (file.playing && file.path == entry.path).then_some((slot, entry, file.position_hns))
+}
+
+/// 输出图启停后恢复本机试听，并仅把已启用卡片加入正在运行的路由。
+fn resume_route_preview(
+    ui: &MainWindow,
+    state: &AppState,
+    preview: Option<(usize, config::AudioEntry, u64)>,
+    allow_route_file: bool,
+) {
+    let Some((slot, entry, position)) = preview else {
+        return;
+    };
+    state.engine.ensure_monitor_default(true);
+    if let Err(error) = state
+        .engine
+        .play_file(&entry, position, PlaybackTarget::Monitor)
+    {
+        state.cache.borrow_mut().route_preview_slot = None;
+        ui.set_player_playing(false);
+        super::super::diagnostics::report_error(ui, &error);
+        return;
+    }
+    ui.set_player_playing(true);
+    if allow_route_file
+        && state.engine.is_running()
+        && state.cache.borrow().route_audio_enabled.get(slot) == Some(&true)
+        && let Err(error) = state
+            .engine
+            .play_file_source(&entry, slot, false, position, false)
+    {
+        super::super::diagnostics::report_error(ui, &error);
+    }
+}
 
 /// 根据引擎运行状态选择停止或快照并启动一条路由。
 fn handle_start_stop(ui: &MainWindow, state: &AppState) {
-    // 运行中点击同一按钮只走停止分支；未运行时先冻结选择，再把配置增益应用到本次启动。
     if state.engine.is_running() {
         stop_route(ui, state);
         return;
@@ -61,16 +105,25 @@ fn handle_start_stop(ui: &MainWindow, state: &AppState) {
     state.engine.set_mic_volume(mix.mic);
     state.engine.set_master_volume(mix.master);
 
+    let preview = route_preview(state);
     match start_route(&state.engine, &selection) {
-        Ok(()) => finish_route_start(ui, state, selection),
-        Err(error) => fail_route_start(ui, state, error),
+        Ok(()) => {
+            finish_route_start(ui, state, selection);
+            resume_route_preview(ui, state, preview, true);
+        }
+        Err(error) => {
+            fail_route_start(ui, state, error);
+            resume_route_preview(ui, state, preview, false);
+        }
     }
 }
 
 /// 停止所有路由源，并恢复启动前保存的系统默认麦克风。
 fn stop_route(ui: &MainWindow, state: &AppState) {
-    // 引擎停止后再恢复系统默认麦克风，避免恢复动作与正在退出的采集源竞争。
+    // 停止路由会释放本机监听端，先保存当前文件位置，停完后恢复独立试听。
+    let preview = route_preview(state);
     state.engine.stop();
+    resume_route_preview(ui, state, preview, false);
     restore_default_mics(&state.saved_mics);
     ui.set_running(false);
     ui.set_status_text("未运行".into());
@@ -130,18 +183,18 @@ fn selected_route(ui: &MainWindow, state: &AppState) -> Option<RouteSelection> {
     if primary_pid.is_none() && !has_enabled_file_source && !mix_mic {
         return None;
     }
-    // 只要任一源保存了独立输出，就使用 SourceOutputRoutes；否则沿用多设备广播模式。
-    let custom_routes = !cache.process_output_ids.is_empty()
-        || !cache.audio_output_ids.is_empty()
-        || output_config.process_output_id.is_some()
-        || output_config.mic_output_id.is_some();
+    // 独立设备只由已启用卡片参与图构建；否则延用全局设备列表广播。
+    let custom_routes = !output_config.process_output_ids.is_empty()
+        || !output_config.file_output_ids.is_empty()
+        || !output_config.mic_output_ids.is_empty();
     let (output_ids, source_routes) = if custom_routes {
         let selected_slots = selected.iter().map(|(slot, _)| *slot).collect::<Vec<_>>();
+        let resolved =
+            crate::ui_bridge::sources::render_output_config(&cache.dests, &output_config);
         let (output_ids, routes) = routed_outputs(
-            &cache,
             &selected_slots,
             &enabled_files,
-            &output_config,
+            &resolved,
             &dest.render_id,
             mix_mic,
         );
@@ -153,8 +206,10 @@ fn selected_route(ui: &MainWindow, state: &AppState) -> Option<RouteSelection> {
             .iter()
             .enumerate()
             .filter(|(index, _)| cache.device_selected.get(*index).copied().unwrap_or(false))
-            .map(|(_, device)| device.render_id.clone())
+            .map(|(_, device)| device.selection_id().to_owned())
             .collect::<Vec<_>>();
+        let selected_outputs =
+            crate::ui_bridge::sources::render_target_ids(&cache.dests, &selected_outputs);
         let output_ids = if selected_outputs.is_empty() {
             vec![dest.render_id.clone()]
         } else {
@@ -222,9 +277,8 @@ fn file_source_enabled(cache: &UiCache, slot: usize) -> bool {
     }
 }
 
-/// 为实际启用的槽去重输出 ID；禁用槽仅留有效下标，不能让其设备进入引擎冲突校验。
+/// 为实际启用的槽去重输出 ID；禁用槽保持空掩码，不触发设备冲突检查。
 fn routed_outputs(
-    cache: &UiCache,
     selected_slots: &[usize],
     enabled_files: &[bool],
     output_config: &config::OutputConfig,
@@ -232,52 +286,58 @@ fn routed_outputs(
     mix_mic: bool,
 ) -> (Vec<String>, crate::engine::SourceOutputRoutes) {
     let mut output_ids = Vec::new();
-    let mut route_index = |id: String| {
-        output_ids
-            .iter()
-            .position(|existing| existing == &id)
-            .unwrap_or_else(|| {
-                output_ids.push(id);
-                output_ids.len() - 1
-            })
+    let mut route_index = |ids: &[String]| {
+        let mut indices = Vec::with_capacity(ids.len());
+        for id in ids {
+            let index = output_ids
+                .iter()
+                .position(|existing| existing == id)
+                .unwrap_or_else(|| {
+                    output_ids.push(id.clone());
+                    output_ids.len() - 1
+                });
+            if !indices.contains(&index) {
+                indices.push(index);
+            }
+        }
+        indices
     };
-    // 进程源用原卡片槽位读取目标，即使之前的卡片被禁用也不能借用它的设备。
+    // 旧配置缺少某个槽时使用全局输出；已有槽的空选择不隐式广播。
+    let fallback = if output_config.device_ids.is_empty() {
+        vec![dest_id.to_owned()]
+    } else {
+        output_config.device_ids.clone()
+    };
     let process = selected_slots
         .iter()
         .map(|slot| {
-            cache
+            let ids = output_config
                 .process_output_ids
                 .get(*slot)
-                .and_then(|id| id.clone())
-                .or_else(|| output_config.process_output_id.clone())
-                .unwrap_or_else(|| dest_id.to_owned())
+                .unwrap_or(&fallback);
+            route_index(ids)
         })
-        .map(&mut route_index)
         .collect::<Vec<_>>();
-    // 引擎为所有文件槽预留索引；禁用槽指向已有输出，但不打开它原来的目标。
     let file = enabled_files
         .iter()
         .enumerate()
         .map(|(slot, enabled)| {
             if !enabled {
-                return 0;
+                return Vec::new();
             }
-            let id = cache
-                .audio_output_ids
-                .get(slot)
-                .and_then(|id| id.clone())
-                .unwrap_or_else(|| dest_id.to_owned());
-            route_index(id)
+            let ids = output_config.file_output_ids.get(slot).unwrap_or(&fallback);
+            route_index(ids)
         })
         .collect::<Vec<_>>();
     let mic = if mix_mic {
-        let id = output_config
-            .mic_output_id
-            .clone()
-            .unwrap_or_else(|| dest_id.to_owned());
-        route_index(id)
+        let ids = if output_config.mic_output_ids.is_empty() {
+            &fallback
+        } else {
+            &output_config.mic_output_ids
+        };
+        route_index(ids)
     } else {
-        0
+        Vec::new()
     };
     (
         output_ids,
@@ -324,7 +384,8 @@ fn finish_route_start(ui: &MainWindow, state: &AppState, selection: RouteSelecti
         config.route.process_names = selection.process_names;
         config.route.mix_mic = selection.mix_mic;
         config.output.device_id = Some(selection.dest.render_id.clone());
-        config.output.device_ids = selection.output_ids.clone();
+        // 用户勾选的列表端点可与另一项共用 render；不能用去重后的运行图覆盖选择。
+        config.output.device_ids = state.cache.borrow().selected_device_ids.clone();
         config.output.mic_id = selection.dest.capture_id.clone();
         config.output.mic_name = selection.dest.capture_name.clone();
         config.route.mic_id = selection.mic_id.clone();
@@ -386,42 +447,41 @@ fn apply_virtual_mic_route(
 
 #[cfg(test)]
 mod tests {
-    use super::{UiCache, routed_outputs};
+    use super::routed_outputs;
     use crate::config::OutputConfig;
 
     /// 关闭的进程、文件和麦克风目标不能占用输出；启用进程仍按原卡片槽读取设备。
     #[test]
     fn inactive_cards_do_not_open_their_paired_endpoint() {
-        let cache = UiCache {
-            process_output_ids: vec![Some("paired-b".into()), Some("paired-a".into())],
-            audio_output_ids: vec![Some("paired-b".into())],
-            ..Default::default()
-        };
         let output_config = OutputConfig {
-            mic_output_id: Some("paired-b".into()),
+            process_output_ids: vec![
+                vec!["paired-b".into()],
+                vec!["paired-a".into(), "paired-c".into()],
+            ],
+            file_output_ids: vec![vec!["paired-b".into()]],
+            mic_output_ids: vec!["paired-b".into()],
             ..Default::default()
         };
 
-        let (ids, routes) = routed_outputs(&cache, &[1], &[false], &output_config, "main", false);
-        assert_eq!(ids, ["paired-a"]);
-        assert_eq!(routes.process, [0]);
-        assert_eq!(routes.file, [0]);
-        assert_eq!(routes.mic, 0);
+        let (ids, routes) = routed_outputs(&[1], &[false], &output_config, "main", false);
+        assert_eq!(ids, ["paired-a", "paired-c"]);
+        assert_eq!(routes.process, [vec![0, 1]]);
+        assert_eq!(routes.file, [Vec::<usize>::new()]);
+        assert!(routes.mic.is_empty());
     }
 
     /// 两张启用卡片选同一虚拟设备的两端时，两个端点都交给引擎原有冲突校验。
     #[test]
     fn active_paired_endpoints_are_both_submitted() {
-        let cache = UiCache {
-            process_output_ids: vec![Some("paired-a".into())],
-            audio_output_ids: vec![Some("paired-b".into())],
+        let output_config = OutputConfig {
+            process_output_ids: vec![vec!["paired-a".into(), "paired-c".into()]],
+            file_output_ids: vec![vec!["paired-b".into(), "paired-c".into()]],
             ..Default::default()
         };
-        let output_config = OutputConfig::default();
 
-        let (ids, routes) = routed_outputs(&cache, &[0], &[true], &output_config, "main", false);
-        assert_eq!(ids, ["paired-a", "paired-b"]);
-        assert_eq!(routes.process, [0]);
-        assert_eq!(routes.file, [1]);
+        let (ids, routes) = routed_outputs(&[0], &[true], &output_config, "main", false);
+        assert_eq!(ids, ["paired-a", "paired-c", "paired-b"]);
+        assert_eq!(routes.process, [vec![0, 1]]);
+        assert_eq!(routes.file, [vec![2, 1]]);
     }
 }

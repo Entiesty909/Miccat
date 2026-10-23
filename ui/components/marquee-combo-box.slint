@@ -10,17 +10,26 @@ export component MarqueeComboBox inherits FocusScope {
     in property <[string]> model: [];
     // 当前选中项索引，超出模型范围时由显示值回退为空。
     in-out property <int> current-index: 0;
+    // 路由卡片保持单选框外观，弹层可多选，普通调用方仍沿用单选。
+    in property <bool> multi-select: false;
+    // 多选时由 bridge 提供的逐设备勾选模型，不保存持久化 ID。
+    in property <[bool]> checked: [];
+    // 多选设备友好名由 bridge 合并，仅用于当前值显示。
+    in property <string> multi-label: "";
     // 是否在长文本上启用悬停滚动显示。
     in property <bool> marquee-enabled: true;
     // 用户选中条目后通知宿主，参数是选项显示文本。
     callback selected(string);
+    // 多选时把设备索引与新选中状态交给宿主，弹层保持打开。
+    callback selection-toggled(int, bool);
 
     // 根据 current-index 派生的当前显示文本，供无障碍和视口共用。
-    out property <string> current-value:
-        root.current-index >= 0
-        && root.current-index < root.model.length
-        ? root.model[root.current-index]
-        : "";
+    out property <string> current-value: root.multi-select
+        ? root.multi-label
+        : (root.current-index >= 0
+            && root.current-index < root.model.length
+            ? root.model[root.current-index]
+            : "");
 
     // 弹出窗口是否可见，直接反映 PopupWindow 的生命周期。
     out property <bool> popup-open: popup.is-open;
@@ -102,13 +111,20 @@ export component MarqueeComboBox inherits FocusScope {
         root.scroll-highlight-into-view();
     }
     // 提交合法索引并关闭弹层；非法索引只关闭而不发出选择事件。
-    // 只有合法索引才写回选择并通知宿主，防止模型刷新期间越界。
     function choose(index: int) {
-        if index >= 0 && index < root.model.length {
+        if index < 0 || index >= root.model.length {
+            return;
+        }
+        if root.multi-select {
+            root.selection-toggled(
+                index,
+                !(index < root.checked.length && root.checked[index])
+            );
+        } else {
             root.current-index = index;
             root.selected(root.model[index]);
+            popup.close();
         }
-        popup.close();
     }
     // 外部改变选择时同步键盘高亮，不触发重复 selected 回调。
     changed current-index => {
@@ -302,7 +318,11 @@ export component MarqueeComboBox inherits FocusScope {
                             border-radius: 4px;
                             background: item-area.has-hover
                                 ? Theme.playingSoft
-                                : (root.current-index == index
+                                : ((root.multi-select
+                                    && index < root.checked.length
+                                    && root.checked[index])
+                                    || (!root.multi-select
+                                        && root.current-index == index)
                                     || root.highlighted-index == index
                                     ? Theme.accentSoft
                                     : transparent);
@@ -311,15 +331,27 @@ export component MarqueeComboBox inherits FocusScope {
                                 x: 0px;
                                 y: (parent.height - self.height) / 2;
                                 width: 3px;
-                                height: root.current-index == index ? 16px : 0px;
+                                height: (root.multi-select
+                                    ? (index < root.checked.length && root.checked[index])
+                                    : root.current-index == index) ? 16px : 0px;
                                 background: Theme.accent;
                                 border-radius: 2px;
                             }
+                            if root.multi-select: Text {
+                                x: 7px;
+                                width: 13px;
+                                height: 100%;
+                                text: index < root.checked.length && root.checked[index]
+                                    ? "✓" : "";
+                                color: Theme.accent;
+                                font-size: 12px;
+                                vertical-alignment: center;
+                            }
 
                             if root.marquee-enabled: MarqueeText {
-                                x: 16px;
+                                x: root.multi-select ? 24px : 16px;
                                 y: 0px;
-                                width: max(0px, parent.width - 20px);
+                                width: max(0px, parent.width - (root.multi-select ? 28px : 20px));
                                 height: parent.height;
                                 text: item;
                                 text-color: Theme.text;
@@ -327,9 +359,9 @@ export component MarqueeComboBox inherits FocusScope {
                                 hovered: item-area.has-hover;
                             }
                             if !root.marquee-enabled: Text {
-                                x: 16px;
+                                x: root.multi-select ? 24px : 16px;
                                 y: 0px;
-                                width: max(0px, parent.width - 20px);
+                                width: max(0px, parent.width - (root.multi-select ? 28px : 20px));
                                 height: parent.height;
                                 text: item;
                                 color: Theme.text;

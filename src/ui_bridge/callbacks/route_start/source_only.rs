@@ -2,56 +2,64 @@
 
 use super::super::super::*;
 use crate::config;
-use crate::engine::AudioEngine;
 use slint::Model;
 use std::cell::RefCell;
 use std::rc::Rc;
 
 /// 只启动一个路由源，绕过底部主按钮的多源选择。
-pub(crate) fn start_source_only(
-    ui: &MainWindow,
-    cache: &Rc<RefCell<UiCache>>,
-    app_config: &Rc<RefCell<config::AppConfig>>,
-    engine: &AudioEngine,
-    kind: usize,
-    source_index: i32,
-) {
-    // 输出 ID 优先取该源槽位的独立配置，缺失时回退到路由页当前目标设备。
-    let output_id = {
+pub(crate) fn start_source_only(ui: &MainWindow, state: &AppState, kind: usize, source_index: i32) {
+    let cache = &state.cache;
+    let app_config = &state.app_config;
+    let engine = &state.engine;
+    let preview = super::route_preview(state);
+    // 单独启动只打开这张卡片已选的设备；不可把其他卡片的目标并入冲突校验。
+    let output_ids = {
         let cache_state = cache.borrow();
         let config = app_config.borrow();
-        // 文件源按混合行之前的文件数量计算独立槽位；进程和麦克风使用全局目标配置。
-        let configured = if kind == 1 {
-            let source_index = usize::try_from(source_index).ok();
-            let kinds = ui.get_source_kinds();
-            source_index
-                .map(|index| {
-                    (0..index)
-                        .filter(|row| kinds.row_data(*row) == Some(1))
-                        .count()
-                })
-                .and_then(|slot| cache_state.audio_output_ids.get(slot))
-                .and_then(Option::as_deref)
-                .map(str::to_owned)
-        } else {
-            match kind {
-                0 => config.output.process_output_id.as_deref(),
-                _ => config.output.mic_output_id.as_deref(),
-            }
-            .map(str::to_owned)
+        let row = match usize::try_from(source_index) {
+            Ok(row) => row,
+            Err(_) => return,
         };
-        // 没有该源的独立目标时，沿用路由页当前设备，保证单源启动仍有可用输出。
-        configured.or_else(|| {
+        let kinds = ui.get_source_kinds();
+        let slot = (0..row)
+            .filter(|index| kinds.row_data(*index) == Some(kind as i32))
+            .count();
+        let fallback = if config.output.device_ids.is_empty() {
             cache_state
                 .dests
                 .get(ui.get_device_index().max(0) as usize)
-                .map(|device| device.render_id.clone())
-        })
+                .map(|device| vec![device.selection_id().to_owned()])
+                .unwrap_or_default()
+        } else {
+            config.output.device_ids.clone()
+        };
+        let chosen = match kind {
+            0 => config
+                .output
+                .process_output_ids
+                .get(slot)
+                .cloned()
+                .unwrap_or(fallback),
+            1 => config
+                .output
+                .file_output_ids
+                .get(slot)
+                .cloned()
+                .unwrap_or(fallback),
+            _ => {
+                if config.output.mic_output_ids.is_empty() {
+                    fallback
+                } else {
+                    config.output.mic_output_ids.clone()
+                }
+            }
+        };
+        crate::ui_bridge::sources::render_target_ids(&cache_state.dests, &chosen)
     };
-    let Some(output_id) = output_id else {
+    if output_ids.is_empty() {
         ui.set_error_text("请选择输出设备".into());
         return;
-    };
+    }
     // 单源启动也要解除隐藏状态，否则路由列表会把正在转发的文件/麦克风卡片隐藏。
     if kind == 1 {
         cache.borrow_mut().file_source_hidden = false;
@@ -59,17 +67,18 @@ pub(crate) fn start_source_only(
     if kind == 2 {
         cache.borrow_mut().mic_source_hidden = false;
     }
-    // 单源模式先彻底停止旧路由，再用固定的唯一输出映射重建源，避免残留其他槽位。
+    // 全部源槽的索引掩码只传递给实际安装的单独来源，其余源不会被启动。
     engine.stop();
-    // 所有源的路由目标都指向输出数组的第 0 项，其他槽位保持空映射以隔离单源模式。
+    let targets = (0..output_ids.len()).collect::<Vec<_>>();
     let routes = crate::engine::SourceOutputRoutes {
-        process: vec![0; crate::engine::PROCESS_SLOTS],
-        file: vec![0; crate::engine::SFX_SLOTS],
-        mic: 0,
+        process: vec![targets.clone(); crate::engine::PROCESS_SLOTS],
+        file: vec![targets.clone(); crate::engine::SFX_SLOTS],
+        mic: targets,
     };
-    if let Err(error) = engine.open_routed_outputs(&[output_id], routes) {
+    if let Err(error) = engine.open_routed_outputs(&output_ids, routes) {
         tracing::warn!("单独转发打开输出失败：{error}");
         super::super::super::diagnostics::report_error(ui, &error);
+        super::resume_route_preview(ui, state, preview, false);
         return;
     }
     // 文件单独转发仅准备目标和保留卡片状态，实际播放由卡片按钮显式启动。
@@ -91,12 +100,15 @@ pub(crate) fn start_source_only(
         tracing::warn!("单独转发失败：{error}");
         ui.set_running(false);
         super::super::super::diagnostics::report_error(ui, &error);
+        super::resume_route_preview(ui, state, preview, false);
         return;
     }
     ui.set_running(true);
     ui.set_status_text("单独转发中".into());
     ui.set_status_kind(1);
     ui.set_error_text("".into());
+    // 单独启动会重建输出图；正在试听的文件从原位置继续，仅文件单源模式可入路由。
+    super::resume_route_preview(ui, state, preview, kind == 1);
 }
 
 /// 将混合源列表中的 UI 行转换为可用进程槽位，再解析对应 PID。

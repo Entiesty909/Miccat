@@ -96,6 +96,7 @@ fn register_double_click(ui: &MainWindow, state: &AppState) {
         }
         cache.borrow_mut().paused_audio = None;
         cache.borrow_mut().file_source_hidden = false;
+        cache.borrow_mut().route_preview_slot = None;
         cache.borrow_mut().playback_target = target;
         ui.set_player_paused(false);
         stop_ui(&ui, &engine, false);
@@ -136,6 +137,13 @@ fn register_seek(ui: &MainWindow, state: &AppState) {
         engine.stop_file();
         let target = cache.borrow().playback_target;
         start_ui(&ui, &engine, &entry, target_hns, target);
+        if let Some(slot) = cache.borrow().route_preview_slot
+            && engine.is_running()
+            && cache.borrow().route_audio_enabled.get(slot) == Some(&true)
+        {
+            let _ = engine.stop_file_source(slot);
+            let _ = engine.play_file_source(&entry, slot, false, target_hns, false);
+        }
         ui.set_audio_progress(position);
         ui.set_audio_current_position(format_hns_position(target_hns, entry.duration_hns).into());
     });
@@ -148,9 +156,13 @@ fn register_stop(ui: &MainWindow, state: &AppState) {
     let ui_weak = ui.as_weak();
     ui.on_audio_stop(move || {
         // 试听文件使用独立槽位，停止这里只能终止当前文件，不能清理路由中的其他音频槽。
+        if let Some(slot) = cache.borrow().route_preview_slot {
+            let _ = engine.stop_file_source(slot);
+        }
         engine.stop_file();
         cache.borrow_mut().paused_audio = None;
         cache.borrow_mut().playback_target = PlaybackTarget::Both;
+        cache.borrow_mut().route_preview_slot = None;
         if let Some(ui) = ui_weak.upgrade() {
             ui.set_player_paused(false);
             ui.set_player_entry_index(-1);
@@ -175,6 +187,7 @@ fn register_pause(ui: &MainWindow, state: &AppState) {
             if let Some((entry, position, target)) = paused {
                 start_ui(&ui, &engine, &entry, position, target);
                 ui.set_player_paused(false);
+                sync_route_card_pause(&engine, &cache, false);
             }
             return;
         }
@@ -201,10 +214,38 @@ fn register_pause(ui: &MainWindow, state: &AppState) {
             );
         }
         engine.stop_file();
+        sync_route_card_pause(&engine, &cache, true);
         engine.set_monitor_default(ui.get_preview_enabled());
         ui.set_player_paused(true);
         ui.set_player_playing(false);
     });
+}
+
+/// 音频库常显控制条操作路由卡片时同步该文件槽；其它卡片的路由状态不受影响。
+fn sync_route_card_pause(engine: &AudioEngine, cache: &Rc<RefCell<UiCache>>, paused: bool) {
+    let cache = cache.borrow();
+    if let Some(slot) = cache.route_preview_slot
+        && engine.is_running()
+        && cache.route_audio_enabled.get(slot) == Some(&true)
+    {
+        if !paused
+            && engine.file_source_state(slot) == crate::engine::FileSourceState::Stopped
+            && let Some(entry) = cache
+                .route_audio_entries
+                .get(slot)
+                .and_then(|index| cache.audio_entries.get(*index))
+        {
+            let _ = engine.play_file_source(
+                entry,
+                slot,
+                false,
+                engine.file_state().position_hns,
+                false,
+            );
+        } else {
+            let _ = engine.set_file_source_paused(slot, paused);
+        }
+    }
 }
 
 /// 按可见列表相邻项导航，停止旧文件后在同一播放目标启动新条目。
@@ -246,6 +287,7 @@ fn navigate(
     // 导航沿用当前目标设备，并清除旧暂停快照，避免下一次暂停恢复到上一首。
     let target = cache.borrow().playback_target;
     cache.borrow_mut().paused_audio = None;
+    cache.borrow_mut().route_preview_slot = None;
     engine.stop_file();
     start_ui(&ui, engine, &entry, 0, target);
 }

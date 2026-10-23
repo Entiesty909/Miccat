@@ -209,6 +209,108 @@ mod tests {
             serde_json::from_value(old_config).expect("older config without theme index");
         assert_eq!(decoded.theme_index, 0);
     }
+    /// 平面单选列表逐槽升级；空字符串及异常项必须留在原位。
+    #[test]
+    fn flat_output_routes_migrate_without_shifting_source_slots() {
+        let output: crate::config::OutputConfig = serde_json::from_value(serde_json::json!({
+            "device_id": "global",
+            "device_ids": ["global", "other"],
+            "process_output_ids": ["first", "", null, "last"],
+            "file_output_ids": ["a", 42, "c"],
+            "mic_output_id": "microphone"
+        }))
+        .expect("read old per-source output IDs");
+
+        assert_eq!(output.device_id.as_deref(), Some("global"));
+        assert_eq!(output.device_ids, ["global", "other"]);
+        assert_eq!(
+            output.process_output_ids,
+            [vec!["first"], vec![], vec![], vec!["last"]]
+        );
+        assert_eq!(output.file_output_ids, [vec!["a"], vec![], vec!["c"]]);
+        assert_eq!(output.mic_output_ids, ["microphone"]);
+    }
+
+    /// 旧单源字段只在新字段缺席时迁移，明确的空选不能重新启用旧设备。
+    #[test]
+    fn missing_routes_use_legacy_ids_but_explicit_empty_routes_do_not() {
+        let legacy: crate::config::OutputConfig = serde_json::from_value(serde_json::json!({
+            "process_output_id": "process",
+            "file_output_id": "file",
+            "mic_output_id": "mic"
+        }))
+        .expect("read legacy single-output routes");
+        assert_eq!(legacy.process_output_ids, [vec!["process"]]);
+        assert_eq!(legacy.file_output_ids, [vec!["file"]]);
+        assert_eq!(legacy.file_default_output_id.as_deref(), Some("file"));
+        assert_eq!(legacy.mic_output_ids, ["mic"]);
+
+        let empty: crate::config::OutputConfig = serde_json::from_value(serde_json::json!({
+            "process_output_ids": [],
+            "file_output_ids": [[], null, ["selected", false, "secondary"]],
+            "mic_output_ids": null,
+            "process_output_id": "old-process",
+            "file_output_id": "old-file",
+            "mic_output_id": "old-mic"
+        }))
+        .expect("read explicitly empty output routes");
+        assert!(empty.process_output_ids.is_empty());
+        assert_eq!(
+            empty.file_output_ids,
+            [vec![], vec![], vec!["selected", "secondary"]]
+        );
+        assert!(empty.mic_output_ids.is_empty());
+        assert_eq!(empty.file_default_output_id.as_deref(), Some("old-file"));
+    }
+
+    /// 非数组顶层与非法旧字段不会令整个配置回退或意外恢复旧目标。
+    #[test]
+    fn malformed_output_route_shapes_keep_other_configuration() {
+        let output: crate::config::OutputConfig = serde_json::from_value(serde_json::json!({
+            "device_id": "valid-global",
+            "process_output_ids": 8,
+            "file_output_ids": {"slot": "bad"},
+            "mic_output_ids": true,
+            "process_output_id": {"bad": "legacy"},
+            "file_output_id": 3,
+            "mic_output_id": false
+        }))
+        .expect("ignore invalid route shapes");
+        assert_eq!(output.device_id.as_deref(), Some("valid-global"));
+        assert!(output.process_output_ids.is_empty());
+        assert!(output.file_output_ids.is_empty());
+        assert!(output.mic_output_ids.is_empty());
+    }
+
+    /// 多选配置保存时只输出新字段，旧字段不会成为第二份运行时权威。
+    #[test]
+    fn output_routes_round_trip_without_legacy_keys() {
+        let mut config = AppConfig::default();
+        config.output.process_output_ids = vec![vec!["left".into(), "right".into()], vec![]];
+        config.output.file_output_ids = vec![vec![], vec!["right".into()]];
+        config.output.mic_output_ids = vec!["left".into(), "right".into()];
+        config.output.file_default_output_id = Some("player".into());
+
+        let encoded = serde_json::to_value(&config).expect("serialize multiple targets");
+        let output = &encoded["output"];
+        assert!(output.get("process_output_id").is_none());
+        assert!(output.get("file_output_id").is_none());
+        assert!(output.get("mic_output_id").is_none());
+        let decoded: AppConfig = serde_json::from_value(encoded).expect("read multiple targets");
+        assert_eq!(
+            decoded.output.process_output_ids,
+            config.output.process_output_ids
+        );
+        assert_eq!(
+            decoded.output.file_output_ids,
+            config.output.file_output_ids
+        );
+        assert_eq!(
+            decoded.output.file_default_output_id,
+            config.output.file_default_output_id
+        );
+        assert_eq!(decoded.output.mic_output_ids, config.output.mic_output_ids);
+    }
 }
 
 /// 解析当前用户配置文件位置；APPDATA 缺失时退回工作目录。

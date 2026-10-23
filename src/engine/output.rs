@@ -50,6 +50,39 @@ fn same_driver_conflict(device_ids: &[String]) -> Option<String> {
     None
 }
 
+/// 只在建图时计算一次掩码；越界目标索引不会匹配任何实际目标。
+fn source_target_mask(
+    routes: Option<&SourceOutputRoutes>,
+    target_index: usize,
+) -> (Vec<bool>, Vec<bool>, bool) {
+    let Some(routes) = routes else {
+        return (
+            vec![true; super::PROCESS_SLOTS],
+            vec![true; super::SFX_SLOTS],
+            true,
+        );
+    };
+    (
+        (0..super::PROCESS_SLOTS)
+            .map(|slot| {
+                routes
+                    .process
+                    .get(slot)
+                    .is_some_and(|indices| indices.contains(&target_index))
+            })
+            .collect(),
+        (0..super::SFX_SLOTS)
+            .map(|slot| {
+                routes
+                    .file
+                    .get(slot)
+                    .is_some_and(|indices| indices.contains(&target_index))
+            })
+            .collect(),
+        routes.mic.contains(&target_index),
+    )
+}
+
 /// AudioEngine 的输出装配与路由入口。
 impl AudioEngine {
     /// 兼容旧调用方的单目标入口，实际装配仍统一走多目标路径。
@@ -83,17 +116,6 @@ impl AudioEngine {
         // 空设备列表不能形成有效输出图，必须在访问 clients[0] 前返回错误。
         if device_ids.is_empty() {
             return Err(Error::RenderInit("no output devices"));
-        }
-        // 路由索引是 UI 快照的一部分；越界会让源无法找到目标，因此拒绝整张图。
-        if routes.as_ref().is_some_and(|routes| {
-            routes
-                .process
-                .iter()
-                .any(|index| *index >= device_ids.len())
-                || routes.file.iter().any(|index| *index >= device_ids.len())
-                || routes.mic >= device_ids.len()
-        }) {
-            return Err(Error::RenderInit("source output index is invalid"));
         }
         // 先做虚拟驱动族校验，再创建任一 client，避免半成品输出图。
         if let Some(conflict) = same_driver_conflict(device_ids) {
@@ -155,20 +177,8 @@ impl AudioEngine {
                 .collect();
             // 每个目标都计算独立的路由布尔向量，fanout 只据此决定写入。
             // route 掩码只决定 fanout 是否写入目标环，不改变源环或其他目标的状态。
-            let (process_enabled, file_enabled, mic_enabled) = routes.as_ref().map_or_else(
-                || (vec![true; 4], vec![true; 4], true),
-                |routes| {
-                    (
-                        (0..super::PROCESS_SLOTS)
-                            .map(|slot| routes.process.get(slot) == Some(&target_index))
-                            .collect(),
-                        (0..super::SFX_SLOTS)
-                            .map(|slot| routes.file.get(slot) == Some(&target_index))
-                            .collect(),
-                        routes.mic == target_index,
-                    )
-                },
-            );
+            let (process_enabled, file_enabled, mic_enabled) =
+                source_target_mask(routes.as_ref(), target_index);
             // 每个目标只接收自己的路由掩码；未指定路由时保持兼容行为，全部源均启用。
             // 每个目标线程独立报告设备错误；共享状态是 UI 读取的唯一错误来源。
             // render 线程持有设备 client 与目标环，独立处理阻塞写入和设备断开状态。
@@ -315,5 +325,42 @@ impl AudioEngine {
         // Release 发布完成状态，状态查询端以对应的 Acquire 读取运行标志。
         self.running.store(true, Ordering::Release);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn custom_routes_enable_every_selected_target_without_cross_routing() {
+        let routes = SourceOutputRoutes {
+            process: vec![vec![0, 2], vec![1], vec![], vec![usize::MAX, 7]],
+            file: vec![vec![1, 2], vec![], vec![0], vec![7]],
+            mic: vec![0, 2, usize::MAX],
+        };
+
+        let (process, file, mic) = source_target_mask(Some(&routes), 0);
+        assert_eq!(process, [true, false, false, false]);
+        assert_eq!(file, [false, false, true, false, false]);
+        assert!(mic);
+
+        let (process, file, mic) = source_target_mask(Some(&routes), 1);
+        assert_eq!(process, [false, true, false, false]);
+        assert_eq!(file, [true, false, false, false, false]);
+        assert!(!mic);
+
+        let (process, file, mic) = source_target_mask(Some(&routes), 2);
+        assert_eq!(process, [true, false, false, false]);
+        assert_eq!(file, [true, false, false, false, false]);
+        assert!(mic);
+    }
+
+    #[test]
+    fn no_custom_routes_broadcasts_every_source_including_preview() {
+        let (process, file, mic) = source_target_mask(None, 1);
+        assert_eq!(process, [true; super::super::PROCESS_SLOTS]);
+        assert_eq!(file, [true; super::super::SFX_SLOTS]);
+        assert!(mic);
     }
 }

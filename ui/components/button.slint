@@ -16,6 +16,8 @@ export component PmButton inherits Rectangle {
     in property <bool> danger: false;
     // 无边框透明样式，常用于工具栏按钮。
     in property <bool> flat: false;
+    // 播放工具图标始终无底色，保留按钮命中区域与禁用态。
+    in property <bool> icon-transparent: false;
     // 用户点击且按钮启用时触发，不在组件内执行业务操作。
     callback clicked();
     // 以 Segoe MDL2 Assets 字体显示图标而非普通文本。
@@ -34,12 +36,14 @@ export component PmButton inherits Rectangle {
     min-width: root.button-width;
     border-radius: Theme.radiusControl;
     opacity: root.enabled ? 1.0 : 0.45;
-    background: root.danger
-        ? Theme.danger
-        : (root.selected
-            ? Theme.accentSoft
-            : (root.filled ? Theme.accent : (root.flat ? transparent : Theme.field)));
-    border-width: root.flat ? 0px : 1px;
+    background: root.icon-transparent
+        ? transparent
+        : (root.danger
+            ? Theme.danger
+            : (root.selected
+                ? Theme.accentSoft
+                : (root.filled ? Theme.accent : (root.flat ? transparent : Theme.field))));
+    border-width: root.flat || root.icon-transparent ? 0px : 1px;
     border-color: root.danger
         ? Theme.danger
         : (root.selected
@@ -90,18 +94,22 @@ export component PmButton inherits Rectangle {
 
     states [
         hovered when ta.has-hover && root.enabled: {
-            background: root.danger
-                ? Theme.danger
-                : (root.filled || root.selected
-                    ? Theme.accentHover
-                    : Theme.accentSoft);
+            background: root.icon-transparent
+                ? transparent
+                : (root.danger
+                    ? Theme.danger
+                    : (root.filled || root.selected
+                        ? Theme.accentHover
+                        : Theme.accentSoft));
         }
         pressed when ta.pressed && root.enabled: {
-            background: root.danger
-                ? Theme.danger
-                : (root.filled || root.selected
-                    ? Theme.accentHover
-                    : Theme.accentPressed);
+            background: root.icon-transparent
+                ? transparent
+                : (root.danger
+                    ? Theme.danger
+                    : (root.filled || root.selected
+                        ? Theme.accentHover
+                        : Theme.accentPressed));
             opacity: 0.82;
         }
     ]

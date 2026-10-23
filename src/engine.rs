@@ -53,15 +53,15 @@ pub enum EngineStatus {
     /// 发生无法归类的引擎错误，字符串供 UI 展示。
     Error(String),
 }
-/// 一组把每类源映射到 render 目标索引的路由快照。
+/// 一组把每类源映射到一个或多个 render 目标索引的路由快照。
 #[derive(Clone)]
 pub(crate) struct SourceOutputRoutes {
-    /// 每个进程槽承接的 render 下标。
-    pub(crate) process: Vec<usize>,
-    /// 每个音频文件槽承接的 render 下标。
-    pub(crate) file: Vec<usize>,
-    /// 麦克风源承接的 render 下标。
-    pub(crate) mic: usize,
+    /// 每个进程槽承接的 render 下标集合。
+    pub(crate) process: Vec<Vec<usize>>,
+    /// 每个音频文件槽承接的 render 下标集合。
+    pub(crate) file: Vec<Vec<usize>>,
+    /// 麦克风源承接的 render 下标集合。
+    pub(crate) mic: Vec<usize>,
 }
 
 /// 单个 render 目标在 fanout 中使用的格式、输入环和启用掩码。

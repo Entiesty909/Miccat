@@ -1,32 +1,50 @@
-//! 音频库三栏之间可拖动调整宽度的窄分隔条。
+//! 音频库三栏之间的窄拖拽线与可反向展开的折叠按钮。
 
 import { Theme } from "../theme.slint";
+import { PmButton } from "button.slint";
 
-// 三栏布局分隔条：把拖动后的目标宽度交给页面进行范围约束。
+// 三栏布局分隔条：拖动上报目标宽度，折叠只通知页面并保留其宽度偏好。
 export component LibrarySplitter inherits Rectangle {
-    // 分隔条命中区域宽度，单位为 length。
-    in property <length> bar-width: 8px;
-    // 拖动开始时的外部宽度值，作为本次拖动的基准。
+    // 三栏实际占用的窄间隔，拖动线画在中央。
+    in property <length> bar-width: 6px;
+    // 当前栏上一次展开时的宽度，不因折叠被清零。
     in property <length> value: 0px;
-    // 详情栏反向拖动时取负的指针位移。
+    // 右侧栏采用反向拖动增量。
     in property <bool> reverse-delta: false;
-    // 用户拖动后提交新的目标宽度，宿主负责裁剪并保存。
+    // 折叠期间停用拖动，按钮始终可用。
+    in property <bool> collapsed: false;
+    // 左侧栏箭头朝左表示折叠；右侧栏箭头朝右表示折叠。
+    in property <bool> left-side: true;
+    // 用户拖动后提交目标宽度，页面负责可用空间裁剪。
     callback resized(length);
+    // 折叠状态切换交给页面，保持本组件无布局权威。
+    callback toggle-collapse();
     width: root.bar-width;
     height: 100%;
+    // 折叠按钮跨过相邻卡片边框，需位于两侧卡片上方并保留命中。
+    z: 1;
     background: transparent;
     // 拖动用屏幕坐标差，避免宽度更新移动分隔条后改变局部坐标。
     // 拖动开始时记录的宽度基准，贯穿本次手势生命周期。
     in-out property <length> drag-start: 0px;
     // 按下时的屏幕横坐标，用于计算不受分隔条移动影响的位移。
     in-out property <length> drag-pointer-start: 0px;
+    // 默认只画中线，六像素间隔余下部分均是可拖动命中区。
+    Rectangle {
+        x: (root.width - self.width) / 2;
+        width: 1px;
+        height: 100%;
+        background: Theme.border;
+    }
 
-    // 独立命中区承载拖动手势，视觉状态由 states 根据其状态派生。
+
+    // 命中范围等于窄条占宽；按钮所在顶部另行接管点击。
     area := TouchArea {
         width: 100%;
         height: 100%;
+        enabled: !root.collapsed;
         mouse-cursor: ew-resize;
-        // 只在按下瞬间锁定基准，后续 moved 事件都复用同一基准计算。
+        // 按下时锁定基准，后续移动都按屏幕坐标计算。
         pointer-event(event) => {
             if event.kind == PointerEventKind.down {
                 root.drag-start = root.value;
@@ -39,6 +57,31 @@ export component LibrarySplitter inherits Rectangle {
             let delta = pointer-x - root.drag-pointer-start;
             root.resized(root.drag-start + (root.reverse-delta ? -delta : delta));
         }
+    }
+
+    // 按钮居中跨越窄分隔线，折叠后仍留在原栏边缘可重新展开。
+    PmButton {
+        x: (root.width - self.width) / 2;
+        y: 8px;
+        width: 24px;
+        button-width: 24px;
+        button-height: 26px;
+        icon-only: true;
+        label: root.left-side
+            ? (root.collapsed ? "\u{E76C}" : "\u{E76B}")
+            : (root.collapsed ? "\u{E76B}" : "\u{E76C}");
+        hint: root.collapsed
+            ? (root.left-side ? "展开分类栏" : "展开详情栏")
+            : (root.left-side ? "折叠分类栏" : "折叠详情栏");
+        clicked => { root.toggle-collapse(); }
+        // 无障碍树用状态说明当前操作；辅助技术与指针共享切换路径。
+        accessible-role: button;
+        accessible-label: root.collapsed
+            ? (root.left-side ? "展开分类栏" : "展开详情栏")
+            : (root.left-side ? "折叠分类栏" : "折叠详情栏");
+        accessible-expandable: true;
+        accessible-expanded: !root.collapsed;
+        accessible-action-default => { root.toggle-collapse(); }
     }
 
     // 悬停和按住时提供视觉反馈，不改变拖动数值协议。

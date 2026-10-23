@@ -15,40 +15,8 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
     register_2(ui, state);
     sources::register(ui, state);
     audio_queue::register(ui, state);
-    register_add_source_mic_output(state);
 }
 
-/// 绑定添加源窗口的麦克风输出选择，并把设备索引转换为持久化的 render ID。
-fn register_add_source_mic_output(state: &AppState) {
-    let cache = state.cache.clone();
-    let app_config = state.app_config.clone();
-    let save_queue = state.save_queue.clone();
-    state
-        .windows
-        .add_source
-        .on_mic_output_changed(move |index| {
-            // 设备下标来自 Slint 组合列表；先验证非负值，再转换为缓存中的真实 render ID。
-            let Ok(index) = usize::try_from(index) else {
-                return;
-            };
-            let device_id = if index == 0 {
-                // 下标 0 代表“系统默认”，其余下标对应 dests 中从 0 开始的设备项。
-                None
-            } else {
-                cache
-                    .borrow()
-                    .dests
-                    .get(index - 1)
-                    .map(|device| device.render_id.clone())
-            };
-            if index > 0 && device_id.is_none() {
-                return;
-            }
-            app_config.borrow_mut().output.mic_output_id = device_id;
-            // 配置只更新内存并交给去抖队列写盘，避免每次下拉选择都同步阻塞 UI。
-            save_queue.schedule();
-        });
-}
 /// 注册路由页第一组回调：总音量、多设备开关、设备勾选和默认麦克风选项。
 fn register_1(ui: &MainWindow, state: &AppState) {
     let engine = state.engine.clone();
@@ -89,23 +57,29 @@ fn register_1(ui: &MainWindow, state: &AppState) {
         let cache = cache.clone();
         let app_config = app_config.clone();
         let save_queue = state.save_queue.clone();
+        let ui_weak = ui.as_weak();
         ui.on_device_toggled(move |index, checked| {
-            // 设备勾选回调维护“展示顺序 → render ID”映射，不能把 UI 下标直接写入配置。
+            // 勾选按可见端点身份保存；虚拟麦与配对扬声器即使指向同一 render 也互不牵连。
             let mut cache = cache.borrow_mut();
             // 下标可能因刷新而过期；无对应缓存项时忽略事件，避免破坏已选设备集合。
-            if let Some(slot) = cache.device_selected.get_mut(index as usize) {
-                *slot = checked;
-            }
+            let Some(slot) = cache.device_selected.get_mut(index as usize) else {
+                return;
+            };
+            *slot = checked;
             cache.selected_device_ids = cache
-                // 选中 ID 由当前设备快照重新派生，确保刷新或排序后仍与勾选状态一致。
                 .dests
                 .iter()
                 .zip(&cache.device_selected)
                 .filter(|(_, selected)| **selected)
-                .map(|(device, _)| device.render_id.clone())
+                .map(|(device, _)| device.selection_id().to_owned())
                 .collect();
             app_config.borrow_mut().output.device_ids = cache.selected_device_ids.clone();
-            // 只保存稳定的 WASAPI render ID；保存队列负责合并快速连续的勾选事件。
+            let selected = cache.device_selected.clone();
+            drop(cache);
+            if let Some(ui) = ui_weak.upgrade() {
+                ui.set_device_selected(slint::ModelRc::new(slint::VecModel::from(selected)));
+            }
+            // 只保存列表项稳定 ID；保存队列负责合并快速连续的勾选事件。
             save_queue.schedule();
         });
     }
@@ -219,9 +193,6 @@ fn register_2(ui: &MainWindow, state: &AppState) {
                     .process_volumes
                     .push(app_config.borrow().mix.process);
                 cache_state.process_muted_volumes.push(None);
-                cache_state
-                    .process_output_ids
-                    .push(app_config.borrow().output.process_output_id.clone());
             }
             drop(cache_state);
             // 释放缓存借用后再调用引擎和 UI 更新，避免回调内出现 RefCell 重入借用。

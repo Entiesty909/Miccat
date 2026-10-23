@@ -1,4 +1,5 @@
 //! 路由源行回调：输出目标、音量、静音、启用与热切换。
+mod outputs;
 
 use super::super::super::*;
 use slint::Model;
@@ -30,83 +31,7 @@ pub(crate) fn duplicate_audio(
 
 /// 绑定源行的输出、音量、静音、启停、操作菜单等回调；kind 0/1/2 分别是进程/文件/麦克风。
 pub(super) fn register(ui: &MainWindow, state: &AppState) {
-    {
-        let cache = state.cache.clone();
-        let app_config = state.app_config.clone();
-        let save_queue = state.save_queue.clone();
-        let ui_weak = ui.as_weak();
-        // 输出目标写入按源类型隔离的槽位数组，随后才更新 UI 行索引。
-        ui.on_source_output_changed(move |row, target_index| {
-            let Some(ui) = ui_weak.upgrade() else { return };
-            let Some(kind) = source_kind(&ui, row) else {
-                return;
-            };
-            let target_id = cache
-                .borrow()
-                .dests
-                .get(target_index as usize)
-                .map(|device| device.render_id.clone());
-            let Some(target_id) = target_id else { return };
-            // 输出设备 ID 是不透明字符串；只有确认设备仍存在后才写入槽位状态。
-            let slot = source_slot(&ui, row, kind);
-            {
-                // kind=0/1 使用各自的并行槽位数组，kind=2 只有一个麦克风配置项。
-                let mut cache_state = cache.borrow_mut();
-                let mut config = app_config.borrow_mut();
-                match kind {
-                    0 => {
-                        if let Some(slot) = slot {
-                            set_slot(
-                                &mut cache_state.process_output_ids,
-                                slot,
-                                Some(target_id.clone()),
-                            );
-                            set_slot(
-                                &mut config.output.process_output_ids,
-                                slot,
-                                target_id.clone(),
-                            );
-                        }
-                        config.output.process_output_id = Some(target_id);
-                    }
-                    1 => {
-                        if let Some(slot) = slot {
-                            set_slot(
-                                &mut cache_state.audio_output_ids,
-                                slot,
-                                Some(target_id.clone()),
-                            );
-                            set_slot(&mut config.output.file_output_ids, slot, target_id.clone());
-                        }
-                        config.output.file_output_id = Some(target_id);
-                    }
-                    _ => config.output.mic_output_id = Some(target_id),
-                }
-            }
-            save_queue.schedule();
-            if let Ok(row_index) = usize::try_from(row) {
-                let indices = ui.get_source_output_indices();
-                if row_index < indices.row_count() {
-                    indices.set_row_data(row_index, target_index);
-                }
-            }
-        });
-    }
-    {
-        let cache = state.cache.clone();
-        let app_config = state.app_config.clone();
-        let save_queue = state.save_queue.clone();
-        ui.on_file_output_changed(move |target_index| {
-            let target_id = cache
-                .borrow()
-                .dests
-                .get(target_index as usize)
-                .map(|device| device.render_id.clone());
-            let Some(target_id) = target_id else { return };
-            app_config.borrow_mut().output.file_output_id = Some(target_id);
-            save_queue.schedule();
-        });
-    }
+    outputs::register(ui, state);
     {
         let engine = state.engine.clone();
         let cache = state.cache.clone();
@@ -135,9 +60,11 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
         let app_config = state.app_config.clone();
         let save_queue = state.save_queue.clone();
         let ui_weak = ui.as_weak();
+        let cache = state.cache.clone();
         ui.on_microphone_input_volume_edited(move |value| {
             let volume = (value / 100.0).clamp(0.0, 1.0);
             engine.set_mic_volume(volume);
+            cache.borrow_mut().mic_muted_volume = None;
             app_config.borrow_mut().mix.mic = volume;
             save_queue.schedule();
             if let Some(ui) = ui_weak.upgrade() {
@@ -226,15 +153,26 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
                     }
                 }
                 1 => {
-                    toggle_file_source(&ui, &engine, &cache, index, enabled);
+                    super::audio_queue::toggle_file_source(&ui, &engine, &cache, index, enabled);
                     crate::ui_bridge::persist::save_process_selection(
                         &cache,
                         &app_config,
                         &save_queue,
                     );
                 }
-                // 麦克风行的启停状态由 mix_mic 这个单一配置开关表示。
-                2 if enabled != ui.get_mix_mic() => ui.invoke_mic_mix_changed(enabled),
+                // 卡片可在“未选择麦克风”占位状态显示；启用时先选首个真实设备。
+                2 if enabled != ui.get_mix_mic() => {
+                    if enabled {
+                        let selected = {
+                            let cache_state = cache.borrow();
+                            microphone_to_enable(&cache_state.mic_ids, ui.get_mic_index())
+                        };
+                        if let Some(selected) = selected {
+                            ui.set_mic_index(selected as i32);
+                        }
+                    }
+                    ui.invoke_mic_mix_changed(enabled);
+                }
                 _ => {}
             }
         });
@@ -246,42 +184,17 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
         let ui_weak = ui.as_weak();
         ui.on_source_pause(move |index| {
             let Some(ui) = ui_weak.upgrade() else { return };
-            if source_kind(&ui, index) != Some(1) || !ui.get_running() {
+            if source_kind(&ui, index) != Some(1) {
                 return;
             }
             let Some(slot) = source_slot(&ui, index, 1) else {
                 return;
             };
-            // 文件槽状态机区分播放、暂停、结束；结束后按原槽位重新播放。
-            let result = match engine.file_source_state(slot) {
-                crate::engine::FileSourceState::Playing => {
-                    engine.set_file_source_paused(slot, true)
-                }
-                crate::engine::FileSourceState::Paused => {
-                    engine.set_file_source_paused(slot, false)
-                }
-                crate::engine::FileSourceState::Stopped
-                | crate::engine::FileSourceState::Finished => {
-                    let entry = {
-                        let cache = cache.borrow();
-                        let index =
-                            cache.route_audio_entries.get(slot).copied().or_else(|| {
-                                (slot == 0).then_some(cache.route_audio_entry).flatten()
-                            });
-                        index.and_then(|index| cache.audio_entries.get(index).cloned())
-                    };
-                    let result = entry.map_or(Ok(()), |entry| {
-                        engine.play_file_source(&entry, slot, false, 0, false)
-                    });
-                    if result.is_ok() {
-                        let mut cache = cache.borrow_mut();
-                        set_slot(&mut cache.audio_finished_handled, slot, true);
-                    }
-                    result
-                }
-            };
-            if let Err(error) = result {
-                super::super::super::diagnostics::report_error(&ui, &error);
+            let preview = cache.borrow().route_preview_slot == Some(slot);
+            if preview && (engine.file_state().playing || ui.get_player_paused()) {
+                ui.invoke_player_pause_toggle();
+            } else {
+                super::audio_queue::play_current_slot(&ui, &state_for_update, slot);
             }
             super::super::super::sources::update(&ui, &state_for_update);
         });
@@ -293,17 +206,23 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
         // 滑块释放才换算目标媒体位置；停播或未知时长不产生隐式播放。
         ui.on_source_progress_seek(move |index, ratio| {
             let Some(ui) = ui_weak.upgrade() else { return };
-            if !ui.get_running() || source_kind(&ui, index) != Some(1) {
+            if source_kind(&ui, index) != Some(1) {
                 return;
             }
             let Some(slot) = source_slot(&ui, index, 1) else {
                 return;
             };
-            let paused = match engine.file_source_state(slot) {
-                crate::engine::FileSourceState::Playing => false,
-                crate::engine::FileSourceState::Paused => true,
-                _ => return,
-            };
+            let preview = cache.borrow().route_preview_slot == Some(slot);
+            let paused = preview && ui.get_player_paused();
+            if !preview
+                && !matches!(
+                    engine.file_source_state(slot),
+                    crate::engine::FileSourceState::Playing
+                        | crate::engine::FileSourceState::Paused
+                )
+            {
+                return;
+            }
             let entry = {
                 let cache = cache.borrow();
                 cache
@@ -316,17 +235,36 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
                 return;
             };
             let target = (f64::from(ratio.clamp(0.0, 1.0)) * entry.duration_hns as f64) as u64;
-            // 先撤掉旧流，再异步解码新位置；同槽代次阻止晚完成的旧请求回写。
-            let result = engine
-                .stop_file_source(slot)
-                .and_then(|_| engine.play_file_source(&entry, slot, false, target, paused));
-            if let Err(error) = result {
-                super::super::super::diagnostics::report_error(&ui, &error);
+            // 本机试听和已启用的路由槽须定位到同一媒体位置。
+            if preview {
+                if paused {
+                    cache.borrow_mut().paused_audio = Some((
+                        entry.clone(),
+                        target,
+                        crate::engine::PlaybackTarget::Monitor,
+                    ));
+                } else {
+                    engine.ensure_monitor_default(true);
+                    if let Err(error) =
+                        engine.play_file(&entry, target, crate::engine::PlaybackTarget::Monitor)
+                    {
+                        super::super::super::diagnostics::report_error(&ui, &error);
+                    }
+                }
+            }
+            if engine.is_running() && cache.borrow().route_audio_enabled.get(slot) == Some(&true) {
+                let result = engine
+                    .stop_file_source(slot)
+                    .and_then(|_| engine.play_file_source(&entry, slot, false, target, paused));
+                if let Err(error) = result {
+                    super::super::super::diagnostics::report_error(&ui, &error);
+                }
             }
         });
     }
     {
         let engine = state.engine.clone();
+        let cache = state.cache.clone();
         let ui_weak = ui.as_weak();
         let state_for_update = state.clone();
         // 停止文件源不会清除其他 SFX 槽，保证每张音频卡片生命周期独立。
@@ -336,6 +274,10 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
                 let Some(slot) = source_slot(&ui, index, 1) else {
                     return;
                 };
+                if cache.borrow().route_preview_slot == Some(slot) {
+                    ui.invoke_audio_stop();
+                    cache.borrow_mut().route_preview_slot = None;
+                }
                 let _ = engine.stop_file_source(slot);
                 super::super::super::sources::update(&ui, &state_for_update);
             }
@@ -357,7 +299,7 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
             match action {
                 1 if kind == 1 => {
                     if let Some(entry_index) =
-                        crate::ui_bridge::sources::file_context_index(&ui, &engine, &cache)
+                        crate::ui_bridge::library::file_context_index(&ui, &engine, &cache)
                     {
                         ui.set_page(1);
                         ui.set_audio_entry_index(entry_index);
@@ -367,16 +309,14 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
                 2 => {
                     super::super::route_start::start_source_only(
                         &ui,
-                        &cache,
-                        &app_config,
-                        &engine,
+                        &state_for_update,
                         kind,
                         index,
                     );
                 }
                 3 if kind == 1 => {
                     if let Some(entry_index) =
-                        crate::ui_bridge::sources::file_context_index(&ui, &engine, &cache)
+                        crate::ui_bridge::library::file_context_index(&ui, &engine, &cache)
                     {
                         ui.set_page(1);
                         ui.set_audio_entry_index(entry_index);
@@ -412,7 +352,7 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
                     }
                 }
                 4 => {
-                    delete_source(&ui, &cache, &engine, kind, index);
+                    delete_source(&ui, &cache, &app_config, &engine, kind, index);
                     crate::ui_bridge::persist::save_process_selection(
                         &cache,
                         &app_config,
@@ -426,10 +366,11 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
     });
 }
 
-/// 删除指定类型的源，并同步移除缓存中的同槽音量、静音和输出映射。
+/// 删除指定类型的源，并同步压缩配置中的同槽设备集合。
 fn delete_source(
     ui: &MainWindow,
     cache: &Rc<RefCell<UiCache>>,
+    app_config: &Rc<RefCell<config::AppConfig>>,
     engine: &AudioEngine,
     kind: usize,
     source_index: i32,
@@ -467,7 +408,7 @@ fn delete_source(
                     .retain(|disabled| *disabled != pid);
                 remove_slot(&mut cache_state.process_volumes, slot);
                 remove_slot(&mut cache_state.process_muted_volumes, slot);
-                remove_slot(&mut cache_state.process_output_ids, slot);
+                remove_slot(&mut app_config.borrow_mut().output.process_output_ids, slot);
             }
             drop(cache_state);
             if ui.get_running() {
@@ -492,7 +433,10 @@ fn delete_source(
                 remove_slot(&mut cache_state.audio_finished_handled, file_slot);
                 remove_slot(&mut cache_state.audio_volumes, file_slot);
                 remove_slot(&mut cache_state.audio_muted_volumes, file_slot);
-                remove_slot(&mut cache_state.audio_output_ids, file_slot);
+                remove_slot(
+                    &mut app_config.borrow_mut().output.file_output_ids,
+                    file_slot,
+                );
             }
             cache_state.route_audio_entry = cache_state.route_audio_entries.first().copied();
             cache_state.route_file_enabled = cache_state
@@ -521,6 +465,17 @@ fn delete_source(
         _ => {}
     }
 }
+/// 显式启用麦克风时跳过“不混入”哨兵，同时保留已选的真实设备。
+fn microphone_to_enable(ids: &[String], selected: i32) -> Option<usize> {
+    if let Ok(selected) = usize::try_from(selected)
+        && selected > 0
+        && ids.get(selected).is_some_and(|id| !id.is_empty())
+    {
+        return Some(selected);
+    }
+    ids.iter().position(|id| !id.is_empty())
+}
+
 /// 从 Slint 源行模型读取源类型；未知或越界行不参与任何引擎操作。
 fn source_kind(ui: &MainWindow, index: i32) -> Option<usize> {
     ui.get_source_kinds()
@@ -543,53 +498,6 @@ fn hot_swap_process_sources(engine: &AudioEngine, cache: &Rc<RefCell<UiCache>>) 
     };
     if let Err(error) = engine.replace_process_sources(&wanted) {
         tracing::warn!("重建进程源失败：{error}");
-    }
-}
-
-/// 切换文件卡片的路由启用状态；关闭时停止该槽位，开启不触发播放。
-fn toggle_file_source(
-    ui: &MainWindow,
-    engine: &AudioEngine,
-    cache: &Rc<RefCell<UiCache>>,
-    source_index: i32,
-    enabled: bool,
-) {
-    let Ok(source_index) = usize::try_from(source_index) else {
-        return;
-    };
-    let kinds = ui.get_source_kinds();
-    // 从混合行号折算文件槽位；文件槽数组只统计 kind=1，避免被进程行偏移。
-    let file_slot = (0..source_index)
-        .filter(|row| kinds.row_data(*row) == Some(1))
-        .count();
-    let selected_visible = visible_entry(cache, ui.get_audio_entry_index().max(0) as usize);
-    {
-        // 启用标记只决定文件槽是否参与路由；播放流由用户单独点击卡片播放按钮启动。
-        let mut cache_state = cache.borrow_mut();
-        if cache_state.route_audio_entries.is_empty()
-            && let Some(index) = selected_visible
-        {
-            cache_state.route_audio_entries.push(index);
-            cache_state.route_audio_enabled.push(false);
-            cache_state.audio_play_modes.push(0);
-            cache_state.audio_finished_handled.push(false);
-            cache_state
-                .audio_volumes
-                .push(engine.sfx_volume_for_slot(file_slot));
-            cache_state.audio_muted_volumes.push(None);
-            cache_state.audio_output_ids.push(None);
-        }
-        if file_slot >= cache_state.route_audio_entries.len() {
-            return;
-        }
-        if let Some(state) = cache_state.route_audio_enabled.get_mut(file_slot) {
-            *state = enabled;
-        }
-        cache_state.route_file_enabled = cache_state.route_audio_enabled.iter().any(|state| *state);
-    }
-    if engine.is_running() && !enabled {
-        // 关闭当前槽位仍立即停止播放；重新启用后需用户手动播放。
-        let _ = engine.stop_file_source(file_slot);
     }
 }
 
@@ -743,7 +651,10 @@ fn set_source_volume(
                 set_slot(&mut app_config.borrow_mut().mix.sfx_volumes, slot, value);
             }
         }
-        _ => app_config.borrow_mut().mix.mic = value,
+        _ => {
+            cache.mic_muted_volume = None;
+            app_config.borrow_mut().mix.mic = value;
+        }
     }
 }
 
@@ -759,7 +670,7 @@ fn set_muted_volume(
     match kind {
         0 => set_slot(&mut cache.process_muted_volumes, slot, value),
         1 => set_slot(&mut cache.audio_muted_volumes, slot, value),
-        _ => {}
+        _ => cache.mic_muted_volume = value,
     }
 }
 
@@ -774,7 +685,7 @@ fn take_muted_volume(
     match kind {
         0 => cache.process_muted_volumes.get_mut(slot)?.take(),
         1 => cache.audio_muted_volumes.get_mut(slot)?.take(),
-        _ => None,
+        _ => cache.mic_muted_volume.take(),
     }
 }
 

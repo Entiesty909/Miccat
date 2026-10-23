@@ -48,8 +48,10 @@ export component RoutePage inherits Rectangle {
     in-out property <[float]> source-volumes: [];
     // 每槽位静音状态。
     in-out property <[bool]> source-muted: [];
-    // 每槽位输出设备下标，设备变更只影响指定槽位。
-    in-out property <[int]> source-output-indices: [];
+    // 每张卡片的设备勾选模型，与 outputs 下标对齐。
+    in-out property <[[bool]]> source-output-selections: [];
+    // 每张卡片当前所选设备友好名，仅用于下拉的收起文本。
+    in-out property <[string]> source-output-labels: [];
     // 可选输出设备名称列表，由 bridge 设备枚举提供。
     in-out property <[string]> outputs: [];
     // 每槽位文件暂停状态，独立于 active 和其他源。
@@ -128,8 +130,8 @@ export component RoutePage inherits Rectangle {
     callback source-play-mode-cycled(int);
     // 用户释放文件卡片进度滑块时请求该槽位从归一化位置继续播放。
     callback source-progress-seek(int, float);
-    // 指定槽位输出设备变更。
-    callback source-output-changed(int, int);
+    // 指定卡片的设备索引与勾选状态变更。
+    callback source-output-toggled(int, int, bool);
     // 打开设置页，并由宿主选择默认分组。
     callback open-settings();
     // 打开音频库页。
@@ -264,9 +266,10 @@ export component RoutePage inherits Rectangle {
                         route-running: root.running;
 
                         outputs <=> root.outputs;
-                        initial-output-index: index < root.source-output-indices.length
-                            ? root.source-output-indices[index]
-                            : root.output-index;
+                        selected-outputs: index < root.source-output-selections.length
+                            ? root.source-output-selections[index] : [];
+                        selected-output-label: index < root.source-output-labels.length
+                            ? root.source-output-labels[index] : "";
                         volume: index < root.source-volumes.length
                             ? root.source-volumes[index]
                             : 100;
@@ -283,9 +286,9 @@ export component RoutePage inherits Rectangle {
                         action(code) => {
                             root.source-action(index, code);
                         }
-                        // 输出设备由宿主按槽位重新绑定，组件不直接操作设备。
-                        output-changed(target) => {
-                            root.source-output-changed(index, target);
+                        // 槽位与设备下标同时上报，持久化始终使用设备 ID。
+                        output-toggled(target, checked) => {
+                            root.source-output-toggled(index, target, checked);
                         }
                         // 文件播放控制仅作用于当前文件槽位。
                         pause => { root.source-pause(index); }

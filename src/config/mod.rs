@@ -50,6 +50,7 @@ pub struct Hotkeys {
 
 /// 输出设备与目标麦配置。
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(from = "StoredOutputConfig")]
 pub struct OutputConfig {
     /// WASAPI render endpoint 的不透明 ID；设备变更后由 `device_name` 兜底匹配。
     pub device_id: Option<String>,
@@ -69,24 +70,125 @@ pub struct OutputConfig {
     pub set_default_communications: bool,
     /// 是否显示物理播放设备。
     pub all_devices: bool,
-    /// 多选的 render 设备 ID；为空时退回 `device_id`。
+    /// 多选列表端点 ID；虚拟麦保存录音端 ID，启动时才解析对应 render 端。
     #[serde(default)]
     pub device_ids: Vec<String>,
-    /// 多个进程卡片各自使用的 render endpoint ID；旧配置回退到 process_output_id。
-    #[serde(default)]
-    pub process_output_ids: Vec<String>,
-    /// 多个音频卡片各自使用的 render endpoint ID；旧配置回退到 file_output_id。
-    #[serde(default)]
-    pub file_output_ids: Vec<String>,
-    /// 进程来源使用的 render endpoint ID。
-    #[serde(default)]
-    pub process_output_id: Option<String>,
-    /// 音频文件来源使用的 render endpoint ID。
-    #[serde(default)]
-    pub file_output_id: Option<String>,
-    /// 麦克风来源使用的 render endpoint ID。
-    #[serde(default)]
-    pub mic_output_id: Option<String>,
+    /// 播放页及新建文件源默认选择的设备 ID；不会覆盖已存在文件卡片的目标。
+    pub file_default_output_id: Option<String>,
+    /// 与进程源槽位对齐的目标 ID 集合；已存在槽的空集合表示不投送。
+    pub process_output_ids: Vec<Vec<String>>,
+    /// 与文件源槽位对齐的目标 ID 集合；已存在槽的空集合表示不投送。
+    pub file_output_ids: Vec<Vec<String>>,
+    /// 麦克风源的目标 ID 集合。
+    pub mic_output_ids: Vec<String>,
+}
+
+/// 只存在于读盘阶段的旧版单选字段；保存时始终输出新的多选字段。
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct StoredOutputConfig {
+    device_id: Option<String>,
+    device_name: Option<String>,
+    mic_id: Option<String>,
+    mic_name: Option<String>,
+    set_default_mic: bool,
+    set_default_render: bool,
+    set_default_communications: bool,
+    all_devices: bool,
+    device_ids: Vec<String>,
+    file_default_output_id: Option<String>,
+    #[serde(deserialize_with = "present_json_value")]
+    process_output_ids: Option<serde_json::Value>,
+    #[serde(deserialize_with = "present_json_value")]
+    file_output_ids: Option<serde_json::Value>,
+    #[serde(deserialize_with = "present_json_value")]
+    mic_output_ids: Option<serde_json::Value>,
+    process_output_id: Option<serde_json::Value>,
+    file_output_id: Option<serde_json::Value>,
+    mic_output_id: Option<serde_json::Value>,
+}
+
+/// 区分字段缺失和明确存储的 `null`/空数组：显式空选不能被旧单选值覆盖。
+fn present_json_value<'de, D>(deserializer: D) -> Result<Option<serde_json::Value>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    serde_json::Value::deserialize(deserializer).map(Some)
+}
+
+/// 旧平面数组逐项迁移，绝不丢掉中间空槽导致其余音源错位。
+fn stored_slot_ids(value: serde_json::Value) -> Vec<Vec<String>> {
+    let serde_json::Value::Array(slots) = value else {
+        return Vec::new();
+    };
+    slots
+        .into_iter()
+        .map(|slot| match slot {
+            serde_json::Value::String(id) if !id.is_empty() => vec![id],
+            serde_json::Value::Array(ids) => ids
+                .into_iter()
+                .filter_map(|id| id.as_str().filter(|id| !id.is_empty()).map(str::to_owned))
+                .collect(),
+            _ => Vec::new(),
+        })
+        .collect()
+}
+
+fn stored_mic_ids(value: serde_json::Value) -> Vec<String> {
+    match value {
+        serde_json::Value::Array(ids) => ids
+            .into_iter()
+            .filter_map(|id| id.as_str().filter(|id| !id.is_empty()).map(str::to_owned))
+            .collect(),
+        serde_json::Value::String(id) if !id.is_empty() => vec![id],
+        _ => Vec::new(),
+    }
+}
+
+impl From<StoredOutputConfig> for OutputConfig {
+    fn from(saved: StoredOutputConfig) -> Self {
+        let legacy_id = |value: serde_json::Value| match value {
+            serde_json::Value::String(id) if !id.is_empty() => Some(id),
+            _ => None,
+        };
+        let legacy_slot = |id: Option<serde_json::Value>| {
+            id.and_then(legacy_id)
+                .map(|id| vec![vec![id]])
+                .unwrap_or_default()
+        };
+        Self {
+            device_id: saved.device_id,
+            device_name: saved.device_name,
+            mic_id: saved.mic_id,
+            mic_name: saved.mic_name,
+            set_default_mic: saved.set_default_mic,
+            set_default_render: saved.set_default_render,
+            set_default_communications: saved.set_default_communications,
+            all_devices: saved.all_devices,
+            device_ids: saved.device_ids,
+            file_default_output_id: saved.file_default_output_id.or_else(|| {
+                saved.file_output_id.as_ref().and_then(|value| match value {
+                    serde_json::Value::String(id) if !id.is_empty() => Some(id.clone()),
+                    _ => None,
+                })
+            }),
+            process_output_ids: saved
+                .process_output_ids
+                .map(stored_slot_ids)
+                .unwrap_or_else(|| legacy_slot(saved.process_output_id)),
+            file_output_ids: saved
+                .file_output_ids
+                .map(stored_slot_ids)
+                .unwrap_or_else(|| legacy_slot(saved.file_output_id)),
+            mic_output_ids: saved.mic_output_ids.map(stored_mic_ids).unwrap_or_else(|| {
+                saved
+                    .mic_output_id
+                    .and_then(legacy_id)
+                    .into_iter()
+                    .collect()
+            }),
+        }
+    }
 }
 
 /// 路由来源、麦克风混入和启动恢复状态的持久化配置。

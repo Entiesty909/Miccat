@@ -268,24 +268,11 @@ pub(super) fn restore_saved_selection(
     cache_state
         .process_muted_volumes
         .resize(process_count, None);
-    cache_state.process_output_ids.truncate(process_count);
-    cache_state
-        .process_output_ids
-        .resize(process_count, saved.output.process_output_id.clone());
     let audio_count = cache_state.route_audio_entries.len();
     cache_state.audio_volumes.truncate(audio_count);
     cache_state.audio_volumes.resize(audio_count, saved.mix.sfx);
     cache_state.audio_muted_volumes.truncate(audio_count);
     cache_state.audio_muted_volumes.resize(audio_count, None);
-    cache_state.audio_output_ids = saved
-        .output
-        .file_output_ids
-        .iter()
-        .take(audio_count)
-        .cloned()
-        .map(Some)
-        .collect();
-    cache_state.audio_output_ids.resize(audio_count, None);
     // 释放缓存借用后再刷新界面文本，避免更新 UI 时重入缓存访问。
     drop(cache_state);
     update_output_text(ui, cache);
@@ -306,7 +293,7 @@ pub(super) fn persist_config(
     saved.output.device_ids = if c.selected_device_ids.is_empty() {
         c.dests
             .get(ui.get_device_index() as usize)
-            .map(|device| vec![device.render_id.clone()])
+            .map(|device| vec![device.selection_id().to_owned()])
             .unwrap_or_default()
     } else {
         c.selected_device_ids.clone()
@@ -355,16 +342,6 @@ pub(super) fn persist_config(
     // 主音量 UI 使用百分比，配置统一保存为限制在 [0, 1] 的线性值。
     saved.mix.process_volumes = c.process_volumes.clone();
     saved.mix.sfx_volumes = c.audio_volumes.clone();
-    saved.output.process_output_ids = c
-        .process_output_ids
-        .iter()
-        .filter_map(|id| id.clone())
-        .collect();
-    saved.output.file_output_ids = c
-        .audio_output_ids
-        .iter()
-        .filter_map(|id| id.clone())
-        .collect();
 }
 
 /// 将进程、音频卡片及其启用状态防抖写回配置。

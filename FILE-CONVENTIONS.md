@@ -47,6 +47,7 @@ ui/ → ui_bridge/ → engine/ → audio/
 
 - 纯逻辑以观察行为和边界编单测；不写依赖真实声卡的测试。
 - 音频库纯逻辑单测位于 `src/library/tests.rs`，由 `src/library.rs` 的 `#[cfg(test)] mod tests;` 引入；PCM/WAV/配置迁移等计划测试见 [`docs/refactor-plan.md`](docs/refactor-plan.md)。
+- 源行投影的设备身份映射位于 `src/ui_bridge/sources/output_selection.rs`；`sources/tests.rs` 验证行模型对齐和可见端点与 render ID 的转换。
 - `scripts/check.cmd` 执行格式、`clippy -- -D warnings`、构建和行数门禁。
 - `scripts/smoke.cmd` 执行设备/进程枚举及默认态、条目菜单 UI 快照。
 - 真实路由、WAV 逐采样比对和桌面交互的验证方法见 [`DEBUGGING.md`](DEBUGGING.md)。

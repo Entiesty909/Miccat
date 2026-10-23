@@ -36,14 +36,13 @@ export component AddSourcePanel inherits Rectangle {
     in-out property <[string]> audio-entry-hotkeys: [];
     // 音频条目循环设置数组。
     in-out property <[bool]> audio-entry-loops: [];
-    // 麦克风可选输出设备列表。
-    in-out property <[string]> mic-output-options: [];
-    // 麦克风输出设备下标。
-    in-out property <int> mic-output-index: 0;
-    // 文件可选输出设备列表。
+    // 两种待添加来源独立保存输出设备勾选，索引与输出设备列表对齐。
+    in-out property <[bool]> mic-output-selected: [];
+    in-out property <string> mic-output-label: "";
+    in-out property <[bool]> file-output-selected: [];
+    in-out property <string> file-output-label: "";
+    // 添加源与路由卡片共用 Windows 输出设备友好名称顺序。
     in-out property <[string]> output-options: [];
-    // 文件输出设备下标。
-    in-out property <int> file-output-index: 0;
     // 文件源音量百分比。
     in-out property <float> file-volume: 100;
     // 当前音频库条目下标。
@@ -72,10 +71,9 @@ export component AddSourcePanel inherits Rectangle {
     callback audio-entry-add-route(int);
     // 文件音量变化，百分比单位。
     callback audio-file-volume-edited(float);
-    // 文件输出设备变化。
-    callback audio-file-output-changed(int);
-    // 麦克风输出设备变化。
-    callback mic-output-changed(int);
+    // 对话框仅上报设备索引，提交时由 bridge 转换成各项自身的稳定 ID。
+    callback audio-file-output-toggled(int, bool);
+    callback mic-output-toggled(int, bool);
     // 麦克风输入音量变化。
     callback mic-volume-edited(float);
     // 麦克风混音开关变化。
@@ -405,11 +403,12 @@ export component AddSourcePanel inherits Rectangle {
                                 : "循环播放已关闭")
                             : "";
                         outputs <=> root.output-options;
-                        output-index <=> root.file-output-index;
+                        selected-outputs: root.file-output-selected;
+                        selected-output-label: root.file-output-label;
                         volume <=> root.file-volume;
-                        // 文件详情控件只提交当前选中条目的输出和音量设置。
-                        output-changed(index) => {
-                            root.audio-file-output-changed(index);
+                        // 文件详情只提交本对话框草稿；不提前改变已添加卡片。
+                        output-toggled(index, checked) => {
+                            root.audio-file-output-toggled(index, checked);
                         }
                         volume-edited(value) => {
                             root.audio-file-volume-edited(value);
@@ -516,13 +515,15 @@ export component AddSourcePanel inherits Rectangle {
                                 color: Theme.text2;
                                 font-size: 11px;
                             }
-                            // 运行中锁定麦克风输出设备，避免重建正在使用的 render target。
+                            // 多选在提交前留在对话框；运行中保持锁定原有设备拓扑。
                             MarqueeComboBox {
-                                model: root.mic-output-options;
-                                current-index <=> root.mic-output-index;
+                                model: root.output-options;
+                                multi-select: true;
+                                checked: root.mic-output-selected;
+                                multi-label: root.mic-output-label;
                                 enabled: !root.running;
-                                selected(value) => {
-                                    root.mic-output-changed(root.mic-output-index);
+                                selection-toggled(index, checked) => {
+                                    root.mic-output-toggled(index, checked);
                                 }
                             }
                         }

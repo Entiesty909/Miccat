@@ -5,6 +5,7 @@ import { MarqueeComboBox } from "marquee-combo-box.slint";
 import { PmButton } from "button.slint";
 import { Slider } from "std-widgets.slint";
 import { SliderRow } from "slider-row.slint";
+import { ForwardSwitch } from "forward-switch.slint";
 
 // 三类源共用同一横向骨架；文件源在信息区与设置区之间插入播放控制。
 export component SourceRow inherits Rectangle {
@@ -34,10 +35,10 @@ export component SourceRow inherits Rectangle {
     in property <bool> route-running: false;
     // 输出设备显示模型。
     in property <[string]> outputs: [];
-    // bridge 恢复的设备下标，只在组件初始化时写入双向属性。
-    in property <int> initial-output-index: 0;
-    // 当前输出设备下标。
-    in-out property <int> output-index: 0;
+    // 当前卡片逐设备勾选状态，索引与 outputs 对齐，只是持久化 ID 的视图投影。
+    in property <[bool]> selected-outputs: [];
+    // 下拉收起时列出所选设备的 Windows 友好名。
+    in property <string> selected-output-label: "";
     // 当前槽位转发音量，单位百分比。
     in-out property <float> volume: 100;
     // 文件播放模式：0 顺序、1 列表循环、2 单曲循环、3 随机。
@@ -72,17 +73,13 @@ export component SourceRow inherits Rectangle {
         : (root.play-mode == 1
             ? "列表循环"
             : (root.play-mode == 2 ? "单曲循环" : "随机播放"));
-    // 转发开关的说明随当前状态改变。
-    property <string> toggle-hint: root.active ? "关闭转发" : "启用转发";
+    // 音量图标的悬停文案随静音状态更新，不占卡片右侧空间。
+    property <string> mute-hint: root.muted ? "取消静音" : "静音";
     // 运行中已启用的卡片不允许弹出操作菜单。
     property <string> menu-hint: root.route-running && root.active
         ? "转发中不可操作"
         : "源操作";
 
-    // 初始设备下标只同步一次，列表动态刷新不会覆盖用户当前选择。
-    init => {
-        root.output-index = root.initial-output-index;
-    }
 
     // 转发开关变化。
     callback active-toggled(bool);
@@ -90,8 +87,8 @@ export component SourceRow inherits Rectangle {
     callback volume-edited(float);
     // 进程/麦克风静音变化。
     callback mute-toggled();
-    // 输出设备变化。
-    callback output-changed(int);
+    // 设备勾选变化由 bridge 按设备 ID 写回该卡片，不改变其他卡片。
+    callback output-toggled(int, bool);
     // 右上角菜单请求，参数是窗口绝对坐标。
     callback actions-requested(length, length);
     // 菜单关闭通知。
@@ -149,9 +146,11 @@ export component SourceRow inherits Rectangle {
         padding-bottom: 12px;
         spacing: 12px;
 
-        // 图标和信息在整张卡片高度内居中，进程与麦克风有完整标题宽度。
+        // 图标和信息在整张卡片高度内居中，窄窗口保留播放与百分比的宽度。
         Rectangle {
-            width: root.kind == 1 ? 240px : 320px;
+            width: root.width < 1050px
+                ? 190px
+                : (root.kind == 1 ? 240px : 320px);
             height: 100%;
             background: transparent;
             Rectangle {
@@ -224,7 +223,7 @@ export component SourceRow inherits Rectangle {
 
         // 文件卡片独有的上一首、播放、下一首、模式和进度区。
         if root.kind == 1: VerticalLayout {
-            width: 220px;
+            width: root.width < 1050px ? 186px : 220px;
             spacing: 8px;
             alignment: LayoutAlignment.center;
             HorizontalLayout {
@@ -234,32 +233,35 @@ export component SourceRow inherits Rectangle {
                 PmButton {
                     label: "\u{E892}";
                     icon-only: true;
+                    icon-transparent: true;
                     button-width: 38px;
                     hint: "上一曲";
-                    enabled: root.route-running && root.active;
+                    enabled: true;
                     clicked => { root.previous(); }
                 }
                 PmButton {
                     label: root.status == "播放中" ? "\u{E769}" : "\u{E768}";
                     icon-only: true;
-                    filled: true;
+                    icon-transparent: true;
                     button-width: 42px;
                     hint: root.status == "播放中" ? "暂停" : "播放";
-                    enabled: root.route-running && root.active;
+                    enabled: true;
                     clicked => { root.pause(); }
                 }
                 PmButton {
                     label: "\u{E893}";
                     icon-only: true;
                     button-width: 38px;
+                    icon-transparent: true;
                     hint: "下一曲";
-                    enabled: root.route-running && root.active;
+                    enabled: true;
                     clicked => { root.next-track(); }
                 }
                 // 一个图标按钮循环四种模式，文字只出现在悬停提示中。
                 PmButton {
                     label: root.mode-icon;
                     icon-only: true;
+                    icon-transparent: true;
                     button-width: 38px;
                     hint: root.mode-label;
                     clicked => { root.play-mode-cycled(); }
@@ -272,9 +274,7 @@ export component SourceRow inherits Rectangle {
                 minimum: 0;
                 maximum: 1;
                 value: root.seeking-progress ? root.seek-draft : root.progress;
-                enabled: root.route-running
-                    && root.active
-                    && (root.status == "播放中" || root.status == "已暂停")
+                enabled: (root.status == "播放中" || root.status == "已暂停")
                     && root.duration-text != "";
                 changed(value) => {
                     root.seek-draft = value;
@@ -332,14 +332,16 @@ export component SourceRow inherits Rectangle {
                     vertical-alignment: center;
                 }
                 MarqueeComboBox {
-                    width: 300px;
+                    width: root.width < 1050px ? 240px : 300px;
                     horizontal-stretch: 0;
                     height: 34px;
                     model: root.outputs;
-                    current-index <=> root.output-index;
+                    multi-select: true;
+                    checked: root.selected-outputs;
+                    multi-label: root.selected-output-label;
                     enabled: !root.route-running;
-                    selected(value) => {
-                        root.output-changed(root.output-index);
+                    selection-toggled(index, checked) => {
+                        root.output-toggled(index, checked);
                     }
                 }
                 Rectangle {
@@ -350,7 +352,27 @@ export component SourceRow inherits Rectangle {
             HorizontalLayout {
                 height: 36px;
                 spacing: 10px;
-                Text {
+                // 进程和麦克风的原音量图标兼任静音入口；文件音量图标仍只展示。
+                if root.kind != 1: Rectangle {
+                    width: 18px;
+                    height: 36px;
+                    background: transparent;
+                    Text {
+                        text: root.muted ? "\u{E74F}" : "\u{E767}";
+                        font-family: "Segoe MDL2 Assets";
+                        color: root.muted ? Theme.text3 : Theme.text2;
+                        font-size: 18px;
+                        vertical-alignment: center;
+                    }
+                    Tooltip {
+                        text: @markdown("\{root.mute-hint}");
+                    }
+                    TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.mute-toggled(); }
+                    }
+                }
+                if root.kind == 1: Text {
                     text: "\u{E767}";
                     font-family: "Segoe MDL2 Assets";
                     color: Theme.text2;
@@ -365,7 +387,7 @@ export component SourceRow inherits Rectangle {
                     vertical-alignment: center;
                 }
                 SliderRow {
-                    width: 300px;
+                    width: root.kind == 1 && root.width < 1050px ? 240px : 300px;
                     horizontal-stretch: 0;
                     show-label: false;
                     value <=> root.volume;
@@ -375,16 +397,17 @@ export component SourceRow inherits Rectangle {
                     horizontal-stretch: 1;
                     background: transparent;
                 }
-                // 保留原静音能力，但收进音量行，避免破坏参考图主布局。
-                if root.kind != 1: PmButton {
-                    label: root.muted ? "\u{E74F}" : "\u{E767}";
-                    icon-only: true;
-                    button-width: 30px;
-                    hint: root.muted ? "取消静音" : "静音";
-                    clicked => { root.mute-toggled(); }
+            }
+            // 文件源把开关单独放在第三行，避免挤占百分比和播放控制的横向空间。
+            if root.kind == 1: HorizontalLayout {
+                height: 36px;
+                ForwardSwitch {
+                    active: root.active;
+                    enabled: true;
+                    toggled(value) => { root.active-toggled(value); }
                 }
             }
-            if root.kind != 2: HorizontalLayout {
+            if root.kind == 0: HorizontalLayout {
                 height: 36px;
                 spacing: 10px;
                 Text {
@@ -414,51 +437,18 @@ export component SourceRow inherits Rectangle {
                     horizontal-stretch: 1;
                     background: transparent;
                 }
-                if root.kind != 1: Rectangle {
-                    width: 30px;
-                    background: transparent;
-                }
             }
         }
 
-        // 最右侧开关只改变当前卡片，不启动文件解码。
-        VerticalLayout {
+        // 进程和麦克风保持原右侧开关位置；文件源在设置区第三行操作。
+        if root.kind != 1: VerticalLayout {
             min-width: 110px;
             max-width: 110px;
             alignment: LayoutAlignment.center;
-            HorizontalLayout {
-                height: 38px;
-                spacing: 10px;
-                alignment: LayoutAlignment.center;
-                Text {
-                    text: "启用转发";
-                    color: Theme.text;
-                    font-size: 13px;
-                    vertical-alignment: center;
-                }
-                Rectangle {
-                    width: 48px;
-                    height: 26px;
-                    border-radius: 13px;
-                    background: root.active ? Theme.accent : Theme.borderStrong;
-                    Tooltip {
-                        text: @markdown("\{root.toggle-hint}");
-                    }
-                    Rectangle {
-                        x: root.active ? 24px : 2px;
-                        y: 2px;
-                        width: 22px;
-                        height: 22px;
-                        border-radius: 11px;
-                        background: Theme.card;
-                    }
-                    // 文件槽运行中仍可单独关闭；进程/麦克风运行时保持原锁定规则。
-                    TouchArea {
-                        enabled: !root.route-running || root.kind == 1;
-                        mouse-cursor: pointer;
-                        clicked => { root.active-toggled(!root.active); }
-                    }
-                }
+            ForwardSwitch {
+                active: root.active;
+                enabled: !root.route-running;
+                toggled(value) => { root.active-toggled(value); }
             }
         }
     }

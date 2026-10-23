@@ -1,8 +1,9 @@
-//! 路由音频卡片队列：按音频库分类切换条目，并处理四种播放模式。
+//! 路由文件卡片的启用、播放队列和四种播放模式，始终把试听与路由输出分开。
 
 use super::super::super::*;
 use crate::config::AudioEntry;
 use crate::engine::FileSourceState;
+use crate::engine::PlaybackTarget;
 use slint::Model;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -73,7 +74,19 @@ fn register_mode(ui: &MainWindow, state: &AppState) {
 pub(in crate::ui_bridge) fn poll_finished(ui: &MainWindow, state: &AppState) {
     let slots = state.cache.borrow().route_audio_entries.len();
     for slot in 0..slots {
-        let finished = state.engine.file_source_state(slot) == FileSourceState::Finished;
+        let finished = if state.engine.is_running()
+            && state.cache.borrow().route_audio_enabled.get(slot) == Some(&true)
+        {
+            state.engine.file_source_state(slot) == FileSourceState::Finished
+        } else {
+            let file = state.engine.file_state();
+            let cache = state.cache.borrow();
+            cache.route_preview_slot == Some(slot)
+                && !ui.get_player_paused()
+                && !file.playing
+                && file.duration_hns > 0
+                && file.position_hns >= file.duration_hns
+        };
         let should_advance = {
             let mut cache = state.cache.borrow_mut();
             ensure_slot(&mut cache.audio_finished_handled, slot, false);
@@ -89,9 +102,6 @@ pub(in crate::ui_bridge) fn poll_finished(ui: &MainWindow, state: &AppState) {
 
 /// 用户按卡片前后按钮时，在该条目所属分类内切换并立即播放。
 fn step_row(ui: &MainWindow, state: &AppState, row: i32, direction: i32) {
-    if !ui.get_running() {
-        return;
-    }
     let Some(slot) = file_slot_for_row(ui, row) else {
         return;
     };
@@ -149,7 +159,7 @@ fn advance_finished_slot(ui: &MainWindow, state: &AppState, slot: usize) {
     }
 }
 
-/// 更新卡片条目并启动对应 SFX 槽；模式续播不改变“启用转发”状态。
+/// 更换当前卡片条目并开始本机试听；只有运行中且已启用的槽才同步送往路由。
 fn play_slot(ui: &MainWindow, state: &AppState, slot: usize, entry_index: usize) {
     let entry = {
         let mut cache = state.cache.borrow_mut();
@@ -162,11 +172,25 @@ fn play_slot(ui: &MainWindow, state: &AppState, slot: usize, entry_index: usize)
         *current = entry_index;
         ensure_slot(&mut cache.audio_finished_handled, slot, false);
         cache.audio_finished_handled[slot] = true;
+        cache.route_preview_slot = Some(slot);
+        cache.playback_target = PlaybackTarget::Monitor;
+        cache.paused_audio = None;
         entry
     };
-    if let Err(error) = state.engine.play_file_source(&entry, slot, false, 0, false) {
+    ui.set_player_paused(false);
+    state.engine.ensure_monitor_default(true);
+    if let Err(error) = state.engine.play_file(&entry, 0, PlaybackTarget::Monitor) {
+        state.cache.borrow_mut().route_preview_slot = None;
+        ui.set_player_playing(false);
         super::super::super::diagnostics::report_error(ui, &error);
         return;
+    }
+    ui.set_player_playing(true);
+    if state.engine.is_running()
+        && state.cache.borrow().route_audio_enabled.get(slot) == Some(&true)
+        && let Err(error) = state.engine.play_file_source(&entry, slot, false, 0, false)
+    {
+        super::super::super::diagnostics::report_error(ui, &error);
     }
     super::super::super::persist::save_process_selection(
         &state.cache,
@@ -174,6 +198,84 @@ fn play_slot(ui: &MainWindow, state: &AppState, slot: usize, entry_index: usize)
         &state.save_queue,
     );
     super::super::super::sources::update(ui, state);
+}
+
+/// 卡片播放入口复用分类队列的本机试听及按启用状态转发规则。
+pub(super) fn play_current_slot(ui: &MainWindow, state: &AppState, slot: usize) {
+    let selected = state.cache.borrow().route_audio_entries.get(slot).copied();
+    if let Some(selected) = selected {
+        play_slot(ui, state, slot, selected);
+    }
+}
+
+/// 切换文件卡片的路由启用状态；本机试听独立继续，开启时接入当前播放位置。
+pub(super) fn toggle_file_source(
+    ui: &MainWindow,
+    engine: &AudioEngine,
+    cache: &Rc<RefCell<UiCache>>,
+    source_index: i32,
+    enabled: bool,
+) {
+    let Ok(source_index) = usize::try_from(source_index) else {
+        return;
+    };
+    let kinds = ui.get_source_kinds();
+    // 从混合行号折算文件槽位；文件槽数组只统计 kind=1，避免被进程行偏移。
+    let file_slot = (0..source_index)
+        .filter(|row| kinds.row_data(*row) == Some(1))
+        .count();
+    let selected_visible = visible_entry(cache, ui.get_audio_entry_index().max(0) as usize);
+    {
+        // 启用标记只决定文件槽是否参与路由；播放流由用户单独点击卡片播放按钮启动。
+        let mut cache_state = cache.borrow_mut();
+        if cache_state.route_audio_entries.is_empty()
+            && let Some(index) = selected_visible
+        {
+            cache_state.route_audio_entries.push(index);
+            cache_state.route_audio_enabled.push(false);
+            cache_state.audio_play_modes.push(0);
+            cache_state.audio_finished_handled.push(false);
+            cache_state
+                .audio_volumes
+                .push(engine.sfx_volume_for_slot(file_slot));
+            cache_state.audio_muted_volumes.push(None);
+        }
+        if file_slot >= cache_state.route_audio_entries.len() {
+            return;
+        }
+        if let Some(state) = cache_state.route_audio_enabled.get_mut(file_slot) {
+            *state = enabled;
+        }
+        cache_state.route_file_enabled = cache_state.route_audio_enabled.iter().any(|state| *state);
+    }
+    if engine.is_running() {
+        if enabled {
+            let entry = {
+                let cache_state = cache.borrow();
+                cache_state
+                    .route_audio_entries
+                    .get(file_slot)
+                    .and_then(|index| cache_state.audio_entries.get(*index))
+                    .cloned()
+            };
+            if let Some(entry) = entry
+                && cache.borrow().route_preview_slot == Some(file_slot)
+                && engine.file_state().playing
+                && let Err(error) = engine.play_file_source(
+                    &entry,
+                    file_slot,
+                    false,
+                    engine.file_state().position_hns,
+                    false,
+                )
+            {
+                super::super::super::diagnostics::report_error(ui, &error);
+            }
+        } else {
+            // 只撤掉输出槽，不终止独立试听和卡片播放进度。
+            let _ = engine.stop_file_source(file_slot);
+        }
+    }
 }
 
 /// 将混合源行号转换为文件槽位；非文件行返回 None。

@@ -31,12 +31,12 @@ pub(super) struct UiCache {
     pub(super) process_volumes: Vec<f32>,
     /// 与进程卡片槽位对齐的静音前增益；`Some` 表示可从静音恢复原值。
     pub(super) process_muted_volumes: Vec<Option<f32>>,
-    /// 与进程卡片槽位对齐的独立输出设备 ID；`None` 表示使用全局输出选择。
-    pub(super) process_output_ids: Vec<Option<String>>,
     /// 是否暂时从路由页隐藏音频文件源；只影响显示，不删除音频槽位。
     pub(super) file_source_hidden: bool,
     /// 是否暂时从路由页隐藏麦克风源；只影响显示，不改变引擎捕获状态。
     pub(super) mic_source_hidden: bool,
+    /// 麦克风静音前的临时增益；静音恢复后清除，不替代配置中的实际增益。
+    pub(super) mic_muted_volume: Option<f32>,
     /// 音频库分类视图数据；内容由配置/库扫描结果投影而来。
     pub(super) audio_categories: Vec<String>,
     /// 音频库条目视图数据；路由槽位只保存其实际下标引用。
@@ -47,7 +47,9 @@ pub(super) struct UiCache {
     pub(super) audio_search: String,
     /// 音频库当前页，从零开始，分页大小固定为 20。
     pub(super) audio_page: usize,
-    /// 音频库名称是否按升序显示；改变排序后页码回到第一页。
+    /// 音频库排序字段：0 名称、1 时长；切换字段时默认升序。
+    pub(super) audio_sort_column: u8,
+    /// 音频库当前排序方向；改变字段或方向后页码回到第一页。
     pub(super) audio_sort_ascending: bool,
     /// 最近一次音频点击及其时间，用于区分单击选择与双击播放。
     pub(super) last_audio_click: Option<(usize, Instant)>,
@@ -61,6 +63,8 @@ pub(super) struct UiCache {
     pub(super) route_audio_entries: Vec<usize>,
     /// 与 `route_audio_entries` 按槽位对齐的用户启用状态。
     pub(super) route_audio_enabled: Vec<bool>,
+    /// 当前占用本机试听槽的路由文件卡片；实际播放状态始终读取 AudioEngine。
+    pub(super) route_preview_slot: Option<usize>,
     /// 与音频卡片槽位对齐的播放模式：0 顺序、1 列表循环、2 单曲循环、3 随机。
     pub(super) audio_play_modes: Vec<u8>,
     /// 记录完成态是否已经处理，防止 50 ms 轮询重复切歌。
@@ -69,8 +73,6 @@ pub(super) struct UiCache {
     pub(super) audio_volumes: Vec<f32>,
     /// 与音频卡片槽位对齐的静音前增益；`Some` 表示可从静音恢复原值。
     pub(super) audio_muted_volumes: Vec<Option<f32>>,
-    /// 与音频卡片槽位对齐的独立输出设备 ID；`None` 表示使用全局输出选择。
-    pub(super) audio_output_ids: Vec<Option<String>>,
     /// 暂停时保存的条目、采样位置（100 纳秒）和播放目标，用于恢复库内试听。
     pub(super) paused_audio: Option<(config::AudioEntry, u64, PlaybackTarget)>,
     /// 当前列表播放目标；由播放控件投影给引擎，不等同于路由卡片状态。

@@ -1,6 +1,7 @@
 //! 独立 Slint 窗口的生命周期、位置持久化和属性同步。
 
 use super::*;
+use slint::Model;
 
 /// 独立窗口在 `AppConfig.windows` 中对应的位置槽位。
 #[derive(Clone, Copy)]
@@ -100,10 +101,20 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
     let main_weak = ui.as_weak();
     let config_for_mic_add = state.app_config.clone();
     let queue_for_mic_add = state.save_queue.clone();
+    let cache_for_mic_add = state.cache.clone();
     windows.add_source.on_mic_add(move || {
         let Some(source) = add_source_weak.upgrade() else {
             return;
         };
+        let ids = selected_dialog_ids(
+            &cache_for_mic_add.borrow().dests,
+            &source.get_mic_output_selected(),
+        );
+        if ids.is_empty() {
+            return;
+        }
+        config_for_mic_add.borrow_mut().output.mic_output_ids = ids;
+        queue_for_mic_add.schedule();
         if let Some(main) = main_weak.upgrade() {
             main.set_mic_index(source.get_mic_index());
             main.invoke_mic_mix_changed(true);
@@ -158,15 +169,17 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
     let queue_for_file_add = state.save_queue.clone();
     windows.add_source.on_audio_entry_add_route(move |index| {
         if let Some(source) = add_source_weak.upgrade() {
+            if let Some(main) = main_weak.upgrade() {
+                main.set_pending_file_output_selected(source.get_file_output_selected());
+                main.invoke_audio_entry_add_route_index(index);
+                main.set_pending_file_output_selected(ModelRc::new(VecModel::from(Vec::new())));
+            }
             save_and_hide_window(
                 &source,
                 WindowSlot::AddSource,
                 &config_for_file_add,
                 &queue_for_file_add,
             );
-        }
-        if let Some(main) = main_weak.upgrade() {
-            main.invoke_audio_entry_add_route_index(index);
         }
     });
 
@@ -179,13 +192,35 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
                 main.invoke_audio_file_volume_edited(value);
             }
         });
-    let main_weak = ui.as_weak();
+    // 多选只修改独立窗口草稿；点击确认后才把各列表项身份写入配置。
+    let source_weak = windows.add_source.as_weak();
+    let cache_for_file_toggle = state.cache.clone();
     windows
         .add_source
-        .on_audio_file_output_changed(move |index| {
-            if let Some(main) = main_weak.upgrade() {
-                main.set_file_output_index(index);
-                main.invoke_file_output_changed(index);
+        .on_audio_file_output_toggled(move |index, checked| {
+            if let Some(source) = source_weak.upgrade() {
+                toggle_dialog_output(
+                    &source,
+                    &cache_for_file_toggle.borrow().dests,
+                    index,
+                    checked,
+                    false,
+                );
+            }
+        });
+    let source_weak = windows.add_source.as_weak();
+    let cache_for_mic_toggle = state.cache.clone();
+    windows
+        .add_source
+        .on_mic_output_toggled(move |index, checked| {
+            if let Some(source) = source_weak.upgrade() {
+                toggle_dialog_output(
+                    &source,
+                    &cache_for_mic_toggle.borrow().dests,
+                    index,
+                    checked,
+                    true,
+                );
             }
         });
     let main_weak = ui.as_weak();
@@ -427,22 +462,151 @@ pub(super) fn sync_add_source_window(
     window.set_audio_entry_hotkeys(ui.get_audio_library_hotkeys());
     window.set_audio_entry_loops(ui.get_audio_library_loops());
     window.set_output_options(ui.get_devices());
-    let output_id = app_config.borrow().output.mic_output_id.clone();
-    // 子窗口消费主窗口的派生模型；麦克风输出选项的零号项表示跟随全局设备。
+    // 子窗口仅按当前配置初始化草稿；两个对话框各自勾选，不提前写回路由。
+    let output = app_config.borrow().output.clone();
     let cache = cache.borrow();
-    let mut mic_output_options = vec!["跟随全局默认设备".into()];
-    mic_output_options.extend(cache.dests.iter().map(|device| device.label.clone().into()));
-    // 配置保存的是 render_id，Slint 仍使用带“跟随全局”偏移的一-based 下标。
-    let mic_output_index = output_id
+    let default_file_ids = output
+        .file_default_output_id
         .as_deref()
-        .and_then(|id| cache.dests.iter().position(|device| device.render_id == id))
-        .map(|index| (index + 1) as i32)
-        .unwrap_or(0);
-    window.set_mic_output_options(ModelRc::new(VecModel::from(mic_output_options)));
-    window.set_mic_output_index(mic_output_index);
-    window.set_file_output_index(ui.get_file_output_index());
+        .map(|id| vec![id.to_owned()])
+        .unwrap_or_else(|| {
+            if output.device_ids.is_empty() {
+                cache
+                    .dests
+                    .get(ui.get_device_index().max(0) as usize)
+                    .map(|device| vec![device.selection_id().to_owned()])
+                    .unwrap_or_default()
+            } else {
+                output.device_ids.clone()
+            }
+        });
+    // 替换文件卡片时草稿从该卡片自身的目标恢复，不借用播放页默认目标。
+    let replace = usize::try_from(ui.get_source_replace_index()).ok();
+    let file_slot = replace.and_then(|row| {
+        let kinds = ui.get_source_kinds();
+        (kinds.row_data(row) == Some(1)).then(|| {
+            (0..row)
+                .filter(|index| kinds.row_data(*index) == Some(1))
+                .count()
+        })
+    });
+    let file_ids = file_slot
+        .and_then(|slot| output.file_output_ids.get(slot).cloned())
+        .unwrap_or_else(|| default_file_ids.clone());
+    let mic_ids = if output.mic_output_ids.is_empty() {
+        if output.device_ids.is_empty() {
+            default_file_ids.clone()
+        } else {
+            output.device_ids.clone()
+        }
+    } else {
+        output.mic_output_ids
+    };
+    let (file_selected, file_label) = super::sources::device_selection(&cache.dests, &file_ids);
+    let (mic_selected, mic_label) = super::sources::device_selection(&cache.dests, &mic_ids);
+    window.set_file_output_selected(ModelRc::new(VecModel::from(file_selected)));
+    window.set_file_output_label(file_label.into());
+    window.set_mic_output_selected(ModelRc::new(VecModel::from(mic_selected)));
+    window.set_mic_output_label(mic_label.into());
     window.set_file_volume(ui.get_audio_file_volume());
     window.set_mic_volume(ui.get_microphone_input_volume());
     window.set_mix_mic(ui.get_mix_mic());
     window.set_running(ui.get_running());
+}
+
+/// 把对话框草稿转换为每一项自己的端点 ID，配对麦与扬声器不会互相覆盖。
+fn selected_dialog_ids(
+    devices: &[crate::audio::device::DestDevice],
+    selected: &ModelRc<bool>,
+) -> Vec<String> {
+    devices
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| selected.row_data(*index) == Some(true))
+        .map(|(_, device)| device.selection_id().to_owned())
+        .collect()
+}
+
+/// 更新对话框的一项勾选并重算展示名称；至少保留一个输出。
+fn toggle_dialog_output(
+    window: &AddSourceWindow,
+    devices: &[crate::audio::device::DestDevice],
+    index: i32,
+    checked: bool,
+    mic: bool,
+) {
+    let Ok(index) = usize::try_from(index) else {
+        return;
+    };
+    if index >= devices.len() {
+        return;
+    }
+    let model = if mic {
+        window.get_mic_output_selected()
+    } else {
+        window.get_file_output_selected()
+    };
+    let mut selected = (0..devices.len())
+        .map(|row| model.row_data(row).unwrap_or(false))
+        .collect::<Vec<_>>();
+    if !checked && selected.iter().filter(|&&on| on).count() <= 1 {
+        return;
+    }
+    selected[index] = checked;
+    let ids = devices
+        .iter()
+        .zip(&selected)
+        .filter(|(_, on)| **on)
+        .map(|(device, _)| device.selection_id().to_owned())
+        .collect::<Vec<_>>();
+    let (_, label) = super::sources::device_selection(devices, &ids);
+    if mic {
+        window.set_mic_output_selected(ModelRc::new(VecModel::from(selected)));
+        window.set_mic_output_label(label.into());
+    } else {
+        window.set_file_output_selected(ModelRc::new(VecModel::from(selected)));
+        window.set_file_output_label(label.into());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 添加源弹层提交单项或双项时，卡片目标按可见项身份保存而不展开配对端。
+    #[test]
+    fn dialog_output_selection_matches_card_target_ids() {
+        let devices = vec![
+            crate::audio::device::DestDevice {
+                label: "扬声器".into(),
+                render_id: "render".into(),
+                capture_id: None,
+                capture_name: None,
+                driver_family: "cable".into(),
+                virtual_driver: true,
+            },
+            crate::audio::device::DestDevice {
+                label: "麦克风".into(),
+                render_id: "render".into(),
+                capture_id: Some("capture".into()),
+                capture_name: Some("麦克风".into()),
+                driver_family: "cable".into(),
+                virtual_driver: true,
+            },
+        ];
+        let selected = ModelRc::new(VecModel::from(vec![false, true]));
+        let ids = selected_dialog_ids(&devices, &selected);
+        assert_eq!(ids, ["capture"]);
+        assert_eq!(
+            super::super::sources::device_selection(&devices, &ids).0,
+            [false, true]
+        );
+        let selected = ModelRc::new(VecModel::from(vec![true, true]));
+        let ids = selected_dialog_ids(&devices, &selected);
+        assert_eq!(ids, ["render", "capture"]);
+        assert_eq!(
+            super::super::sources::device_selection(&devices, &ids).0,
+            [true, true]
+        );
+    }
 }

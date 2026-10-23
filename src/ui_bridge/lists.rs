@@ -134,12 +134,12 @@ pub(super) fn apply_destinations(
     initial: bool,
 ) {
     let kept_id = {
-        // 输出端点的 render_id 是稳定身份，label 只作显示与旧配置的兜底匹配。
+        // 选择身份与列表项一一对应，配对麦克风不沿用扬声器的 render ID。
         let cache = cache.borrow();
         cache
             .dests
             .get(ui.get_device_index() as usize)
-            .map(|device| device.render_id.clone())
+            .map(|device| device.selection_id().to_owned())
     };
     cache.borrow_mut().dests = destinations;
     // 先替换缓存再构造模型，后面的默认选择、设备多选和说明文字都读取同一份权威列表。
@@ -152,7 +152,12 @@ pub(super) fn apply_destinations(
             .collect::<Vec<slint::SharedString>>();
         let index = kept_id
             .as_deref()
-            .and_then(|id| cache.dests.iter().position(|device| device.render_id == id))
+            .and_then(|id| {
+                cache
+                    .dests
+                    .iter()
+                    .position(|device| device.selection_id() == id)
+            })
             .or_else(|| {
                 if initial {
                     cache
@@ -179,7 +184,12 @@ pub(super) fn apply_destinations(
         cache
             .dests
             .iter()
-            .map(|device| cache.selected_device_ids.contains(&device.render_id))
+            .map(|device| {
+                cache
+                    .selected_device_ids
+                    .iter()
+                    .any(|id| id == device.selection_id())
+            })
             .collect::<Vec<_>>()
     };
     cache.borrow_mut().device_selected = selected.clone();

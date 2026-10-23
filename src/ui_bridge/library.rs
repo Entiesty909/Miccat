@@ -5,6 +5,34 @@ use super::*;
 use std::path::Path;
 
 pub(super) const PAGE_SIZE: usize = 20;
+/// 将当前播放文件映射到音频库当前页的可见行；过滤后不可见时不冒充其他条目。
+pub(super) fn file_context_index(
+    ui: &MainWindow,
+    engine: &AudioEngine,
+    cache: &std::rc::Rc<std::cell::RefCell<UiCache>>,
+) -> Option<i32> {
+    let file = engine.file_state();
+    if file.path.is_empty() {
+        return (ui.get_audio_entry_index() >= 0).then(|| ui.get_audio_entry_index());
+    }
+    let (actual_index, current_page) = {
+        let cache = cache.borrow();
+        (
+            cache
+                .audio_entries
+                .iter()
+                .position(|entry| entry.path == file.path)?,
+            cache.audio_page,
+        )
+    };
+    let rank = visible_rank(cache, actual_index)?;
+    visible_page_row(rank, current_page)
+}
+
+/// 将全局可见排名换算为当前页内行号；跨页时返回 None，防止播放条目冒充当前页其他条目。
+pub(super) fn visible_page_row(rank: usize, page: usize) -> Option<i32> {
+    (rank / PAGE_SIZE == page).then_some((rank % PAGE_SIZE) as i32)
+}
 /// 音频库编辑对话框保留默认音符和首字图标两种字体图标。
 pub(super) const AUDIO_ICON_GLYPHS: [&str; 1] = ["\u{EC4F}"];
 
@@ -159,28 +187,41 @@ pub(super) fn entry_shortcut(entry: &config::AudioEntry) -> Option<String> {
     entry.hotkey.clone()
 }
 
-/// 构造带快捷键的音频条目显示文本，顺序与配置条目保持一致。
-pub(super) fn audio_hotkey_labels(cache: &Rc<RefCell<UiCache>>) -> Vec<slint::SharedString> {
-    cache
-        .borrow()
-        .audio_entries
-        .iter()
-        .filter_map(|entry| {
-            entry_shortcut(entry).map(|shortcut| format!("{shortcut}  {}", entry.name).into())
-        })
-        .collect()
-}
-
 /// 把当前页的行下标映射回稳定配置条目下标。
 pub(super) fn visible_entry(cache: &RefCell<UiCache>, visible_index: usize) -> Option<usize> {
-    let cache = cache.borrow();
-    filtered_entry_indices(&cache)
-        .into_iter()
-        .skip(cache.audio_page * PAGE_SIZE)
-        .nth(visible_index)
+    visible_entry_index(&cache.borrow(), visible_index)
 }
 
-/// 按分类、搜索词和排序规则返回配置条目下标，不改变配置数组顺序。
+/// 可见行只在当前页有效；重新解析筛选和排序结果，禁止直接当作配置下标。
+fn visible_entry_index(cache: &UiCache, visible_index: usize) -> Option<usize> {
+    if visible_index >= PAGE_SIZE {
+        return None;
+    }
+    let offset = cache
+        .audio_page
+        .checked_mul(PAGE_SIZE)?
+        .checked_add(visible_index)?;
+    filtered_entry_indices(cache).get(offset).copied()
+}
+
+/// 在现有分类模型中解析条目的有效目标，返回实际条目下标与可持久化路径。
+pub(super) fn entry_category_drop_target(
+    cache: &UiCache,
+    visible_index: usize,
+    target_index: i32,
+) -> Option<(usize, String)> {
+    let actual = visible_entry_index(cache, visible_index)?;
+    let target = usize::try_from(target_index).ok()?;
+    let paths = crate::library::category_paths(&cache.audio_categories, &cache.audio_entries);
+    let category = paths.get(target)?;
+    // “全部”仅用于筛选，绝不写进真实条目；重复目标也不触发无意义保存。
+    if category == "全部" || cache.audio_entries.get(actual)?.category == *category {
+        return None;
+    }
+    Some((actual, category.clone()))
+}
+
+/// 按分类、搜索词和指定字段/方向返回配置条目下标，不改变配置数组顺序。
 fn filtered_entry_indices(cache: &UiCache) -> Vec<usize> {
     let search = cache.audio_search.to_lowercase();
     let mut indices = cache
@@ -192,10 +233,18 @@ fn filtered_entry_indices(cache: &UiCache) -> Vec<usize> {
         .map(|(index, _)| index)
         .collect::<Vec<_>>();
     indices.sort_by(|left, right| {
-        let ordering = cache.audio_entries[*left]
-            .name
-            .to_lowercase()
-            .cmp(&cache.audio_entries[*right].name.to_lowercase());
+        let left_entry = &cache.audio_entries[*left];
+        let right_entry = &cache.audio_entries[*right];
+        let ordering = if cache.audio_sort_column == 1 {
+            left_entry.duration_hns.cmp(&right_entry.duration_hns)
+        } else {
+            // 小写字符迭代器避免排序比较过程反复生成临时 String。
+            left_entry
+                .name
+                .chars()
+                .flat_map(char::to_lowercase)
+                .cmp(right_entry.name.chars().flat_map(char::to_lowercase))
+        };
         if cache.audio_sort_ascending {
             ordering
         } else {
@@ -245,8 +294,6 @@ pub(super) fn update_audio_list(ui: &MainWindow, cache: &Rc<RefCell<UiCache>>) {
     let mut metadata = Vec::with_capacity(entries.len());
     let mut icon_images = Vec::with_capacity(entries.len());
     let mut icon_glyphs = Vec::with_capacity(entries.len());
-    let mut categories = Vec::with_capacity(entries.len());
-    let mut statuses = Vec::with_capacity(entries.len());
     let mut paths = Vec::with_capacity(entries.len());
     let mut sizes = Vec::with_capacity(entries.len());
     let mut hotkeys = Vec::with_capacity(entries.len());
@@ -276,12 +323,6 @@ pub(super) fn update_audio_list(ui: &MainWindow, cache: &Rc<RefCell<UiCache>>) {
         };
         let bitrate = estimated_bitrate(entry.file_size_bytes, entry.duration_hns);
         metadata.push(format!("{format} · {sample_rate} · {bitrate}").into());
-        categories.push(crate::library::category_leaf(&entry.category).into());
-        statuses.push(if entry.duration_hns > 0 {
-            "已导入".into()
-        } else {
-            "待扫描".into()
-        });
         paths.push(entry.path.into());
         sizes.push(format_file_size(entry.file_size_bytes).into());
     }
@@ -292,29 +333,20 @@ pub(super) fn update_audio_list(ui: &MainWindow, cache: &Rc<RefCell<UiCache>>) {
     ui.set_audio_entries(ModelRc::new(VecModel::from(names)));
     ui.set_audio_entry_durations(ModelRc::new(VecModel::from(durations)));
     ui.set_audio_entry_metadata(ModelRc::new(VecModel::from(metadata)));
-    ui.set_audio_entry_categories(ModelRc::new(VecModel::from(categories)));
-    ui.set_audio_entry_statuses(ModelRc::new(VecModel::from(statuses)));
     ui.set_audio_entry_paths(ModelRc::new(VecModel::from(paths)));
     ui.set_audio_entry_sizes(ModelRc::new(VecModel::from(sizes)));
     ui.set_audio_entry_hotkeys(ModelRc::new(VecModel::from(hotkeys)));
-    ui.set_audio_hotkey_labels(ModelRc::new(VecModel::from(audio_hotkey_labels(cache))));
     ui.set_audio_page(page as i32);
     ui.set_audio_page_count(page_count as i32);
     ui.set_audio_total_count(total as i32);
     ui.set_audio_category_counts(ModelRc::new(VecModel::from(audio_category_counts(cache))));
+    ui.set_audio_sort_column_index(cache.borrow().audio_sort_column as i32);
     ui.set_audio_sort_ascending(cache.borrow().audio_sort_ascending);
     if total > 0 {
         ui.set_audio_entry_index(0);
         if let Some(actual) = visible_entry(cache, 0) {
             let state = cache.borrow();
             if let Some(entry) = state.audio_entries.get(actual) {
-                if let Some(category_index) = state
-                    .audio_categories
-                    .iter()
-                    .position(|category| category == &entry.category)
-                {
-                    ui.set_audio_entry_category_index(category_index as i32);
-                }
                 ui.set_player_loop(entry.loop_playback);
             }
         }
@@ -347,7 +379,37 @@ fn format_file_size(bytes: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{AUDIO_ICON_GLYPHS, audio_icon_index, category_path_conflicts};
+    use super::{
+        AUDIO_ICON_GLYPHS, UiCache, audio_icon_index, category_path_conflicts,
+        entry_category_drop_target, filtered_entry_indices, visible_entry_index, visible_page_row,
+    };
+    use crate::config::AudioEntry;
+    /// 页码换算保持条目在实际页，不因过滤或分页把上下文指向另一行。
+    #[test]
+    fn visible_file_context_stays_on_its_actual_page() {
+        assert_eq!(visible_page_row(0, 0), Some(0));
+        assert_eq!(visible_page_row(20, 1), Some(0));
+        assert_eq!(visible_page_row(20, 0), None);
+        assert_eq!(visible_page_row(39, 1), Some(19));
+    }
+
+    /// 最小库条目只保留影响显示顺序与归类的数据，避免设备或文件依赖。
+    fn entry(name: &str, category: &str, duration_hns: u64) -> AudioEntry {
+        AudioEntry {
+            name: name.into(),
+            category: category.into(),
+            duration_hns,
+            path: String::new(),
+            icon_path: None,
+            icon_glyph: String::new(),
+            file_size_bytes: 0,
+            sample_rate: 0,
+            channels: 0,
+            loop_playback: false,
+            hotkey: None,
+            hotkey_binding: None,
+        }
+    }
 
     #[test]
     /// 默认音符 glyph 必须映射到编辑器的默认图标选项。
@@ -375,5 +437,74 @@ mod tests {
         let paths = vec!["效果音".to_string(), "提示音".to_string()];
 
         assert!(category_path_conflicts("效果音", "提示音", &paths));
+    }
+
+    /// 名称无视大小写排序，时长按实际 100 ns 数值排序；反向只改变顺序。
+    #[test]
+    fn name_and_duration_sort_both_directions() {
+        let mut cache = UiCache::default();
+        cache.audio_category = "全部".into();
+        cache.audio_entries = vec![
+            entry("Zulu", "甲", 20),
+            entry("alpha", "甲", 30),
+            entry("Bravo", "甲", 10),
+        ];
+        cache.audio_sort_ascending = true;
+        assert_eq!(filtered_entry_indices(&cache), vec![1, 2, 0]);
+        cache.audio_sort_ascending = false;
+        assert_eq!(filtered_entry_indices(&cache), vec![0, 2, 1]);
+        cache.audio_sort_column = 1;
+        cache.audio_sort_ascending = true;
+        assert_eq!(filtered_entry_indices(&cache), vec![2, 0, 1]);
+        cache.audio_sort_ascending = false;
+        assert_eq!(filtered_entry_indices(&cache), vec![1, 0, 2]);
+    }
+
+    /// 搜索和分页之后拖放行号应解析为原数组位置而非当前页或排序位置。
+    #[test]
+    fn category_drop_uses_filtered_sorted_page_index() {
+        let mut cache = UiCache::default();
+        cache.audio_categories = vec!["全部".into(), "甲".into(), "乙".into()];
+        cache.audio_entries = (0..42)
+            .map(|index| {
+                if index % 2 == 0 {
+                    entry(&format!("match-{:02}", 42 - index), "甲", index as u64)
+                } else {
+                    entry("different", "乙", index as u64)
+                }
+            })
+            .collect();
+        cache.audio_category = "甲".into();
+        cache.audio_search = "match".into();
+        cache.audio_sort_ascending = true;
+        cache.audio_sort_column = 1;
+        cache.audio_page = 1;
+        assert_eq!(visible_entry_index(&cache, 0), Some(40));
+        assert_eq!(
+            entry_category_drop_target(&cache, 0, 2),
+            Some((40, "乙".into()))
+        );
+        cache.audio_sort_column = 0;
+        assert_eq!(visible_entry_index(&cache, 0), Some(0));
+        assert_eq!(
+            entry_category_drop_target(&cache, 0, 2),
+            Some((0, "乙".into()))
+        );
+        assert_eq!(visible_entry_index(&cache, 1), None);
+        assert_eq!(visible_entry_index(&cache, 20), None);
+    }
+
+    /// 虚拟“全部”、相同分类以及非法行号均不可成为持久化目标。
+    #[test]
+    fn category_drop_rejects_invalid_targets() {
+        let mut cache = UiCache::default();
+        cache.audio_categories = vec!["全部".into(), "未分类".into(), "目标".into()];
+        cache.audio_category = "全部".into();
+        cache.audio_entries = vec![entry("a", "未分类", 10)];
+        assert_eq!(entry_category_drop_target(&cache, 0, 0), None);
+        assert_eq!(entry_category_drop_target(&cache, 0, 1), None);
+        assert_eq!(entry_category_drop_target(&cache, 0, -1), None);
+        assert_eq!(entry_category_drop_target(&cache, 0, 3), None);
+        assert_eq!(entry_category_drop_target(&cache, 1, 2), None);
     }
 }

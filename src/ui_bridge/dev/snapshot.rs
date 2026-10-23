@@ -149,6 +149,7 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
         audio_categories: categories,
         audio_entries,
         audio_category,
+        audio_sort_ascending: true,
         ..UiCache::default()
     }));
     ui.set_page(page_index);
@@ -175,7 +176,7 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
             .unwrap_or(0);
         let file_output_id = persisted
             .output
-            .file_output_id
+            .file_default_output_id
             .as_deref()
             .or(persisted.output.device_id.as_deref());
         let file_output_index = file_output_id
@@ -210,7 +211,21 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
         if page_index == 0 {
             let cache = cache.borrow();
             let mut rows = super::super::sources::SourceRows::default();
+            let fallback_ids = if persisted.output.device_ids.is_empty() {
+                cache
+                    .dests
+                    .get(ui.get_device_index().max(0) as usize)
+                    .map(|device| vec![device.render_id.clone()])
+                    .unwrap_or_default()
+            } else {
+                persisted.output.device_ids.clone()
+            };
+            let selected = |ids: Option<&Vec<String>>| {
+                super::super::sources::device_selection(&cache.dests, ids.unwrap_or(&fallback_ids))
+            };
             if let Some(process) = cache.processes.first() {
+                let (output_selection, output_label) =
+                    selected(persisted.output.process_output_ids.first());
                 rows.push_process(super::super::sources::ProcessRowInput {
                     name: process.name.clone(),
                     pid: process.pid,
@@ -219,7 +234,8 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
                     active: false,
                     volume: persisted.mix.process,
                     peak: 0.0,
-                    output_index: 0,
+                    output_selection,
+                    output_label,
                 });
             }
             if let Some(entry) = cache.audio_entries.first() {
@@ -233,6 +249,8 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
                     extension,
                     crate::library::category_leaf(&entry.category)
                 );
+                let (output_selection, output_label) =
+                    selected(persisted.output.file_output_ids.first());
                 rows.push_file(super::super::sources::FileRowInput {
                     name: entry.name.clone(),
                     path: entry.path.clone(),
@@ -242,7 +260,8 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
                     paused: false,
                     volume: persisted.mix.sfx,
                     peak: 0.0,
-                    output_index: 0,
+                    output_selection,
+                    output_label,
                     play_mode: persisted
                         .route
                         .audio_source_play_modes
@@ -260,6 +279,12 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
                 .and_then(|mic_id| cache.mic_ids.iter().position(|id| id == mic_id))
                 .or_else(|| cache.mic_names.iter().position(|name| !name.is_empty()));
             if let Some(name) = mic_index.and_then(|index| cache.mic_names.get(index)) {
+                let mic_ids = if persisted.output.mic_output_ids.is_empty() {
+                    None
+                } else {
+                    Some(&persisted.output.mic_output_ids)
+                };
+                let (output_selection, output_label) = selected(mic_ids);
                 rows.push_microphone(super::super::sources::MicrophoneRowInput {
                     name: name.clone(),
                     status: if persisted.route.mix_mic {
@@ -270,7 +295,8 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
                     active: persisted.route.mix_mic,
                     volume: persisted.mix.mic,
                     peak: 0.0,
-                    output_index: 0,
+                    output_selection,
+                    output_label,
                 });
             }
             rows.apply(&ui);
@@ -419,7 +445,7 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
             .window()
             .take_snapshot()
             .map_err(|e| Error::InvalidArgs(e.to_string()))?;
-        dispatch_right_click(&ui, slint::LogicalPosition::new(100.0, 202.0));
+        dispatch_right_click(&ui, slint::LogicalPosition::new(100.0, 252.0));
         if !ui.get_audio_category_menu_open() || ui.get_audio_category_index() != 2 {
             return Err(Error::InvalidArgs(
                 "category row right-click did not open its matching menu".into(),

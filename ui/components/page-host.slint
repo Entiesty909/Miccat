@@ -71,8 +71,10 @@ export component PageHost inherits Rectangle {
     in-out property <[bool]> source-muted: [];
     // 每槽位暂停状态。
     in-out property <[bool]> source-paused: [];
-    // 每槽位输出设备下标。
-    in-out property <[int]> source-output-indices: [];
+    // 按卡片行与设备下标两级索引的勾选状态。
+    in-out property <[[bool]]> source-output-selections: [];
+    // 每张源卡片所选设备的友好名。
+    in-out property <[string]> source-output-labels: [];
     // 每槽位文件播放模式。
     in-out property <[int]> source-play-modes: [];
     // 每槽位文件播放进度。
@@ -103,8 +105,6 @@ export component PageHost inherits Rectangle {
     in-out property <[int]> category-depths: [];
     // 分类条目数量数组。
     in-out property <[int]> category-counts: [];
-    // 全局快捷键显示数组。
-    in-out property <[string]> audio-hotkeys: [];
     // 分类图标图像数组。
     in-out property <[image]> category-icon-images: [];
     // 分类图标字形数组。
@@ -133,22 +133,16 @@ export component PageHost inherits Rectangle {
     in-out property <[string]> entry-icon-glyphs: [];
     // 条目元数据数组。
     in-out property <[string]> entry-metadata: [];
-    // 条目分类数组。
-    in-out property <[string]> entry-categories: [];
     // 条目路径数组。
     in-out property <[string]> entry-paths: [];
     // 条目大小数组。
     in-out property <[string]> entry-sizes: [];
     // 条目快捷键数组。
     in-out property <[string]> entry-hotkeys: [];
-    // 条目播放状态数组。
-    in-out property <[string]> entry-statuses: [];
     // 条目搜索草稿。
     in-out property <string> search: "";
     // 当前选中条目下标。
     in-out property <int> entry-index: -1;
-    // 当前条目分类下标。
-    in-out property <int> entry-category-index: 0;
     // 条目快捷键捕获态。
     in-out property <bool> listening-entry-hotkey: false;
     // 分页页码。
@@ -157,7 +151,8 @@ export component PageHost inherits Rectangle {
     in-out property <int> page-count: 1;
     // 筛选后总条目数。
     in-out property <int> total-count: 0;
-    // 名称排序方向。
+    // 排序列与方向均由 bridge 的同一个筛选结果提供。
+    in-out property <int> sort-column-index: 0;
     in-out property <bool> sort-ascending: true;
     // 当前播放条目下标。
     in-out property <int> playing-entry-index: -1;
@@ -165,8 +160,6 @@ export component PageHost inherits Rectangle {
     in-out property <float> progress: 0;
     // 拖动进度保护标记。
     in-out property <bool> seeking-progress: false;
-    // 当前播放名称。
-    in-out property <string> current-name: "";
     // 当前播放位置文本。
     in-out property <string> current-position: "";
     // 当前音频时长，单位秒。
@@ -175,10 +168,6 @@ export component PageHost inherits Rectangle {
     in-out property <bool> playing: false;
     // 暂停态。
     in-out property <bool> paused: false;
-    // 预览态。
-    in-out property <bool> preview-enabled: false;
-    // 循环态。
-    in-out property <bool> loop: false;
     // 分类菜单可见态。
     in-out property <bool> category-menu-open: false;
     // 条目菜单可见态。
@@ -234,8 +223,8 @@ export component PageHost inherits Rectangle {
     callback source-volume-edited(int, float);
     // 源静音切换。
     callback source-mute-toggled(int);
-    // 源输出设备变更。
-    callback source-output-changed(int, int);
+    // 按卡片行号、目标设备下标和勾选状态上报。
+    callback source-output-toggled(int, int, bool);
     // 源菜单动作码。
     callback source-action(int, int);
     // 源暂停。
@@ -278,6 +267,10 @@ export component PageHost inherits Rectangle {
     callback category-can-drop(data-transfer, int, int) -> bool;
     // 分类拖拽提交。
     callback category-drop(data-transfer, int, int);
+    // 音频条目拖到分类栏时在 bridge 中检查、保存分类变化。
+    pure callback entry-to-transfer(int) -> data-transfer;
+    callback entry-category-can-drop(data-transfer, int) -> bool;
+    callback entry-category-drop(data-transfer, int);
     // 条目上下文菜单。
     callback entry-context(int);
     // 条目选择。
@@ -300,8 +293,6 @@ export component PageHost inherits Rectangle {
     callback previous();
     // 播放下一条。
     callback next();
-    // 预览开关。
-    callback preview-enabled-toggled(bool);
     // 预览音量编辑。
     callback preview-volume-edited(float);
     // 文件输出变更。
@@ -310,18 +301,12 @@ export component PageHost inherits Rectangle {
     callback search-edited(string);
     // 格式变更。
     callback format-changed(int);
-    // 排序方向变更。
-    callback sort-toggled();
+    // 名称或时长表头触发对应列的排序切换。
+    callback sort-column(int);
     // 分页变更。
     callback page-changed(int);
-    // 条目分类变更。
-    callback entry-category-changed(int);
     // 条目快捷键绑定。
     callback entry-hotkey-bind();
-    // 循环开关变更。
-    callback loop-changed(bool);
-    // 打开快捷键设置。
-    callback hotkey-settings-requested();
     // 安装线缆。
     callback install-cable();
     // 卸载线缆。
@@ -382,7 +367,8 @@ export component PageHost inherits Rectangle {
         source-volume-dbs <=> root.source-volume-dbs;
         source-muted <=> root.source-muted;
         source-paused <=> root.source-paused;
-        source-output-indices <=> root.source-output-indices;
+        source-output-selections <=> root.source-output-selections;
+        source-output-labels <=> root.source-output-labels;
         source-play-modes <=> root.source-play-modes;
         source-progresses <=> root.source-progresses;
         source-position-texts <=> root.source-position-texts;
@@ -418,8 +404,8 @@ export component PageHost inherits Rectangle {
             root.source-volume-edited(index, value);
         }
         source-mute-toggled(index) => { root.source-mute-toggled(index); }
-        source-output-changed(index, target) => {
-            root.source-output-changed(index, target);
+        source-output-toggled(index, target, checked) => {
+            root.source-output-toggled(index, target, checked);
         }
         source-action(index, code) => { root.source-action(index, code); }
         source-pause(index) => { root.source-pause(index); }
@@ -443,7 +429,6 @@ export component PageHost inherits Rectangle {
         categories <=> root.categories;
         category-depths <=> root.category-depths;
         category-counts <=> root.category-counts;
-        audio-hotkeys <=> root.audio-hotkeys;
         category-icon-images <=> root.category-icon-images;
         category-icon-glyphs <=> root.category-icon-glyphs;
         edit-dialog-open <=> root.edit-dialog-open;
@@ -457,25 +442,20 @@ export component PageHost inherits Rectangle {
         entry-durations <=> root.entry-durations;
         entry-icon-images <=> root.entry-icon-images;
         entry-icon-glyphs <=> root.entry-icon-glyphs;
-        entry-metadata <=> root.entry-metadata;
-        entry-categories <=> root.entry-categories;
         entry-paths <=> root.entry-paths;
         entry-sizes <=> root.entry-sizes;
         entry-hotkeys <=> root.entry-hotkeys;
-        entry-statuses <=> root.entry-statuses;
         search <=> root.search;
         entry-index <=> root.entry-index;
-        entry-category-index <=> root.entry-category-index;
         listening-entry-hotkey <=> root.listening-entry-hotkey;
         page <=> root.page-index;
         page-count <=> root.page-count;
         total-count <=> root.total-count;
         sort-ascending <=> root.sort-ascending;
-        hotkey-label: root.hotkey-label;
+        sort-column-index <=> root.sort-column-index;
         playing-entry-index <=> root.playing-entry-index;
         progress <=> root.progress;
         seeking-progress <=> root.seeking-progress;
-        current-name <=> root.current-name;
         current-position <=> root.current-position;
         duration-seconds <=> root.duration-seconds;
         playing <=> root.playing;
@@ -501,6 +481,13 @@ export component PageHost inherits Rectangle {
         category-drop(data, target, position) => {
             root.category-drop(data, target, position);
         }
+        entry-to-transfer(index) => { root.entry-to-transfer(index); }
+        entry-category-can-drop(data, target) => {
+            root.entry-category-can-drop(data, target);
+        }
+        entry-category-drop(data, target) => {
+            root.entry-category-drop(data, target);
+        }
         entry-context(index) => { root.entry-context(index); }
         entry-selected(index) => { root.entry-selected(index); }
         entry-double-clicked(index) => { root.entry-double-clicked(index); }
@@ -513,14 +500,10 @@ export component PageHost inherits Rectangle {
         pause-toggle => { root.pause-toggle(); }
         previous => { root.previous(); }
         next => { root.next(); }
-        preview-enabled-toggled(value) => { root.preview-enabled-toggled(value); }
         search-edited(value) => { root.search-edited(value); }
-        sort-toggled => { root.sort-toggled(); }
+        sort-column(index) => { root.sort-column(index); }
         page-changed(value) => { root.page-changed(value); }
-        entry-category-changed(value) => { root.entry-category-changed(value); }
         entry-hotkey-bind => { root.entry-hotkey-bind(); }
-        loop-changed(value) => { root.loop-changed(value); }
-        hotkey-settings => { root.hotkey-settings-requested(); }
     }
     // 设置页只挂载 page == 2，设备和线缆回调统一转发到宿主。
     if root.page == 2: SettingsPage {

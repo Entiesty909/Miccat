@@ -1,14 +1,14 @@
-//! library 相关 Slint 回调注册。
+//! 音频库分类管理、分类重排和条目归类的 Slint 回调注册。
 
 use super::super::*;
 
-/// 绑定音频库分类、拖放、循环和编辑对话框事件；修改先落缓存，再排队保存配置。
+/// 绑定音频库分类、拖放和编辑对话框事件；修改先落缓存，再排队保存配置。
 pub(super) fn register(ui: &MainWindow, state: &AppState) {
     register_1(ui, state);
     register_2(ui, state);
     register_3(ui, state);
     register_drag(ui, state);
-    register_loop(ui, state);
+    register_entry_drag(ui, state);
     register_edit_dialogs(ui, state);
 }
 
@@ -242,6 +242,97 @@ fn register_drag(ui: &MainWindow, state: &AppState) {
     });
 }
 
+/// Slint 1.18 仅公开 text/image/paths 与应用内 user_data；MIME 身份通过强类型封装。
+const AUDIO_ENTRY_MIME: &str = "application/x-miccat-audio-entry";
+
+/// 应用内拖放数据：MIME 身份与十进制 UTF-8 可见行下标共同定义载荷。
+struct AudioEntryTransfer {
+    /// 防止其它拖放载荷被误认为音频条目。
+    mime_type: &'static str,
+    /// 当前页下标而非配置下标，落下时重新解析当前筛选/排序/分页。
+    payload: Vec<u8>,
+}
+
+/// 绑定音频条目拖入分类的同应用数据传输、预检查和提交。
+fn register_entry_drag(ui: &MainWindow, state: &AppState) {
+    let source_cache = state.cache.clone();
+    ui.on_audio_entry_to_transfer(move |index| {
+        let Ok(index) = usize::try_from(index) else {
+            return slint::DataTransfer::default();
+        };
+        if super::super::library::visible_entry(&source_cache, index).is_none() {
+            return slint::DataTransfer::default();
+        }
+        let payload = index.to_string();
+        let mut transfer = slint::DataTransfer::from(slint::SharedString::from(payload.as_str()));
+        transfer.set_user_data(std::rc::Rc::new(AudioEntryTransfer {
+            mime_type: AUDIO_ENTRY_MIME,
+            payload: payload.into_bytes(),
+        }));
+        transfer
+    });
+
+    let cache = state.cache.clone();
+    ui.on_audio_entry_category_can_drop(move |data, target| {
+        let Some(index) = audio_entry_drag_index(&data) else {
+            return false;
+        };
+        super::super::library::entry_category_drop_target(&cache.borrow(), index, target).is_some()
+    });
+
+    let state_for_drop = state.clone();
+    let ui_weak = ui.as_weak();
+    ui.on_audio_entry_category_drop(move |data, target| {
+        let Some(index) = audio_entry_drag_index(&data) else {
+            return;
+        };
+        let Some(ui) = ui_weak.upgrade() else { return };
+        // 预检查与真正提交之间筛选/分页可能改变，提交必须重新解析并校验。
+        let changed = {
+            let mut cache = state_for_drop.cache.borrow_mut();
+            let mut config = state_for_drop.app_config.borrow_mut();
+            change_entry_category(&mut cache, &mut config, index, target)
+        };
+        if changed {
+            state_for_drop.save_queue.schedule();
+            super::super::library::update_audio_categories(
+                &ui,
+                &state_for_drop.cache,
+                &state_for_drop.app_config.borrow(),
+            );
+            update_audio_list(&ui, &state_for_drop.cache);
+        }
+    });
+}
+
+/// 仅解析本应用携带指定 MIME 的十进制 UTF-8 字节，拒绝分类与外部纯文本。
+fn audio_entry_drag_index(data: &slint::DataTransfer) -> Option<usize> {
+    let transfer = data.user_data()?.downcast::<AudioEntryTransfer>().ok()?;
+    if transfer.mime_type != AUDIO_ENTRY_MIME {
+        return None;
+    }
+    let payload = std::str::from_utf8(&transfer.payload).ok()?;
+    let index = payload.parse::<usize>().ok()?;
+    (index.to_string() == payload).then_some(index)
+}
+
+/// 校验成功才同步缓存与配置，非法目标时不得改动持久化配置快照。
+fn change_entry_category(
+    cache: &mut UiCache,
+    config: &mut config::AppConfig,
+    visible_index: usize,
+    target_index: i32,
+) -> bool {
+    let Some((actual, category)) =
+        super::super::library::entry_category_drop_target(cache, visible_index, target_index)
+    else {
+        return false;
+    };
+    cache.audio_entries[actual].category = category;
+    config.audio_entries = cache.audio_entries.clone();
+    true
+}
+
 /// 校验分类拖放目标，禁止无效索引和库层判定的循环/非法移动。
 fn can_drop_category(
     data: &slint::DataTransfer,
@@ -368,45 +459,6 @@ fn category_drop_position(value: i32) -> Option<crate::library::CategoryDropPosi
         // 2 表示插入目标分类之后，仍保持同级路径。
         2 => Some(crate::library::CategoryDropPosition::After),
         _ => None,
-    }
-}
-
-/// 绑定条目循环播放开关，并在当前试听条目上即时重启以应用新循环状态。
-fn register_loop(ui: &MainWindow, state: &AppState) {
-    {
-        let engine = state.engine.clone();
-        let cache = state.cache.clone();
-        let app_config = state.app_config.clone();
-        let save_queue = state.save_queue.clone();
-        let ui_weak = ui.as_weak();
-        // 循环状态属于当前音频条目；更新后仅重启正在试听同一路径的条目。
-        ui.on_audio_loop_changed(move |looped| {
-            let Some(ui) = ui_weak.upgrade() else {
-                return;
-            };
-            let index = ui.get_audio_entry_index().max(0) as usize;
-            let Some(actual) = visible_entry(&cache, index) else {
-                return;
-            };
-            let Some(entry) = cache.borrow().audio_entries.get(actual).cloned() else {
-                return;
-            };
-            let state = engine.file_state();
-            let mut updated = entry;
-            updated.loop_playback = looped;
-            cache.borrow_mut().audio_entries[actual] = updated.clone();
-            app_config.borrow_mut().audio_entries = cache.borrow().audio_entries.clone();
-            save_queue.schedule();
-            if state.playing && state.path == updated.path {
-                let target = cache.borrow().playback_target;
-                if engine
-                    .play_file(&updated, state.position_hns, target)
-                    .is_ok()
-                {
-                    ui.set_player_paused(false);
-                }
-            }
-        });
     }
 }
 
@@ -598,4 +650,76 @@ fn register_edit_dialogs(ui: &MainWindow, state: &AppState) {
         }
         ui.set_audio_edit_dialog_open(false);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        AUDIO_ENTRY_MIME, AudioEntryTransfer, audio_entry_drag_index, change_entry_category,
+    };
+    use crate::config::{self, AudioEntry};
+    use crate::ui_bridge::UiCache;
+    use std::rc::Rc;
+
+    /// 测试用条目不对应真实文件，拖放仅修改配置内的分类路径。
+    fn entry(category: &str) -> AudioEntry {
+        AudioEntry {
+            name: "sound".into(),
+            path: String::new(),
+            icon_path: None,
+            icon_glyph: String::new(),
+            category: category.into(),
+            duration_hns: 0,
+            file_size_bytes: 0,
+            sample_rate: 0,
+            channels: 0,
+            loop_playback: false,
+            hotkey: None,
+            hotkey_binding: None,
+        }
+    }
+
+    /// 拖动载荷必须有本应用 MIME 身份及规范十进制 UTF-8 下标。
+    #[test]
+    fn audio_entry_transfer_rejects_category_and_malformed_payloads() {
+        let mut data = slint::DataTransfer::from(slint::SharedString::from("0"));
+        assert_eq!(audio_entry_drag_index(&data), None);
+        data.set_user_data(Rc::new(AudioEntryTransfer {
+            mime_type: AUDIO_ENTRY_MIME,
+            payload: b"0".to_vec(),
+        }));
+        assert_eq!(audio_entry_drag_index(&data), Some(0));
+        data.set_user_data(Rc::new(AudioEntryTransfer {
+            mime_type: AUDIO_ENTRY_MIME,
+            payload: b"01".to_vec(),
+        }));
+        assert_eq!(audio_entry_drag_index(&data), None);
+        data.set_user_data(Rc::new(AudioEntryTransfer {
+            mime_type: "other",
+            payload: b"0".to_vec(),
+        }));
+        assert_eq!(audio_entry_drag_index(&data), None);
+    }
+
+    /// 非法目标拒绝提交且配置数组保持原样，有效目标才落配置。
+    #[test]
+    fn invalid_entry_category_drop_does_not_write_config() {
+        let mut cache = UiCache::default();
+        cache.audio_category = "全部".into();
+        cache.audio_sort_ascending = true;
+        cache.audio_categories = vec!["全部".into(), "未分类".into(), "效果音".into()];
+        cache.audio_entries = vec![entry("未分类")];
+        let mut config = config::AppConfig::default();
+        config.audio_entries = cache.audio_entries.clone();
+
+        assert!(!change_entry_category(&mut cache, &mut config, 0, 0));
+        assert!(!change_entry_category(&mut cache, &mut config, 0, 1));
+        assert!(!change_entry_category(&mut cache, &mut config, 0, 99));
+        assert!(!change_entry_category(&mut cache, &mut config, 20, 2));
+        assert_eq!(config.audio_entries[0].category, "未分类");
+        assert_eq!(cache.audio_entries[0].category, "未分类");
+        assert!(change_entry_category(&mut cache, &mut config, 0, 2));
+        assert_eq!(config.audio_entries[0].category, "效果音");
+        assert_eq!(cache.audio_entries[0].category, "效果音");
+    }
 }

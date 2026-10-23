@@ -73,17 +73,10 @@ pub fn run_ui() -> Result<(), Error> {
         device_selected: Vec::new(),
         selected_pids: Vec::new(),
         process_volumes: persisted.mix.process_volumes.clone(),
-        process_output_ids: persisted
-            .output
-            .process_output_ids
-            .iter()
-            .cloned()
-            .map(Some)
-            .collect(),
         audio_volumes: persisted.mix.sfx_volumes.clone(),
-        audio_output_ids: Vec::new(),
         audio_categories: persisted.audio_categories.clone(),
         audio_entries: persisted.audio_entries.clone(),
+        audio_sort_ascending: true,
         audio_category: crate::library::category_paths(
             &persisted.audio_categories,
             &persisted.audio_entries,

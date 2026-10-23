@@ -1,10 +1,12 @@
 //! 把真实进程、文件播放和物理麦克风投影为独立路由源行。
 
 use super::cache::UiCache;
-use super::library::{PAGE_SIZE, visible_rank};
 use super::{AppState, MainWindow};
-use crate::engine::AudioEngine;
 use slint::{Model, ModelRc, VecModel};
+mod output_selection;
+pub(super) use output_selection::{device_selection, render_output_config, render_target_ids};
+#[cfg(test)]
+mod tests;
 
 /// 路由源行的 Slint 投影缓存。
 ///
@@ -39,8 +41,10 @@ pub(super) struct SourceRows {
     muted: Vec<bool>,
     /// 文件播放暂停标记；进程和麦克风行固定为 false。
     paused: Vec<bool>,
-    /// 每行保存的输出设备下标，映射到当前设备模型而非持久化 ID。
-    output_indices: Vec<i32>,
+    /// 每行按设备枚举顺序的勾选状态；仅结构刷新时重建，动态电平不触碰弹层。
+    output_selections: Vec<Vec<bool>>,
+    /// 下拉收起时显示的所选 Windows 友好名。
+    output_labels: Vec<slint::SharedString>,
     /// 文件卡片播放模式；非文件行固定为顺序模式占位。
     play_modes: Vec<i32>,
     /// 文件播放进度 0..=1；非文件行固定为零。
@@ -68,8 +72,10 @@ pub(super) struct ProcessRowInput {
     pub(super) volume: f32,
     /// 最近峰值。
     pub(super) peak: f32,
-    /// 输出设备下标。
-    pub(super) output_index: i32,
+    /// 与枚举设备下标对齐的多选结果。
+    pub(super) output_selection: Vec<bool>,
+    /// 收起下拉时展示的已选设备友好名称。
+    pub(super) output_label: String,
 }
 
 /// 文件源行的业务数据。
@@ -90,8 +96,10 @@ pub(super) struct FileRowInput {
     pub(super) volume: f32,
     /// 最近峰值。
     pub(super) peak: f32,
-    /// 输出设备下标。
-    pub(super) output_index: i32,
+    /// 与枚举设备下标对齐的多选结果。
+    pub(super) output_selection: Vec<bool>,
+    /// 收起下拉时展示的已选设备友好名称。
+    pub(super) output_label: String,
     /// 卡片播放模式编码。
     pub(super) play_mode: u8,
     /// 当前播放位置，单位为 100 纳秒。
@@ -112,8 +120,10 @@ pub(super) struct MicrophoneRowInput {
     pub(super) volume: f32,
     /// 最近峰值。
     pub(super) peak: f32,
-    /// 输出设备下标。
-    pub(super) output_index: i32,
+    /// 与枚举设备下标对齐的多选结果。
+    pub(super) output_selection: Vec<bool>,
+    /// 收起下拉时展示的已选设备友好名称。
+    pub(super) output_label: String,
 }
 
 impl SourceRows {
@@ -133,7 +143,8 @@ impl SourceRows {
         self.peak_dbs.push(peak_db(input.peak));
         self.muted.push(input.volume <= 0.001);
         self.paused.push(false);
-        self.output_indices.push(input.output_index);
+        self.output_selections.push(input.output_selection);
+        self.output_labels.push(input.output_label.into());
         self.play_modes.push(0);
         self.progresses.push(0.0);
         self.position_texts.push("".into());
@@ -157,7 +168,8 @@ impl SourceRows {
         self.peak_dbs.push(peak_db(input.peak));
         self.muted.push(input.volume <= 0.001);
         self.paused.push(input.paused);
-        self.output_indices.push(input.output_index);
+        self.output_selections.push(input.output_selection);
+        self.output_labels.push(input.output_label.into());
         self.play_modes.push(i32::from(input.play_mode));
         self.progresses
             .push(progress(input.position_hns, input.duration_hns));
@@ -183,7 +195,8 @@ impl SourceRows {
         self.peak_dbs.push(peak_db(input.peak));
         self.muted.push(input.volume <= 0.001);
         self.paused.push(false);
-        self.output_indices.push(input.output_index);
+        self.output_selections.push(input.output_selection);
+        self.output_labels.push(input.output_label.into());
         self.play_modes.push(0);
         self.progresses.push(0.0);
         self.position_texts.push("".into());
@@ -208,7 +221,8 @@ impl SourceRows {
             self.peak_values.len(),
             self.muted.len(),
             self.paused.len(),
-            self.output_indices.len(),
+            self.output_selections.len(),
+            self.output_labels.len(),
             self.play_modes.len(),
             self.progresses.len(),
             self.position_texts.len(),
@@ -284,11 +298,35 @@ impl SourceRows {
         set_if_changed(&ui.get_source_paused(), self.paused.clone(), |values| {
             ui.set_source_paused(ModelRc::new(VecModel::from(values)));
         });
+        let current = ui.get_source_output_selections();
+        let same = current.row_count() == self.output_selections.len()
+            && self
+                .output_selections
+                .iter()
+                .enumerate()
+                .all(|(row, selected)| {
+                    let Some(devices) = current.row_data(row) else {
+                        return false;
+                    };
+                    devices.row_count() == selected.len()
+                        && selected
+                            .iter()
+                            .enumerate()
+                            .all(|(index, checked)| devices.row_data(index) == Some(*checked))
+                });
+        if !same {
+            let rows = self
+                .output_selections
+                .iter()
+                .map(|selected| ModelRc::new(VecModel::from(selected.clone())))
+                .collect::<Vec<_>>();
+            ui.set_source_output_selections(ModelRc::new(VecModel::from(rows)));
+        }
         set_if_changed(
-            &ui.get_source_output_indices(),
-            self.output_indices.clone(),
+            &ui.get_source_output_labels(),
+            self.output_labels.clone(),
             |values| {
-                ui.set_source_output_indices(ModelRc::new(VecModel::from(values)));
+                ui.set_source_output_labels(ModelRc::new(VecModel::from(values)));
             },
         );
         set_if_changed(
@@ -329,6 +367,16 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
     let global_output = ui.get_device_index().max(0) as usize;
     let settings = state.app_config.borrow().output.clone();
     let cache = state.cache.borrow();
+    // 未配置当前卡片的独立设备时沿用全局多选；显式空槽保持无目标。
+    let fallback_ids = if settings.device_ids.is_empty() {
+        cache
+            .dests
+            .get(global_output)
+            .map(|device| vec![device.selection_id().to_owned()])
+            .unwrap_or_default()
+    } else {
+        settings.device_ids.clone()
+    };
 
     // `selected_pids` 的位置就是引擎进程槽位，不能按显示行号重新编号，否则音量和峰值会写到别的进程。
     for (slot, pid) in cache.selected_pids.iter().copied().enumerate() {
@@ -342,19 +390,12 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
             .copied()
             .unwrap_or_else(|| state.engine.process_volume(slot));
         let peak = state.engine.process_peak(slot);
-        let output_index = output_index(
+        let (output_selection, output_label) = device_selection(
             &cache.dests,
-            cache
+            settings
                 .process_output_ids
                 .get(slot)
-                .and_then(Option::as_deref),
-            cache
-                .dests
-                .iter()
-                .position(|device| {
-                    Some(device.render_id.as_str()) == settings.process_output_id.as_deref()
-                })
-                .unwrap_or(global_output),
+                .unwrap_or(&fallback_ids),
         );
         rows.push_process(ProcessRowInput {
             name: process.name.clone(),
@@ -364,7 +405,8 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
             active: enabled,
             volume,
             peak,
-            output_index,
+            output_selection,
+            output_label,
         });
     }
     drop(cache);
@@ -402,10 +444,10 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
         };
         // 每个文件行绑定自己的播放槽位，状态、进度和音量都从该槽读取。
         for (slot, entry, enabled) in audio_entries {
-            let playback = state.engine.file_source_state(slot);
+            let (playback, position_hns) =
+                file_card_state(ui, state, &state.cache.borrow(), slot, &entry);
             let playing = playback == crate::engine::FileSourceState::Playing;
             let paused = playback == crate::engine::FileSourceState::Paused;
-            let position_hns = state.engine.file_source_position_hns(slot);
             let category = crate::library::category_leaf(&entry.category);
             let detail = category.to_string();
             let play_mode = state
@@ -422,7 +464,10 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
                 .get(slot)
                 .copied()
                 .unwrap_or_else(|| state.engine.sfx_volume_for_slot(slot));
-            let output_fallback = global_output;
+            let (output_selection, output_label) = device_selection(
+                &state.cache.borrow().dests,
+                settings.file_output_ids.get(slot).unwrap_or(&fallback_ids),
+            );
             rows.push_file(FileRowInput {
                 name: entry.name.clone(),
                 path: entry
@@ -440,39 +485,34 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
                 } else {
                     0.0
                 },
-                output_index: output_index(
-                    &state.cache.borrow().dests,
-                    state
-                        .cache
-                        .borrow()
-                        .audio_output_ids
-                        .get(slot)
-                        .and_then(Option::as_deref),
-                    output_fallback,
-                ),
+                output_selection,
+                output_label,
                 play_mode,
                 position_hns,
                 duration_hns: entry.duration_hns,
             });
         }
     }
-    let (mic_count, mix_mic, mic_output_index, mic_name) = {
+    let (mic_count, mix_mic, mic_name, mic_output_selection, mic_output_label) = {
         let cache = state.cache.borrow();
         let mic_index = ui.get_mic_index().max(0) as usize;
+        let mic_ids = if settings.mic_output_ids.is_empty() {
+            &fallback_ids
+        } else {
+            &settings.mic_output_ids
+        };
+        let (selected, label) = device_selection(&cache.dests, mic_ids);
         (
             cache.mic_names.len(),
             ui.get_mix_mic(),
-            output_index(
-                &cache.dests,
-                settings.mic_output_id.as_deref(),
-                global_output,
-            ),
             cache
                 .mic_names
                 .get(mic_index)
                 .filter(|name| !name.is_empty())
                 .cloned()
                 .unwrap_or_else(|| "麦克风".to_string()),
+            selected,
+            label,
         )
     };
     // 麦克风只有在存在可选设备且未被隐藏时才占用一行；其槽位与进程/文件槽位分开管理。
@@ -484,13 +524,26 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
             active: mix_mic,
             volume: state.engine.mic_volume(),
             peak,
-            output_index: mic_output_index,
+            output_selection: mic_output_selection,
+            output_label: mic_output_label,
         });
     }
 
     // 结构性模型一次性提交，防止中间状态被 Slint 渲染；实时值交给 `update_dynamic` 原地更新。
     rows.apply(ui);
-    ui.set_file_output_index(global_output as i32);
+    let file_output = settings
+        .file_default_output_id
+        .as_deref()
+        .and_then(|id| {
+            state
+                .cache
+                .borrow()
+                .dests
+                .iter()
+                .position(|device| device.selection_id() == id)
+        })
+        .unwrap_or(global_output);
+    ui.set_file_output_index(file_output as i32);
 }
 /// 只更新现有源行的实时电平和启用状态，不重建图标或下拉模型。
 pub(super) fn update_dynamic(ui: &MainWindow, state: &AppState) {
@@ -543,8 +596,12 @@ pub(super) fn update_dynamic(ui: &MainWindow, state: &AppState) {
                     .copied()
                     .unwrap_or(cache.route_file_enabled);
                 file_slot += 1;
-                let playback = state.engine.file_source_state(slot);
-                let position_hns = state.engine.file_source_position_hns(slot);
+                let (playback, position_hns) = cache
+                    .route_audio_entries
+                    .get(slot)
+                    .and_then(|index| cache.audio_entries.get(*index))
+                    .map(|entry| file_card_state(ui, state, &cache, slot, entry))
+                    .unwrap_or((crate::engine::FileSourceState::Stopped, 0));
                 let duration_hns = cache
                     .route_audio_entries
                     .get(slot)
@@ -653,6 +710,38 @@ where
         apply(next);
     }
 }
+/// 路由槽未播放时从本机试听投影状态；转发选择不控制本机播放按钮。
+fn file_card_state(
+    ui: &MainWindow,
+    state: &AppState,
+    cache: &UiCache,
+    slot: usize,
+    entry: &crate::config::AudioEntry,
+) -> (crate::engine::FileSourceState, u64) {
+    use crate::engine::FileSourceState;
+    let routed = state.engine.file_source_state(slot);
+    if routed == FileSourceState::Playing || routed == FileSourceState::Paused {
+        return (routed, state.engine.file_source_position_hns(slot));
+    }
+    if cache.route_preview_slot == Some(slot) {
+        let file = state.engine.file_state();
+        if file.path == entry.path {
+            if ui.get_player_paused()
+                && let Some((_, position, _)) = cache.paused_audio.as_ref()
+            {
+                return (FileSourceState::Paused, *position);
+            }
+            if file.playing {
+                return (FileSourceState::Playing, file.position_hns);
+            }
+            if file.duration_hns > 0 && file.position_hns >= file.duration_hns {
+                return (FileSourceState::Finished, file.duration_hns);
+            }
+        }
+    }
+    (routed, state.engine.file_source_position_hns(slot))
+}
+
 /// 将 100 纳秒位置转换为进度比例；未知时长保持零。
 fn progress(position_hns: u64, duration_hns: u64) -> f32 {
     if duration_hns == 0 {
@@ -686,83 +775,4 @@ fn peak_db(value: f32) -> slint::SharedString {
         return "-∞ dB".into();
     }
     format!("{:.1} dB", 20.0 * value.log10()).into()
-}
-
-/// 输出设备下标：优先用保存的 ID，找不到时退回给定下标。
-pub(super) fn output_index(
-    devices: &[crate::audio::device::DestDevice],
-    saved_id: Option<&str>,
-    fallback: usize,
-) -> i32 {
-    saved_id
-        .and_then(|id| devices.iter().position(|device| device.render_id == id))
-        .unwrap_or(fallback.min(devices.len().saturating_sub(1))) as i32
-}
-
-/// 将当前播放文件映射到音频库当前页的可见行；过滤后不可见时不冒充其他条目。
-pub(super) fn file_context_index(
-    ui: &MainWindow,
-    engine: &AudioEngine,
-    cache: &std::rc::Rc<std::cell::RefCell<UiCache>>,
-) -> Option<i32> {
-    let file = engine.file_state();
-    if file.path.is_empty() {
-        return (ui.get_audio_entry_index() >= 0).then(|| ui.get_audio_entry_index());
-    }
-    let (actual_index, current_page) = {
-        let cache = cache.borrow();
-        (
-            cache
-                .audio_entries
-                .iter()
-                .position(|entry| entry.path == file.path)?,
-            cache.audio_page,
-        )
-    };
-    let rank = visible_rank(cache, actual_index)?;
-    visible_page_row(rank, current_page)
-}
-
-/// 将全局可见排名换算为当前页内行号；跨页时返回 None，防止播放条目冒充当前页其他条目。
-fn visible_page_row(rank: usize, page: usize) -> Option<i32> {
-    (rank / PAGE_SIZE == page).then_some((rank % PAGE_SIZE) as i32)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{MicrophoneRowInput, ProcessRowInput, SourceRows, visible_page_row};
-
-    /// 三类行都必须同步扩展并行数组，否则 UI 属性会错位。
-    #[test]
-    fn source_row_builders_keep_parallel_models_aligned() {
-        let mut rows = SourceRows::default();
-        rows.push_process(ProcessRowInput {
-            name: "进程".into(),
-            pid: 1,
-            status: "".into(),
-            icon_image: slint::Image::default(),
-            active: true,
-            volume: 1.0,
-            peak: 0.0,
-            output_index: 0,
-        });
-        rows.push_microphone(MicrophoneRowInput {
-            name: "麦克风设备".into(),
-            status: "".into(),
-            active: false,
-            volume: 1.0,
-            peak: 0.0,
-            output_index: 0,
-        });
-        assert!(rows.is_aligned());
-    }
-
-    /// 页码换算保持条目在实际页，不因过滤或分页把上下文指向另一行。
-    #[test]
-    fn visible_file_context_stays_on_its_actual_page() {
-        assert_eq!(visible_page_row(0, 0), Some(0));
-        assert_eq!(visible_page_row(20, 1), Some(0));
-        assert_eq!(visible_page_row(20, 0), None);
-        assert_eq!(visible_page_row(39, 1), Some(19));
-    }
 }

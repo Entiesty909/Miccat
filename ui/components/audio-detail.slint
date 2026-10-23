@@ -1,6 +1,6 @@
 //! 音频库详情面板：展示选中文件的本地元数据和管理字段。
 
-import { CheckBox, ComboBox, ScrollView } from "std-widgets.slint";
+import { ScrollView } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
 import { Card } from "card.slint";
 
@@ -10,34 +10,18 @@ export component AudioDetail inherits Card {
     in property <[string]> entries: [];
     // 条目格式/码率等副标题，索引与 entries 一一对应。
     in property <[string]> metadata: [];
-    // 每个条目的分类显示名，缺失索引时回退为“未分类”。
-    in property <[string]> categories: [];
     // 每个条目的格式化时长文本，单位已由数据层处理。
     in property <[string]> durations: [];
     // 每个条目的格式化文件大小文本。
     in property <[string]> sizes: [];
     // 每个条目的本地路径，仅用于详情展示，不在组件内访问文件。
     in property <[string]> paths: [];
-    // 分类下拉选项；category-index 是此数组的索引协议。
-    in property <[string]> category-options: [];
     // 当前条目的快捷键标签，为空表示未绑定。
     in property <string> hotkey: "";
     // 是否处于等待键盘输入阶段，影响快捷键输入框提示。
     in property <bool> listening-hotkey: false;
     // 当前条目索引；负值代表没有选择，越界时所有详情字段回退占位文本。
     in property <int> entry-index: -1;
-    // 当前分类选项索引，选择事件回传给宿主持久化条目分类。
-    in-out property <int> category-index: 0;
-    // 是否在本机设备试听；该切换不经过路由输出。
-    in-out property <bool> preview-enabled: false;
-    // 当前条目的循环播放开关。
-    in-out property <bool> loop: false;
-    // 用户选择了新的分类索引。
-    callback category-changed(int);
-    // 用户切换本机试听状态，宿主负责开始或停止预览。
-    callback preview-toggled(bool);
-    // 用户切换循环状态，宿主负责更新播放策略。
-    callback loop-toggled(bool);
     // 请求宿主进入快捷键捕获流程。
     callback hotkey-bind();
     // 请求宿主清除当前条目的快捷键绑定。
@@ -97,25 +81,6 @@ export component AudioDetail inherits Card {
                         font-size: 10px;
                         overflow: elide;
                     }
-                    Rectangle {
-                        width: 72px;
-                        height: 22px;
-                        border-radius: 4px;
-                        background: Theme.accentSoft;
-                        // 分类名称同样按 entry-index 对齐，缺失值统一回退为未分类。
-                        Text {
-                            text: root.entry-index >= 0
-                                && root.entry-index < root.categories.length
-                                ? root.categories[root.entry-index]
-                                : "未分类";
-                            width: 100%;
-                            color: Theme.accent;
-                            font-size: 10px;
-                            horizontal-alignment: center;
-                            vertical-alignment: TextVerticalAlignment.center;
-                            overflow: elide;
-                        }
-                    }
                 }
             }
             Text {
@@ -157,56 +122,6 @@ export component AudioDetail inherits Card {
                 TouchArea {
                     enabled: root.hotkey == "";
                     clicked => { root.hotkey-bind(); }
-                }
-            }
-            HorizontalLayout {
-                height: 30px;
-                Text {
-                    text: "循环播放";
-                    horizontal-stretch: 1;
-                    color: Theme.text2;
-                    font-size: 11px;
-                    vertical-alignment: center;
-                }
-                // 只有已选择条目时允许切换循环策略，避免空选中触发状态更新。
-                CheckBox {
-                    checked <=> root.loop;
-                    enabled: root.entry-index >= 0;
-                    // 勾选状态改变会通知播放控制层，实际循环由宿主执行。
-                    toggled => { root.loop-toggled(self.checked); }
-                }
-            }
-            // 下拉选择仅在有选中条目时启用，变更后由宿主保存分类关系。
-            Text { text: "分类"; color: Theme.text2; font-size: 11px; }
-            ComboBox {
-                model: root.category-options;
-                current-index <=> root.category-index;
-                enabled: root.entry-index >= 0;
-                // ComboBox 已同步索引；回调让宿主保存当前条目的分类关系。
-                selected(value) => { root.category-changed(root.category-index); }
-            }
-            VerticalLayout {
-                spacing: 2px;
-                HorizontalLayout {
-                    height: 28px;
-                    Text {
-                        text: "本机试听";
-                        horizontal-stretch: 1;
-                        color: Theme.text2;
-                        font-size: 11px;
-                        vertical-alignment: center;
-                    }
-                    CheckBox {
-                        // 预览是独立于路由的本机播放请求，由宿主管理其生命周期。
-                        checked <=> root.preview-enabled;
-                        // 切换只改变本机试听请求；宿主负责启动独立的预览流。
-                        toggled => { root.preview-toggled(self.checked); }
-                    }
-                }
-                Text {
-                    text: "在本机设备上播放该音频（不经过路由）";
-                    color: Theme.text3;
-                    font-size: 9px;
                 }
             }
             Rectangle { height: 1px; width: 100%; background: Theme.border; }

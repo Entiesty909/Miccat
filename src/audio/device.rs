@@ -51,6 +51,14 @@ pub struct DestDevice {
     pub virtual_driver: bool,
 }
 
+// 一条列表项以录音端或渲染端自己的 ID 区分；运行时仍写入对应 render_id。
+impl DestDevice {
+    /// 虚拟麦与配对扬声器共享 render_id，但勾选和配置不能共享身份。
+    pub(crate) fn selection_id(&self) -> &str {
+        self.capture_id.as_deref().unwrap_or(&self.render_id)
+    }
+}
+
 /// 输出列表：虚拟扬声器与虚拟麦克风各一条，不做「扬声器 → 麦」拼接。
 /// `include_all` 为真时也列出物理播放设备；虚拟录音端只在找到对应播放端后才加入。
 pub fn list_destinations(include_all: bool) -> Result<Vec<DestDevice>, Error> {

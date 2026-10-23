@@ -212,7 +212,8 @@ fn remove_missing_audio_sources(ui: &MainWindow, state: &AppState, missing_paths
             let finished = std::mem::take(&mut cache.audio_finished_handled);
             let volumes = std::mem::take(&mut cache.audio_volumes);
             let muted = std::mem::take(&mut cache.audio_muted_volumes);
-            let outputs = std::mem::take(&mut cache.audio_output_ids);
+            let outputs = state.app_config.borrow().output.file_output_ids.clone();
+            let fallback_outputs = state.app_config.borrow().output.device_ids.clone();
             let mut kept_entries = Vec::new();
             let mut kept_enabled = Vec::new();
             let mut kept_play_modes = Vec::new();
@@ -235,7 +236,12 @@ fn remove_missing_audio_sources(ui: &MainWindow, state: &AppState, missing_paths
                 kept_finished.push(finished.get(slot).copied().unwrap_or(false));
                 kept_volumes.push(volumes.get(slot).copied().unwrap_or(1.0));
                 kept_muted.push(muted.get(slot).copied().flatten());
-                kept_outputs.push(outputs.get(slot).cloned().flatten());
+                kept_outputs.push(
+                    outputs
+                        .get(slot)
+                        .cloned()
+                        .unwrap_or_else(|| fallback_outputs.clone()),
+                );
             }
             let changed = kept_entries.len() != old_len;
             cache.route_audio_entries = kept_entries;
@@ -244,7 +250,9 @@ fn remove_missing_audio_sources(ui: &MainWindow, state: &AppState, missing_paths
             cache.audio_finished_handled = kept_finished;
             cache.audio_volumes = kept_volumes;
             cache.audio_muted_volumes = kept_muted;
-            cache.audio_output_ids = kept_outputs;
+            if changed && !outputs.is_empty() {
+                state.app_config.borrow_mut().output.file_output_ids = kept_outputs;
+            }
             cache.route_audio_entry = cache.route_audio_entries.first().copied();
             cache.route_file_enabled = cache.route_audio_enabled.iter().any(|enabled| *enabled);
             cache.file_source_hidden = cache.route_audio_entries.is_empty();

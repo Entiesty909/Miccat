@@ -108,8 +108,10 @@ export component MainWindow inherits Window {
     in-out property <[bool]> source-muted: [];
     // 每槽位文件暂停状态。
     in-out property <[bool]> source-paused: [];
-    // 每槽位输出设备下标。
-    in-out property <[int]> source-output-indices: [];
+    // 路由卡片行与设备下标两级勾选模型。
+    in-out property <[[bool]]> source-output-selections: [];
+    // 每张卡片的所选输出设备友好名。
+    in-out property <[string]> source-output-labels: [];
     // 每槽位文件播放模式。
     in-out property <[int]> source-play-modes: [];
     // 每槽位文件播放进度。
@@ -120,6 +122,8 @@ export component MainWindow inherits Window {
     in-out property <[string]> source-duration-texts: [];
     // 文件源默认输出设备下标。
     in-out property <int> file-output-index: 0;
+    // 添加文件源窗口待提交的设备勾选，仅承载一次确认事件，不镜像配置。
+    in-out property <[bool]> pending-file-output-selected: [];
     // 文件源音量百分比。
     in-out property <float> audio-file-volume: 100;
     // 麦克风输入音量百分比。
@@ -178,22 +182,14 @@ export component MainWindow inherits Window {
     in-out property <[string]> audio-entry-icon-glyphs: [];
     // 当前分页条目元数据数组。
     in-out property <[string]> audio-entry-metadata: [];
-    // 当前分页条目分类数组。
-    in-out property <[string]> audio-entry-categories: [];
     // 当前分页条目路径数组。
     in-out property <[string]> audio-entry-paths: [];
     // 当前分页条目大小数组。
     in-out property <[string]> audio-entry-sizes: [];
-    // 当前分页条目播放状态数组。
-    in-out property <[string]> audio-entry-statuses: [];
     // 当前分页条目快捷键数组。
     in-out property <[string]> audio-entry-hotkeys: [];
-    // 全局快捷键显示标签数组。
-    in-out property <[string]> audio-hotkey-labels: [];
     // 当前音频条目下标。
     in-out property <int> audio-entry-index: -1;
-    // 当前条目分类下标。
-    in-out property <int> audio-entry-category-index: 0;
     // 音频搜索草稿。
     in-out property <string> audio-search: "";
     // 独立播放器当前条目下标。
@@ -204,7 +200,8 @@ export component MainWindow inherits Window {
     in-out property <int> audio-page-count: 1;
     // 音频库筛选后的总条目数。
     in-out property <int> audio-total-count: 0;
-    // 音频名称排序方向。
+    // 名称/时长排序列与方向均按当前筛选结果刷新。
+    in-out property <int> audio-sort-column-index: 0;
     in-out property <bool> audio-sort-ascending: true;
     // 设置页当前分组索引。
     in-out property <int> settings-section-index: 0;
@@ -314,20 +311,16 @@ export component MainWindow inherits Window {
     callback master-volume-edited(float);
     // 音频库分页变更。
     callback audio-page-changed(int);
-    // 音频条目分类变更。
-    callback entry-category-changed(int);
     // 选中音频库条目。
     callback audio-entry-selected(int);
-    // 切换音频名称排序。
-    callback audio-sort-toggled();
+    // 点击名称或时长表头切换对应排序列与方向。
+    callback audio-sort-column(int);
     // 请求添加进程源。
     callback process-add();
     // 搜索音频库条目。
     callback audio-search-edited(string);
-    // 修改音频播放循环状态。
-    callback audio-loop-changed(bool);
-    // 修改指定源的输出设备。
-    callback source-output-changed(int, int);
+    // 指定路由卡片与设备下标的多选变化。
+    callback source-output-toggled(int, int, bool);
     // 修改文件源输出设备。
     callback file-output-changed(int);
     // 切换指定源启用状态。
@@ -426,6 +419,10 @@ export component MainWindow inherits Window {
     callback audio-category-can-drop(data-transfer, int, int) -> bool;
     // 提交分类拖放。
     callback audio-category-drop(data-transfer, int, int);
+    // 从可见音频行生成拖放数据；落到分类时由 Rust 持久化实际条目。
+    pure callback audio-entry-to-transfer(int) -> data-transfer;
+    callback audio-entry-category-can-drop(data-transfer, int) -> bool;
+    callback audio-entry-category-drop(data-transfer, int);
     // 双击音频条目。
     callback audio-entry-double-clicked(int);
     // 打开音频条目上下文菜单。
@@ -540,8 +537,8 @@ export component MainWindow inherits Window {
                 edit-icon-index <=> root.audio-edit-icon-index;
                 edit-custom-icon-image <=> root.audio-edit-custom-icon-image;
                 edit-custom-icon-path <=> root.audio-edit-custom-icon-path;
-                source-paused <=> root.source-paused;
-                source-output-indices <=> root.source-output-indices;
+                source-output-selections <=> root.source-output-selections;
+                source-output-labels <=> root.source-output-labels;
                 source-play-modes <=> root.source-play-modes;
                 source-progresses <=> root.source-progresses;
                 source-position-texts <=> root.source-position-texts;
@@ -567,36 +564,29 @@ export component MainWindow inherits Window {
                 running <=> root.running;
                 categories <=> root.audio-categories;
                 category-counts <=> root.audio-category-counts;
-                audio-hotkeys <=> root.audio-hotkey-labels;
                 category-index <=> root.audio-category-index;
                 entries <=> root.audio-entries;
                 entry-durations <=> root.audio-entry-durations;
                 entry-icon-images <=> root.audio-entry-icon-images;
                 entry-icon-glyphs <=> root.audio-entry-icon-glyphs;
-                entry-metadata <=> root.audio-entry-metadata;
-                entry-categories <=> root.audio-entry-categories;
                 entry-paths <=> root.audio-entry-paths;
                 entry-sizes <=> root.audio-entry-sizes;
                 entry-hotkeys <=> root.audio-entry-hotkeys;
-                entry-statuses <=> root.audio-entry-statuses;
                 search <=> root.audio-search;
                 entry-index <=> root.audio-entry-index;
-                entry-category-index <=> root.audio-entry-category-index;
                 listening-entry-hotkey <=> root.audio-hotkey-listening;
                 page-index <=> root.audio-page;
                 page-count <=> root.audio-page-count;
                 total-count <=> root.audio-total-count;
                 sort-ascending <=> root.audio-sort-ascending;
+                sort-column-index <=> root.audio-sort-column-index;
                 playing-entry-index <=> root.player-entry-index;
                 progress <=> root.audio-progress;
                 seeking-progress <=> root.audio-seeking-progress;
-                current-name <=> root.audio-current-name;
                 current-position <=> root.audio-current-position;
                 duration-seconds <=> root.audio-duration-seconds;
                 playing <=> root.player-playing;
                 paused <=> root.player-paused;
-                preview-enabled <=> root.preview-enabled;
-                loop <=> root.player-loop;
                 category-menu-open <=> root.audio-category-menu-open;
                 entry-menu-open <=> root.audio-entry-menu-open;
                 category-menu-x <=> root.audio-category-menu-x;
@@ -639,8 +629,8 @@ export component MainWindow inherits Window {
                 }
                 source-volume-edited(index, value) => { root.source-volume-edited(index, value); }
                 source-mute-toggled(index) => { root.source-mute-toggled(index); }
-                source-output-changed(index, target) => {
-                    root.source-output-changed(index, target);
+                source-output-toggled(index, target, checked) => {
+                    root.source-output-toggled(index, target, checked);
                 }
                 source-action(index, code) => { root.source-action(index, code); }
                 source-pause(index) => { root.source-pause(index); }
@@ -676,6 +666,13 @@ export component MainWindow inherits Window {
                 category-drop(data, target, position) => {
                     root.audio-category-drop(data, target, position);
                 }
+                entry-to-transfer(index) => { root.audio-entry-to-transfer(index); }
+                entry-category-can-drop(data, target) => {
+                    root.audio-entry-category-can-drop(data, target);
+                }
+                entry-category-drop(data, target) => {
+                    root.audio-entry-category-drop(data, target);
+                }
                 entry-context(index) => { root.audio-entry-context(index); }
                 entry-selected(index) => { root.audio-entry-selected(index); }
                 entry-double-clicked(index) => { root.audio-entry-double-clicked(index); }
@@ -687,20 +684,12 @@ export component MainWindow inherits Window {
                 pause-toggle => { root.player-pause-toggle(); }
                 previous => { root.player-previous(); }
                 next => { root.player-next(); }
-                preview-enabled-toggled(value) => { root.preview-enabled-toggled(value); }
                 preview-volume-edited(value) => { root.preview-volume-edited(value); }
                 file-output-changed(value) => { root.file-output-changed(value); }
                 search-edited(value) => { root.audio-search-edited(value); }
-                sort-toggled => { root.audio-sort-toggled(); }
+                sort-column(index) => { root.audio-sort-column(index); }
                 page-changed(value) => { root.audio-page-changed(value); }
-                entry-category-changed(value) => { root.entry-category-changed(value); }
                 entry-hotkey-bind => { root.audio-entry-hotkey-bind(); }
-                loop-changed(value) => { root.audio-loop-changed(value); }
-                // 快捷键设置请求跳转到设置页的快捷键分组，再由状态属性维持定位。
-                hotkey-settings-requested => {
-                    root.page = 2;
-                    root.settings-section-index = 2;
-                }
                 install-cable => { root.install-cable(); }
                 uninstall-cable => { root.uninstall-cable(); }
                 begin-hotkey-capture => { root.begin-hotkey-capture(); }

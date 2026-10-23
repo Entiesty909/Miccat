@@ -2,7 +2,6 @@
 
 import { Card } from "card.slint";
 import { Theme } from "../theme.slint";
-import { PmButton } from "button.slint";
 
 // 分类侧栏：展示分类树，并把选择、拖放和菜单操作上报宿主。
 export component CategorySidebar inherits Card {
@@ -16,8 +15,6 @@ export component CategorySidebar inherits Card {
     in-out property <[image]> category-icon-images: [];
     // 分类图标字形；空字符串表示优先显示对应图像。
     in-out property <[string]> category-icon-glyphs: [];
-    // 已绑定的音频快捷键标签，按宿主提供的显示顺序展示。
-    in-out property <[string]> audio-hotkeys: [];
     // 当前选中的分类索引，-1 表示上下文菜单作用于空白区域。
     in-out property <int> category-index: 0;
     // 当前拖放命中的分类索引，-1 表示没有有效目标。
@@ -32,22 +29,20 @@ export component CategorySidebar inherits Card {
     in-out property <length> category-menu-x: 0px;
     // 分类上下文菜单左上角纵坐标，单位为 length。
     in-out property <length> category-menu-y: 0px;
-    // 主窗口提供的路由快捷键标签，仅作为底部状态文本展示。
-    in property <string> hotkey-label: "";
     // 用户选择分类后通知宿主刷新条目筛选。
     callback category-changed(int);
     // 请求宿主打开指定分类的上下文菜单。
     callback category-context(int);
     // 将分类索引转换为拖放数据，保持拖动协议由宿主定义。
     pure callback category-to-transfer(int) -> data-transfer;
-    // 宿主校验拖放数据、目标分类和插入位置是否有效。
+    // 音频条目拖入分类时由宿主验证、持久化；分类重排仍使用上面的协议。
+    callback entry-category-can-drop(data-transfer, int) -> bool;
+    callback entry-category-drop(data-transfer, int);
+    // 宿主校验分类拖放数据、目标和插入位置。
     callback category-can-drop(data-transfer, int, int) -> bool;
-    // 提交已校验的分类拖放操作。
     callback category-drop(data-transfer, int, int);
-    // 请求宿主打开快捷键设置页。
-    callback hotkey-settings();
 
-    width: 230px;
+    width: 180px;
     vertical-stretch: 1;
 
     VerticalLayout {
@@ -109,31 +104,45 @@ export component CategorySidebar inherits Card {
                     width: 100%;
                     height: 100%;
                     background: index == root.category-index
+                        || (index == root.category-drop-target
+                            && root.category-drop-position == 1)
                         ? Theme.accentSoft
                         : transparent;
-                    // “全部”和“未分类”是固定入口，不能作为拖放目标。
-                    if category != "全部" && category != "未分类": DropArea {
+                    // “全部”不接受归类；“未分类”允许音频移入但不能参与分类重排。
+                    if category != "全部": DropArea {
                         width: 100%;
                         height: 100%;
-                        // 按指针在行内的垂直区域选择上方、内部或下方插入协议。
                         can-drop(event) => {
-                            let position = event.position.y < self.height * 0.25
-                                ? 0
-                                : (event.position.y > self.height * 0.75 ? 2 : 1);
-                            // 只有宿主确认可放置时才显示高亮并允许移动手势。
-                            if root.category-can-drop(event.data, index, position) {
+                            if root.entry-category-can-drop(event.data, index) {
                                 root.category-drop-target = index;
-                                root.category-drop-position = position;
+                                root.category-drop-position = 1;
                                 return DragAction.move;
                             }
+                            if category != "未分类" {
+                                let position = event.position.y < self.height * 0.25
+                                    ? 0
+                                    : (event.position.y > self.height * 0.75 ? 2 : 1);
+                                if root.category-can-drop(event.data, index, position) {
+                                    root.category-drop-target = index;
+                                    root.category-drop-position = position;
+                                    return DragAction.move;
+                                }
+                            }
+                            root.category-drop-target = -1;
+                            root.category-drop-position = -1;
                             return DragAction.none;
                         }
-                        // 提交宿主确认的目标位置后清空临时拖放状态。
                         dropped(event) => {
-                            let position = event.position.y < self.height * 0.25
-                                ? 0
-                                : (event.position.y > self.height * 0.75 ? 2 : 1);
-                            root.category-drop(event.data, index, position);
+                            if root.entry-category-can-drop(event.data, index) {
+                                root.entry-category-drop(event.data, index);
+                            } else if category != "未分类" {
+                                let position = event.position.y < self.height * 0.25
+                                    ? 0
+                                    : (event.position.y > self.height * 0.75 ? 2 : 1);
+                                if root.category-can-drop(event.data, index, position) {
+                                    root.category-drop(event.data, index, position);
+                                }
+                            }
                             root.category-drop-target = -1;
                             root.category-drop-position = -1;
                             return event.proposed-action;
@@ -142,18 +151,21 @@ export component CategorySidebar inherits Card {
                     HorizontalLayout {
                         height: 36px;
                         padding-left: (index < root.category-depths.length
-                            ? root.category-depths[index] * 16px
-                            : 0px) + 8px;
-                        padding-right: 8px;
-                        spacing: 6px;
+                            ? root.category-depths[index] * 6px
+                            : 0px) + 6px;
+                        padding-right: 6px;
+                        spacing: 4px;
+                        // 图标盒与分类文字共用行中线；图像和字形在盒内双轴居中。
                         Rectangle {
                             width: 18px;
-                            height: 18px;
+                            height: 36px;
                             background: transparent;
                             // 有图像且字形为空时使用自定义图标资源。
                             if index < root.category-icon-images.length
                                 && index < root.category-icon-glyphs.length
                                 && root.category-icon-glyphs[index] == "": Image {
+                                x: (parent.width - self.width) / 2;
+                                y: (parent.height - self.height) / 2;
                                 width: 18px;
                                 height: 18px;
                                 source: root.category-icon-images[index];
@@ -167,6 +179,7 @@ export component CategorySidebar inherits Card {
                                     : (category == "未分类" ? "\u{E8F4}" : "\u{E8B7}");
                                 font-family: "Segoe MDL2 Assets";
                                 width: 18px;
+                                y: (parent.height - self.height) / 2;
                                 height: 18px;
                                 color: index == root.category-index
                                     ? Theme.accent
@@ -252,52 +265,6 @@ export component CategorySidebar inherits Card {
                     }
                 }
             }
-        }
-        Rectangle { height: 1px; width: 100%; background: Theme.border; }
-        HorizontalLayout {
-            height: 34px;
-            Text {
-                text: "\u{E8D7}";
-                font-family: "Segoe MDL2 Assets";
-                color: Theme.warn;
-                width: 20px;
-                vertical-alignment: TextVerticalAlignment.center;
-            }
-            Text {
-                text: "快捷键";
-                horizontal-stretch: 1;
-                color: Theme.text;
-                font-size: 13px;
-                font-weight: 600;
-                vertical-alignment: TextVerticalAlignment.center;
-            }
-            // 管理按钮只请求打开设置页，快捷键变更由宿主处理。
-            PmButton {
-                label: "管理";
-                flat: true;
-                button-width: 46px;
-                clicked => { root.hotkey-settings(); }
-            }
-        }
-        // 没有绑定快捷键时显示占位提示，避免与实际标签混淆。
-        if root.audio-hotkeys.length == 0: Text {
-            text: "暂无已绑定的音频快捷键";
-            color: Theme.text3;
-            font-size: 10px;
-        }
-        // 快捷键标签按宿主顺序逐行显示，不在侧栏内重新排序。
-        for shortcut[index] in root.audio-hotkeys: Text {
-            text: shortcut;
-            height: 20px;
-            color: Theme.text2;
-            font-size: 10px;
-            overflow: elide;
-        }
-        Text {
-            text: "路由开关  \{root.hotkey-label}";
-            color: Theme.text2;
-            font-size: 10px;
-            overflow: elide;
         }
     }
 }

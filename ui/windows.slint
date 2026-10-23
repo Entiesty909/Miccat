@@ -59,14 +59,12 @@ export component AddSourceWindow inherits Window {
     in-out property <[string]> audio-entry-hotkeys: [];
     // 每个音频条目的循环播放开关。
     in-out property <[bool]> audio-entry-loops: [];
-    // 可选输出设备名称列表，供文件路由选择。
+    // 两种新增源复用同一输出设备列表，但各自持有提交前的勾选草稿。
     in-out property <[string]> output-options: [];
-    // 麦克风专用输出设备列表，和文件输出列表分开维护。
-    in-out property <[string]> mic-output-options: [];
-    // 当前麦克风输出设备下标。
-    in-out property <int> mic-output-index: 0;
-    // 当前文件输出设备下标；提交音频源时随配置发送给 bridge。
-    in-out property <int> file-output-index: 0;
+    in-out property <[bool]> file-output-selected: [];
+    in-out property <string> file-output-label: "";
+    in-out property <[bool]> mic-output-selected: [];
+    in-out property <string> mic-output-label: "";
     // 待添加文件的音量百分比，范围由 SliderRow 约束。
     in-out property <float> file-volume: 100;
     // 音频库列表当前选中项。
@@ -98,10 +96,9 @@ export component AddSourceWindow inherits Window {
     callback audio-entry-add-route(int);
     // 文件音量编辑值，百分比单位；宿主负责持久化和应用增益。
     callback audio-file-volume-edited(float);
-    // 文件输出设备下标变更，宿主负责校验并切换 render target。
-    callback audio-file-output-changed(int);
-    // 麦克风输出设备下标变更。
-    callback mic-output-changed(int);
+    // 对话框中逐项勾选文件/麦克风输出，不影响已存在的卡片。
+    callback audio-file-output-toggled(int, bool);
+    callback mic-output-toggled(int, bool);
     // 麦克风输入音量编辑值，百分比单位。
     callback mic-volume-edited(float);
     // 麦克风混音开关变更，可能立即创建或移除输入流。
@@ -143,9 +140,10 @@ export component AddSourceWindow inherits Window {
         audio-entry-hotkeys <=> root.audio-entry-hotkeys;
         audio-entry-loops <=> root.audio-entry-loops;
         output-options <=> root.output-options;
-        mic-output-options <=> root.mic-output-options;
-        mic-output-index <=> root.mic-output-index;
-        file-output-index <=> root.file-output-index;
+        file-output-selected <=> root.file-output-selected;
+        file-output-label <=> root.file-output-label;
+        mic-output-selected <=> root.mic-output-selected;
+        mic-output-label <=> root.mic-output-label;
         file-volume <=> root.file-volume;
         audio-selected-index <=> root.audio-selected-index;
         audio-search <=> root.audio-search;
@@ -161,8 +159,12 @@ export component AddSourceWindow inherits Window {
         add-files => { root.add-files(); }
         audio-entry-add-route(index) => { root.audio-entry-add-route(index); }
         audio-file-volume-edited(value) => { root.audio-file-volume-edited(value); }
-        audio-file-output-changed(index) => { root.audio-file-output-changed(index); }
-        mic-output-changed(index) => { root.mic-output-changed(index); }
+        audio-file-output-toggled(index, checked) => {
+            root.audio-file-output-toggled(index, checked);
+        }
+        mic-output-toggled(index, checked) => {
+            root.mic-output-toggled(index, checked);
+        }
         mic-volume-edited(value) => { root.mic-volume-edited(value); }
         mic-mix-changed(value) => { root.mic-mix-changed(value); }
         mic-add => { root.mic-add(); }

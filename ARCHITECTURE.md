@@ -17,6 +17,7 @@ Miccat 是 Windows 本地桌面程序：以 WASAPI Process Loopback 捕获指定
 | `src/cli/mod.rs` | argv 派发、设备/进程命令、capture/route 与播放探针 |
 | `src/ui_bridge/` | Slint 组装、AppState、回调、缓存、持久化、状态轮询、异步设备/进程刷新和独立窗口生命周期 |
 | `src/ui_bridge/window_lifecycle.rs` | 独立窗口回调、显示/隐藏、物理位置保存、添加源窗口属性同步 |
+| `src/ui_bridge/sources/{output_selection,tests}.rs` | 卡片可见端点 ID 与运行时 render ID 转换、源行投影回归测试；文件上下文页码映射位于 `ui_bridge/library.rs` |
 | `src/engine.rs` | AudioEngine 权威状态、进程/麦/输出生命周期、多输出打开与停止 |
 | `src/engine/{fanout,monitor,playback,volume,status,peaks}.rs` | 多输出转换、本机试听、文件播放、增益、状态与峰值 API |
 | `src/audio/` | WASAPI capture/render、COM façade、SPSC ring、格式转换、MF/WAV 解码、SFX、试听、CLI WAV 导出 |
@@ -71,9 +72,9 @@ audio/com ─────────────→ platform::com
 - `UiCache.route_file_enabled`：用户为文件源选择的启用状态；与全局路由启停和文件播放器播放状态分离。
 - `UiCache.route_audio_entries`、`route_audio_enabled` 与 `audio_play_modes`：多个文件槽的当前库条目、启用状态和播放模式；前后切歌及自然续播只在条目所属精确分类内选择，不保存 PCM。
   文件源的路由启用不启动解码；播放状态和位置由引擎 SFX 槽位提供，UI 每 50 ms 更新对应行，卡片播放按钮才创建/恢复流。
-- `OutputConfig.device_ids` 持久化多选 render 设备 ID；`process_output_ids` / `file_output_ids` 保存卡片级目标。
-- `OutputConfig.mic_output_id` 保存麦克风源可选目标；未设置时跟随路由主输出。物理麦克风是捕获端，不能作为 WASAPI render 目标；虚拟麦克风选项将录音端映射到配对播放端。
-路由启动快照只收集已启用源的输出目标；禁用卡片的输出 ID 仍由配置保存，不进入该轮输出列表与配对端点冲突检查。
+- `OutputConfig.device_ids` 保存全局多选可见端点 ID；`process_output_ids` / `file_output_ids` 保存逐卡片目标；`file_default_output_id` 只决定新文件卡片的初始输出。
+- `OutputConfig.mic_output_ids` 保存麦克风卡片的多选目标；为空时跟随全局输出。虚拟麦克风用录音端 ID 区分同一线缆的扬声器选项，运行时才解析到 render ID。物理麦克风是捕获端，不能作为 WASAPI render 目标。
+路由启动快照只收集已启用源的输出目标；禁用卡片的 ID 仍保存于配置，不进入配对端点冲突检查。
 Slint 属性只作为显示投影和事件契约，不保存 PCM。
 
 ## 运行线程

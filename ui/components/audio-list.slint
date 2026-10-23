@@ -1,12 +1,11 @@
-//! 音频库列表：可滚动文件表，列宽由页面可用空间分配。
+//! 音频库列表：只显示当前页的图标、名称和时长，整行可选择和打开右键菜单。
 
 import { ScrollView } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
-import { PmButton } from "button.slint";
 
-// 音频库条目表格：并行数组共享行索引，行内操作回传给宿主处理。
+// 音频库当前页的文件行：并行数组共用可见行索引，业务操作通过右键菜单提交。
 export component AudioList inherits Rectangle {
-    // 条目显示名称；index 是所有行元数据数组的主索引。
+    // 当前页的条目显示名称；index 是本页所有并行数组的索引。
     in-out property <[string]> entries: [];
     // 每个条目的格式化时长文本。
     in-out property <[string]> entry-durations: [];
@@ -14,21 +13,16 @@ export component AudioList inherits Rectangle {
     in property <[image]> entry-icon-images: [];
     // 空字符串表示优先使用对应图片，否则显示该行字形。
     in property <[string]> entry-icon-glyphs: [];
-    // 条目格式/码率等副标题。
-    in-out property <[string]> entry-metadata: [];
-    // 条目分类名；缺失索引时显示未分类。
-    in-out property <[string]> entry-categories: [];
-    // 条目导入状态，影响状态点颜色与文字。
-    in-out property <[string]> entry-statuses: [];
-    // 条目快捷键文本，缺失或空值显示占位符。
-    in-out property <[string]> entry-hotkeys: [];
     // 当前选中行索引，-1 表示未选中。
     in-out property <int> entry-index: -1;
     // 播放引擎当前行索引，仅用于高亮，不等同于选中状态。
     in property <int> playing-entry-index: -1;
-    // 当前播放是否处于活动状态。
-    in property <bool> playing: false;
-    // 条目上下文菜单的可见状态，由行点击或右键操作维护。
+    // 分页从零开始，每页 20 条；序号展示跨页连续编号。
+    in property <int> page: 0;
+    // 当前排序列和方向只用于表头反馈，排序结果由宿主查询。
+    in property <int> sort-column-index: 0;
+    in property <bool> sort-ascending: true;
+    // 条目右键菜单的可见状态，由行右键和菜单覆盖层共同维护。
     in-out property <bool> entry-menu-open: false;
     // 分类菜单开关；打开条目菜单时必须关闭分类菜单。
     in-out property <bool> category-menu-open: false;
@@ -36,14 +30,16 @@ export component AudioList inherits Rectangle {
     in-out property <length> entry-menu-x: 0px;
     // 菜单锚点的垂直坐标，与 entry-menu-x 配对使用。
     in-out property <length> entry-menu-y: 0px;
-    // 左键或右键选中行后请求宿主准备条目上下文操作。
+    // 右键当前行时请求宿主准备条目上下文操作。
     callback entry-context(int);
     // 行选择通知，参数为 entries 的行索引。
     callback entry-selected(int);
-    // 行点击通知；由宿主决定是否按双击语义打开或编辑。
+    // 行点击沿用宿主的双击检测和播放动作。
     callback entry-double-clicked(int);
-    // 请求播放指定行，宿主负责音频引擎副作用。
-    callback entry-play(int);
+    // 行索引为当前页可见索引，宿主负责序列化为条目拖放数据。
+    pure callback entry-to-transfer(int) -> data-transfer;
+    // 点击名称/时长表头时上报列索引（0 名称，1 时长）。
+    callback sort-column(int);
 
     width: 100%;
     height: 100%;
@@ -60,44 +56,36 @@ export component AudioList inherits Rectangle {
                 padding-right: 8px;
                 spacing: 6px;
                 Text {
-                    text: "名称";
+                    text: "序号";
+                    width: 32px;
+                    color: Theme.text2;
+                    font-size: 11px;
+                    vertical-alignment: TextVerticalAlignment.center;
+                }
+                Text {
+                    text: "名称" + (root.sort-column-index == 0
+                        ? (root.sort-ascending ? " ↑" : " ↓") : "");
                     horizontal-stretch: 1;
                     min-width: 60px;
                     color: Theme.text2;
                     font-size: 11px;
                     vertical-alignment: TextVerticalAlignment.center;
+                    TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.sort-column(0); }
+                    }
                 }
                 Text {
-                    text: "分类";
-                    width: 64px;
-                    color: Theme.text2;
-                    font-size: 11px;
-                    vertical-alignment: TextVerticalAlignment.center;
-                }
-                Text {
-                    text: "时长";
+                    text: "时长" + (root.sort-column-index == 1
+                        ? (root.sort-ascending ? " ↑" : " ↓") : "");
                     width: 48px;
                     color: Theme.text2;
                     font-size: 11px;
                     vertical-alignment: TextVerticalAlignment.center;
-                }
-                Text {
-                    text: "快捷键";
-                    width: 46px;
-                    color: Theme.text2;
-                    font-size: 11px;
-                    vertical-alignment: TextVerticalAlignment.center;
-                }
-                Text {
-                    text: "状态";
-                    width: 54px;
-                    color: Theme.text2;
-                    font-size: 11px;
-                    vertical-alignment: TextVerticalAlignment.center;
-                }
-                Text {
-                    text: "";
-                    width: 64px;
+                    TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.sort-column(1); }
+                    }
                 }
             }
         }
@@ -115,17 +103,21 @@ export component AudioList inherits Rectangle {
                     height: 52px;
                     vertical-alignment: TextVerticalAlignment.center;
                 }
-                // name/index 行映射是所有并行数组的共享协议，缺失元数据由各列回退。
-                for name[index] in root.entries: Rectangle {
+                // 拖动数据使用当前页可见索引，Rust 接收时重新映射到真实条目。
+                for name[index] in root.entries: DragArea {
                     height: 58px;
-                    background: index == root.entry-index
-                        ? Theme.accentSoft
-                        : (index == root.playing-entry-index
-                            ? Theme.playingSoft
-                            : Theme.content-card);
-                    // 整行命中区：声明在最前（命中栈底层），所以右侧的播放/更多
-                    // 按钮等子控件仍优先拿到点击；其余任意列都落到这里。
-                    // 行级点击选择并按现有约定通知双击；菜单状态随选择关闭。
+                    allow-move: true;
+                    data: root.entry-to-transfer(index);
+                    Rectangle {
+                        width: 100%;
+                        height: 100%;
+                        background: index == root.entry-index
+                            ? Theme.accentSoft
+                            : (index == root.playing-entry-index
+                                ? Theme.playingSoft
+                                : Theme.content-card);
+                    // 整行命中区位于内容层之下，左右键都能命中图标、文字和空白区域。
+                    // 左键沿用已有选择及双击通知；右键只选择当前行并打开菜单。
                     TouchArea {
                         width: parent.width;
                         height: parent.height;
@@ -135,7 +127,7 @@ export component AudioList inherits Rectangle {
                             root.entry-double-clicked(index);
                             root.entry-menu-open = false;
                         }
-                        // 右键使用控件绝对坐标定位菜单，并互斥关闭分类菜单。
+                        // 右键用绝对坐标定位菜单，并与分类菜单互斥。
                         pointer-event(event) => {
                             if event.button == PointerEventButton.right
                                 && event.kind == PointerEventKind.down {
@@ -161,57 +153,55 @@ export component AudioList inherits Rectangle {
                         padding-left: 12px;
                         padding-right: 8px;
                         spacing: 6px;
-                        Rectangle {
-                            width: 30px;
-                            height: 30px;
-                            border-radius: 5px;
-                            background: Theme.accentSoft;
-                            if index < root.entry-icon-images.length
-                                && index < root.entry-icon-glyphs.length
-                                && root.entry-icon-glyphs[index] == "": Image {
-                                width: 26px;
-                                height: 26px;
-                                source: root.entry-icon-images[index];
-                                image-fit: contain;
-                            }
-                            if index >= root.entry-icon-glyphs.length
-                                || root.entry-icon-glyphs[index] != "": Text {
-                                text: index < root.entry-icon-glyphs.length
-                                    ? root.entry-icon-glyphs[index]
-                                    : "\u{EC4F}";
-                                font-family: "Segoe MDL2 Assets";
-                                color: Theme.accent;
-                                font-size: 16px;
-                                horizontal-alignment: center;
-                                vertical-alignment: center;
-                            }
+                        Text {
+                            text: "\{root.page * 20 + index + 1}";
+                            width: 32px;
+                            color: Theme.text2;
+                            font-size: 11px;
+                            vertical-alignment: TextVerticalAlignment.center;
                         }
+                        // 固定尺寸图标在整行高度内居中，内部图片或字形也在底板居中。
                         VerticalLayout {
-                            horizontal-stretch: 1;
-                            min-width: 50px;
-                            spacing: 1px;
-                            Text {
-                                text: name;
-                                color: Theme.text;
-                                font-size: 12px;
-                                overflow: elide;
-                            }
-                            Text {
-                                text: index < root.entry-metadata.length
-                                    ? root.entry-metadata[index]
-                                    : "";
-                                color: Theme.text3;
-                                font-size: 9px;
-                                overflow: elide;
+                            width: 30px;
+                            height: 100%;
+                            alignment: LayoutAlignment.center;
+                            Rectangle {
+                                width: 30px;
+                                height: 30px;
+                                border-radius: 5px;
+                                background: Theme.accentSoft;
+                                // 没有自定义图片时回退到音频字形。
+                                if index < root.entry-icon-images.length
+                                    && index < root.entry-icon-glyphs.length
+                                    && root.entry-icon-glyphs[index] == "": Image {
+                                    x: 2px;
+                                    y: 2px;
+                                    width: 26px;
+                                    height: 26px;
+                                    source: root.entry-icon-images[index];
+                                    image-fit: contain;
+                                }
+                                if index >= root.entry-icon-glyphs.length
+                                    || root.entry-icon-glyphs[index] != "": Text {
+                                    width: 100%;
+                                    height: 100%;
+                                    text: index < root.entry-icon-glyphs.length
+                                        ? root.entry-icon-glyphs[index]
+                                        : "\u{EC4F}";
+                                    font-family: "Segoe MDL2 Assets";
+                                    color: Theme.accent;
+                                    font-size: 16px;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
                             }
                         }
                         Text {
-                            text: index < root.entry-categories.length
-                                ? root.entry-categories[index]
-                                : "未分类";
-                            width: 64px;
-                            color: Theme.accent;
-                            font-size: 9px;
+                            text: name;
+                            horizontal-stretch: 1;
+                            min-width: 50px;
+                            color: Theme.text;
+                            font-size: 12px;
                             overflow: elide;
                             vertical-alignment: TextVerticalAlignment.center;
                         }
@@ -224,63 +214,7 @@ export component AudioList inherits Rectangle {
                             font-size: 9px;
                             vertical-alignment: TextVerticalAlignment.center;
                         }
-                        Text {
-                            text: index < root.entry-hotkeys.length
-                                && root.entry-hotkeys[index] != ""
-                                ? root.entry-hotkeys[index]
-                                : "—";
-                            width: 46px;
-                            color: Theme.text3;
-                            font-size: 9px;
-                            vertical-alignment: TextVerticalAlignment.center;
-                        }
-                        HorizontalLayout {
-                            width: 54px;
-                            spacing: 3px;
-                            Rectangle {
-                                width: 7px;
-                                height: 7px;
-                                border-radius: 4px;
-                                background: index < root.entry-statuses.length
-                                    && root.entry-statuses[index] == "已导入"
-                                    ? Theme.ok
-                                    : Theme.warn;
-                            }
-                            Text {
-                                text: index < root.entry-statuses.length
-                                    ? root.entry-statuses[index]
-                                    : "";
-                                color: Theme.text2;
-                                font-size: 9px;
-                                vertical-alignment: TextVerticalAlignment.center;
-                            }
-                        }
-                        // 播放按钮先选中行，再请求宿主启动该索引对应的音频。
-                        PmButton {
-                            label: "\u{E768}";
-                            icon-only: true;
-                            button-width: 28px;
-                            clicked => {
-                                root.entry-index = index;
-                                root.entry-selected(index);
-                                root.entry-play(index);
-                            }
-                        }
-                        // 更多按钮记录按钮屏幕坐标，供宿主打开该行上下文菜单。
-                        PmButton {
-                            label: "\u{E712}";
-                            icon-only: true;
-                            button-width: 28px;
-                            clicked => {
-                                root.entry-index = index;
-                                root.entry-selected(index);
-                                root.entry-menu-x = self.absolute-position.x;
-                                root.entry-menu-y = self.absolute-position.y;
-                                root.entry-context(index);
-                                root.entry-menu-open = true;
-                                root.category-menu-open = false;
-                            }
-                        }
+                    }
                     }
                 }
             }

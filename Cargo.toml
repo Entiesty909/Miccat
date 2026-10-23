@@ -51,6 +51,9 @@ windows-core = "0.62.2"
 [build-dependencies]
 slint-build = "~1.18"
 
+[profile.dev.package.i-slint-renderer-software]
+opt-level = 3
+
 [profile.release]
 opt-level = 3
 lto = true

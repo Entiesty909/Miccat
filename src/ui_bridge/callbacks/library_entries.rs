@@ -139,7 +139,7 @@ fn register_2(ui: &MainWindow, state: &AppState) {
     }
 }
 
-/// 绑定编辑文件、添加到路由和清除条目全局热键的回调。
+/// 绑定条目文件操作、右键菜单添加路由和清除全局热键的回调。
 fn register_3(ui: &MainWindow, state: &AppState) {
     let cache = state.cache.clone();
     let app_config = state.app_config.clone();
@@ -166,9 +166,29 @@ fn register_3(ui: &MainWindow, state: &AppState) {
     {
         let ui_weak = ui.as_weak();
         let cache = cache.clone();
+        // 菜单选择的是本页的可见行；新增路由必须转为真实库索引，再复用源槽位逻辑。
+        ui.on_audio_entry_add_route(move || {
+            let Some(ui) = ui_weak.upgrade() else {
+                return;
+            };
+            let Ok(visible_index) = usize::try_from(ui.get_audio_entry_index()) else {
+                return;
+            };
+            let Some(actual_index) =
+                visible_entry(&cache, visible_index).and_then(|index| i32::try_from(index).ok())
+            else {
+                return;
+            };
+            // 音频库菜单始终新建卡片，不继承独立添加源窗口尚未关闭的替换上下文。
+            ui.set_source_replace_index(-1);
+            ui.invoke_audio_entry_add_route_index(actual_index);
+        });
+    }
+    {
+        let ui_weak = ui.as_weak();
+        let cache = cache.clone();
         let state_for_update = state.clone();
-        // 替换文件源时按同类文件槽计算位置，并排除当前槽检查重复条目。
-        // 目标槽位由源行类型和前方同类行数量共同计算，不能直接使用混合列表下标。
+        // 添加源窗口传来真实库索引；替换按文件槽位计算，新增则在末尾追加。
         ui.on_audio_entry_add_route_index(move |actual_index| {
             let Some(ui) = ui_weak.upgrade() else { return };
             let Some(actual_index) = usize::try_from(actual_index).ok() else {
@@ -205,6 +225,23 @@ fn register_3(ui: &MainWindow, state: &AppState) {
                 if file_slot < cache_state.audio_finished_handled.len() {
                     cache_state.audio_finished_handled[file_slot] = false;
                 }
+                // 替换时保留原槽；若来自添加源窗口，明确提交该窗口的多选草稿。
+                let selected = ui.get_pending_file_output_selected();
+                if selected.row_count() > 0 {
+                    let ids = cache_state
+                        .dests
+                        .iter()
+                        .enumerate()
+                        .filter(|(index, _)| selected.row_data(*index) == Some(true))
+                        .map(|(_, device)| device.selection_id().to_owned())
+                        .collect::<Vec<_>>();
+                    if !ids.is_empty() {
+                        let mut config = app_config.borrow_mut();
+                        if let Some(slot) = config.output.file_output_ids.get_mut(file_slot) {
+                            *slot = ids;
+                        }
+                    }
+                }
             } else {
                 if super::route::sources::duplicate_audio(
                     &cache_state.route_audio_entries,
@@ -214,19 +251,37 @@ fn register_3(ui: &MainWindow, state: &AppState) {
                     ui.set_error_text("该音频已经添加，不能创建重复音频源".into());
                     return;
                 }
-                // 新槽位同步初始化启停、音量、静音和输出设备状态，保证卡片独立。
-                // 新槽位的默认值来自当前配置和所选设备，但后续每张卡片可独立修改。
+                // 新文件卡片默认沿用所选输出；后续下拉多选只覆盖自己的配置槽位。
                 cache_state.route_audio_entries.push(actual_index);
                 cache_state.route_audio_enabled.push(false);
                 cache_state.audio_play_modes.push(0);
                 cache_state.audio_finished_handled.push(false);
                 cache_state.audio_volumes.push(app_config.borrow().mix.sfx);
                 cache_state.audio_muted_volumes.push(None);
-                let output_id = cache_state
+                let selected = ui.get_pending_file_output_selected();
+                let output_ids = cache_state
                     .dests
-                    .get(ui.get_file_output_index().max(0) as usize)
-                    .map(|device| device.render_id.clone());
-                cache_state.audio_output_ids.push(output_id);
+                    .iter()
+                    .enumerate()
+                    .filter(|(index, _)| selected.row_data(*index) == Some(true))
+                    .map(|(_, device)| device.selection_id().to_owned())
+                    .collect::<Vec<_>>();
+                let slot = cache_state.route_audio_entries.len() - 1;
+                let mut config = app_config.borrow_mut();
+                let fallback = config.output.device_ids.clone();
+                config.output.file_output_ids.resize(slot + 1, fallback);
+                let selected_ids = if output_ids.is_empty() {
+                    cache_state
+                        .dests
+                        .get(ui.get_file_output_index().max(0) as usize)
+                        .map(|device| vec![device.selection_id().to_owned()])
+                        .unwrap_or_default()
+                } else {
+                    output_ids
+                };
+                if !selected_ids.is_empty() {
+                    config.output.file_output_ids[slot] = selected_ids;
+                }
             }
             cache_state.route_audio_entry = Some(actual_index);
             cache_state.route_file_enabled = false;

@@ -1,6 +1,9 @@
 //! 验证路由页进程行到当前进程选择的索引映射。
 
-use super::{duplicate_audio, duplicate_process, process_source_slot, visible_process_pid};
+use super::{
+    duplicate_audio, duplicate_process, microphone_to_enable, process_source_slot,
+    visible_process_pid,
+};
 
 /// 验证同类源行下标能映射到对应的进程槽位。
 #[test]
@@ -40,4 +43,14 @@ fn duplicate_audio_is_rejected_except_for_the_replaced_slot() {
     assert!(duplicate_audio(&[3, 8], 3, None));
     assert!(duplicate_audio(&[3, 8], 3, Some(1)));
     assert!(!duplicate_audio(&[3, 8], 3, Some(0)));
+}
+
+/// 麦克风卡片从“未混入”启用时选择真实设备，已选型号不能被覆盖。
+#[test]
+fn microphone_card_enable_skips_disabled_sentinel() {
+    let ids = vec![String::new(), "mic-a".into(), "mic-b".into()];
+    assert_eq!(microphone_to_enable(&ids, 0), Some(1));
+    assert_eq!(microphone_to_enable(&ids, 2), Some(2));
+    assert_eq!(microphone_to_enable(&ids, 7), Some(1));
+    assert_eq!(microphone_to_enable(&ids[..1], 0), None);
 }

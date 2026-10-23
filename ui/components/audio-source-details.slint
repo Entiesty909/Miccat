@@ -1,6 +1,6 @@
 //! 添加路由时显示所选音频文件的真实元数据和输出设置。
 
-import { ComboBox } from "std-widgets.slint";
+import { MarqueeComboBox } from "marquee-combo-box.slint";
 import { Theme } from "../theme.slint";
 import { SliderRow } from "slider-row.slint";
 
@@ -20,14 +20,15 @@ export component AudioSourceDetails inherits Rectangle {
     in property <string> entry-hotkey: "";
     // 循环播放状态的说明文本，由上游决定具体措辞。
     in property <string> entry-loop-state: "";
-    // 可选输出设备名称列表；索引与 output-index 使用同一顺序协议。
-    in-out property <[string]> outputs: [];
-    // 当前路由的输出设备索引，修改后通过 output-changed 回传宿主。
-    in-out property <int> output-index: 0;
+    // 输出列表沿用路由卡片设备顺序，索引只用于当前对话框勾选。
+    in property <[string]> outputs: [];
+    // 对话框的逐项勾选与 Windows 友好名，仅在确认添加源时提交。
+    in property <[bool]> selected-outputs: [];
+    in property <string> selected-output-label: "";
     // 当前路由槽位的音量百分比，范围约定由 SliderRow/宿主共同维护。
     in-out property <float> volume: 100;
-    // 用户选择了新的输出设备；参数是 outputs 中对应的索引。
-    callback output-changed(int);
+    // 通知宿主切换一个输出项，不能因两个端点共享 render ID 而连带改变选择。
+    callback output-toggled(int, bool);
     // 用户提交了新的音量值，副作用由宿主应用到对应路由槽位。
     callback volume-edited(float);
 
@@ -89,13 +90,13 @@ export component AudioSourceDetails inherits Rectangle {
             color: Theme.text2;
             font-size: 11px;
         }
-        ComboBox {
-            // 下拉框只展示宿主提供的设备名称，选中索引通过回调写回路由槽位。
+        MarqueeComboBox {
             model: root.outputs;
-            current-index <=> root.output-index;
-            selected(value) => {
-                // 仅回传列表索引，宿主据此更新当前路由的输出设备。
-                root.output-changed(root.output-index);
+            multi-select: true;
+            checked: root.selected-outputs;
+            multi-label: root.selected-output-label;
+            selection-toggled(index, checked) => {
+                root.output-toggled(index, checked);
             }
         }
         SliderRow {

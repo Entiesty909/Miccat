@@ -8,10 +8,12 @@
 - 淡粉窗口底色不透明；API 获取的原图满色绘制于窗口内。HTTP 非 200、HTTP 200 空响应和不可解码正文最多额外重试 3 次；WinHTTP 仍限制 8MiB 和超时，不增加依赖。
 - 三页非卡片内容区使用 72% 不透明浅粉遮罩，提高空白区域文字对比度。页面卡片用独立 `Theme.content-card`（60% 不透明），字段 92%；弹出菜单等仍使用 90% 不透明的 `Theme.card`。
 - 图片下载、解码、裁剪在后台执行；输出预裁剪为 1280×800 不透明位图，默认尺寸避免逐帧 `cover` 缩放。透明像素以淡粉色底合成，不再把不透明原图衰减到 18%。
+- Debug 构建只将 Slint 软件渲染器包 `i-slint-renderer-software` 设为 `opt-level=3`，避免调试期粉色图片与半透明卡片滚动因未优化像素合成而明显落后；Release 原有优化配置不变，图片/卡片层级和透明度不变。
 
 改动文件：
 - `ui/app-window.slint`、`ui/components/{app-header,button,page-host,card,source-row,audio-list}.slint`、`ui/pages/{route,player,settings}.slint`、`ui/theme.slint`、`ui/themes/pink.slint`、`ui/windows.slint`、`resources/{theme-shirt.svg,icon.ico,app.rc}`、`build.rs`。
 - `src/platform/theme.rs`、`src/ui_bridge/theme.rs`、`src/config/{mod.rs,store.rs}`、`src/ui_bridge/mod.rs`。
+- `Cargo.toml`：Debug profile 仅优化软件渲染器依赖；不增加依赖或改变 Release profile。
 - `FRONTEND.md`、`ARCHITECTURE.md`、`BACKEND.md`、`DEBUGGING.md`、`docs/step-02-rust-architecture.md`、`PROJECT.md`。
 
 怎么跑：
@@ -28,6 +30,7 @@
 - 实测背景 API 三次请求中两次返回 `404 text/html`（130 bytes），一次返回 `200 image/webp`（799036 bytes）；空图/错误状态走最多 3 次额外尝试。
 - `--snapshot-ui` 不提供主题选择参数；未声称粉色模式的三页快照或桌面 CPU/FPS 已量化通过。
 - `resources/icon.ico` 标题栏/任务栏绑定已纳入；软件客户区快照不覆盖 Windows 壳层图标，未声称完成标题栏/任务栏物理截图验收。
+- 2026-10-23，隔离进程的离线 1280×800、12 张源卡片、60 个滚轮事件并逐帧 `take_snapshot`：优化前浅色 p50 88.64 ms、暗色 86.36 ms、粉色完整壁纸+预合成 p50 121.31 ms（p95 122.86 ms）；粉色无壁纸 p50 105.32 ms。把全不透明 RGBA8 图改 RGB8 得 p50 120.74 ms，半尺寸位图 p50 121.18 ms，均无稳定收益，故未采用。优化 Debug 软件渲染器后相同粉色路径 p50 17.86 ms、p95 19.35 ms（60 帧耗时 1085.1 ms），浅色 p50 14.37 ms；这是离线窗口软件快照指标，不等于桌面用户实际 FPS，也不代表 Release 性能提升。测量用临时 `--bench-ui-scroll` 仪表已移除。
 
 规模与历史记录：应用图标、主题菜单和淡粉背景多轮调整合并到本需求记录；历史注释覆盖仍未全仓完成，本阶段未清理无关旧代码。
 

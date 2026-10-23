@@ -1,18 +1,17 @@
-//! 音频库行选择、分类修改、分页、排序、搜索和应用内快捷键。
+//! 音频库行选择、分页、两字段排序、搜索和应用内快捷键。
 
 use super::super::library::visible_rank;
 use super::super::*;
 
-/// 绑定音频库选择、分类、分页、排序、搜索和条目快捷键事件。
+/// 绑定音频库选择、分页、排序、搜索和条目快捷键事件。
 pub(super) fn register(ui: &MainWindow, state: &AppState) {
     register_selection(ui, state);
-    register_category(ui, state);
     register_page(ui, state);
     register_sort(ui, state);
     register_search(ui, state);
     register_audio_shortcuts(ui, state);
 }
-/// 处理可见条目选择，并同步其分类、循环状态和 UI 索引。
+/// 处理可见条目选择，并同步其循环状态和 UI 索引。
 fn register_selection(ui: &MainWindow, state: &AppState) {
     let cache = state.cache.clone();
     let ui_weak = ui.as_weak();
@@ -22,56 +21,15 @@ fn register_selection(ui: &MainWindow, state: &AppState) {
         let Some(actual_index) = visible_entry(&cache, visible_index.max(0) as usize) else {
             return;
         };
-        let entry_state = {
+        let looped = {
             let cache = cache.borrow();
             let Some(entry) = cache.audio_entries.get(actual_index) else {
                 return;
             };
-            (entry.category.clone(), entry.loop_playback)
+            entry.loop_playback
         };
-        // 条目分类下拉框使用同一份可见分类路径模型，避免显示索引与保存路径错位。
-        if let Some(category_index) = category_paths(&cache)
-            .iter()
-            .position(|path| path == &entry_state.0)
-        {
-            ui.set_audio_entry_category_index(category_index as i32);
-        }
-        // 选中条目时同步循环开关，编辑或播放入口读取到的状态才能对应当前行。
-        ui.set_player_loop(entry_state.1);
+        ui.set_player_loop(looped);
         ui.set_audio_entry_index(visible_index);
-    });
-}
-/// 修改当前条目的分类；可见索引先转换为缓存实际索引。
-fn register_category(ui: &MainWindow, state: &AppState) {
-    let cache = state.cache.clone();
-    let app_config = state.app_config.clone();
-    let save_queue = state.save_queue.clone();
-    let ui_weak = ui.as_weak();
-    // 分类变更只修改实际条目的 category 字段，列表刷新后保留原可见行选择。
-    ui.on_entry_category_changed(move |category_index| {
-        let Some(ui) = ui_weak.upgrade() else { return };
-        let visible_index = ui.get_audio_entry_index().max(0) as usize;
-        let Some(actual_index) = visible_entry(&cache, visible_index) else {
-            return;
-        };
-        let Some(category) = category_paths(&cache)
-            .get(category_index.max(0) as usize)
-            .cloned()
-        else {
-            return;
-        };
-        // 先改缓存再复制到配置，保存队列看到的始终是完整条目快照。
-        {
-            let mut cache_state = cache.borrow_mut();
-            let Some(entry) = cache_state.audio_entries.get_mut(actual_index) else {
-                return;
-            };
-            entry.category = category;
-            app_config.borrow_mut().audio_entries = cache_state.audio_entries.clone();
-        }
-        save_queue.schedule();
-        update_audio_list(&ui, &cache);
-        ui.set_audio_entry_index(visible_index as i32);
     });
 }
 
@@ -88,20 +46,38 @@ fn register_page(ui: &MainWindow, state: &AppState) {
     });
 }
 
-/// 切换排序方向并回到第一页，避免当前页号超出新排序结果。
+/// 切换排序字段或方向，并回到第一页以保持页内索引与模型一致。
 fn register_sort(ui: &MainWindow, state: &AppState) {
     let cache = state.cache.clone();
     let ui_weak = ui.as_weak();
-    // 排序方向改变会重排可见索引，必须清零页码避免继续使用旧结果的页号。
-    ui.on_audio_sort_toggled(move || {
+    ui.on_audio_sort_column(move |column| {
         let Some(ui) = ui_weak.upgrade() else { return };
         {
-            let mut cache = cache.borrow_mut();
-            cache.audio_sort_ascending = !cache.audio_sort_ascending;
-            cache.audio_page = 0;
+            let mut view = cache.borrow_mut();
+            if !select_sort_column(&mut view, column) {
+                return;
+            }
         }
         update_audio_list(&ui, &cache);
     });
+}
+
+/// 仅接受名称/时长两个字段；同字段反转，切新字段默认升序。
+fn select_sort_column(cache: &mut UiCache, column: i32) -> bool {
+    let Ok(column) = u8::try_from(column) else {
+        return false;
+    };
+    if column > 1 {
+        return false;
+    }
+    if cache.audio_sort_column == column {
+        cache.audio_sort_ascending = !cache.audio_sort_ascending;
+    } else {
+        cache.audio_sort_column = column;
+        cache.audio_sort_ascending = true;
+    }
+    cache.audio_page = 0;
+    true
 }
 
 /// 更新搜索字符串并回到第一页；搜索只影响可见列表，不改持久化条目。
@@ -347,5 +323,32 @@ mod tests {
         assert_eq!(shortcut_label("a"), Some("A".into()));
         assert_eq!(shortcut_label(" "), Some("Space".into()));
         assert_eq!(shortcut_label("Escape"), None);
+    }
+
+    /// 同列切换方向、换列恢复升序并重置页码；非法列保持原状态。
+    #[test]
+    fn sorting_column_switches_and_reverses_direction() {
+        let mut cache = super::UiCache::default();
+        cache.audio_sort_ascending = true;
+        cache.audio_page = 2;
+        assert!(super::select_sort_column(&mut cache, 0));
+        assert!(!cache.audio_sort_ascending);
+        assert_eq!(cache.audio_page, 0);
+
+        cache.audio_page = 3;
+        assert!(super::select_sort_column(&mut cache, 1));
+        assert_eq!(cache.audio_sort_column, 1);
+        assert!(cache.audio_sort_ascending);
+        assert_eq!(cache.audio_page, 0);
+
+        assert!(super::select_sort_column(&mut cache, 1));
+        assert!(!cache.audio_sort_ascending);
+        assert!(super::select_sort_column(&mut cache, 0));
+        assert!(cache.audio_sort_ascending);
+        cache.audio_page = 5;
+        assert!(!super::select_sort_column(&mut cache, -1));
+        assert!(!super::select_sort_column(&mut cache, 2));
+        assert_eq!(cache.audio_page, 5);
+        assert_eq!(cache.audio_sort_column, 0);
     }
 }

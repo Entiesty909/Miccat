@@ -1,0 +1,48 @@
+//! 路由源共用的转发开关：只展示启用态并上报点击，不持有音频状态。
+
+import { Theme } from "../theme.slint";
+
+// 显示单张卡片的转发选择；禁用由宿主按运行态决定。
+export component ForwardSwitch inherits HorizontalLayout {
+    // 当前卡片是否已选择转发，来源于路由源模型。
+    in property <bool> active: false;
+    // 路由运行期间是否允许编辑这张卡片。
+    in property <bool> enabled: true;
+    // 点击时把期望状态交回卡片宿主。
+    callback toggled(bool);
+    // 悬停说明随开关状态变化，文字不占开关外布局。
+    property <string> hint: root.active ? "关闭转发" : "启用转发";
+
+    height: 36px;
+    spacing: 10px;
+    alignment: LayoutAlignment.center;
+    Text {
+        text: "启用转发";
+        color: Theme.text;
+        font-size: 13px;
+        vertical-alignment: center;
+    }
+    Rectangle {
+        width: 48px;
+        height: 26px;
+        border-radius: 13px;
+        background: root.active ? Theme.accent : Theme.borderStrong;
+        Tooltip {
+            text: @markdown("\{root.hint}");
+        }
+        Rectangle {
+            x: root.active ? 24px : 2px;
+            y: 2px;
+            width: 22px;
+            height: 22px;
+            border-radius: 11px;
+            background: Theme.card;
+        }
+        // 禁用态不抢占事件；允许编辑时只上报目标状态。
+        TouchArea {
+            enabled: root.enabled;
+            mouse-cursor: pointer;
+            clicked => { root.toggled(!root.active); }
+        }
+    }
+}
