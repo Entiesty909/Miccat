@@ -87,6 +87,8 @@ export component PlayerPage inherits Rectangle {
     in-out property <float> duration-seconds: 0;
     // 播放器暂停态。
     in-out property <bool> paused: false;
+    // 音频库本机试听音量，单位百分比。
+    in-out property <float> preview-volume: 50;
     // 当前是否正在播放。
     in-out property <bool> playing: false;
     // 分类上下文菜单可见状态。
@@ -136,6 +138,8 @@ export component PlayerPage inherits Rectangle {
     callback previous();
     // 播放下一条可用音频。
     callback next();
+    // 修改本机试听音量，参数为百分比。
+    callback preview-volume-edited(float);
     // 搜索框编辑通知。
     callback search-edited(string);
     // 点击列表名称或时长表头，请求 bridge 切换该列或反转当前方向。
@@ -173,6 +177,9 @@ export component PlayerPage inherits Rectangle {
         spacing: 0px;
         // 停止后仍保留高度约两行文字的传输条，空闲时禁用播放/导航/拖动。
         AudioTransport {
+            preview-volume <=> root.preview-volume;
+            add-files => { root.add-files(); }
+            preview-volume-edited(value) => { root.preview-volume-edited(value); }
             entry-index: root.entry-index;
             entry-count: root.entries.length;
             playing: root.playing;
@@ -261,12 +268,6 @@ export component PlayerPage inherits Rectangle {
                         text <=> root.search;
                         placeholder-text: "搜索音频文件…";
                         edited(text) => { root.search-edited(text); }
-                    }
-                    // 添加按钮只请求宿主打开文件选择流程，导入结果异步回填列表。
-                    PmButton {
-                        label: "添加音频";
-                        filled: true;
-                        clicked => { root.add-files(); }
                     }
                 }
                 // 列表只展示当前分页数据，选中/播放状态由 bridge 镜像。

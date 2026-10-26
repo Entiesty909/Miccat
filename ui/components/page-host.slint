@@ -67,6 +67,8 @@ export component PageHost inherits Rectangle {
     in-out property <[float]> source-peak-values: [];
     // 每槽位音量百分比。
     in-out property <[float]> source-volumes: [];
+    // 路由文件和麦克风卡片的本机试听百分比，与转发音量数组按行对齐。
+    in-out property <[float]> source-preview-volumes: [];
     // 每槽位静音状态。
     in-out property <[bool]> source-muted: [];
     // 每槽位暂停状态。
@@ -168,6 +170,8 @@ export component PageHost inherits Rectangle {
     in-out property <bool> playing: false;
     // 暂停态。
     in-out property <bool> paused: false;
+    // 音频库工具栏的本机试听音量百分比。
+    in-out property <float> preview-volume: 50;
     // 分类菜单可见态。
     in-out property <bool> category-menu-open: false;
     // 条目菜单可见态。
@@ -221,6 +225,8 @@ export component PageHost inherits Rectangle {
     callback source-active-toggled(int, bool);
     // 源音量变更。
     callback source-volume-edited(int, float);
+    // 文件/麦克风本机试听音量变化；进程源不响应。
+    callback source-preview-volume-edited(int, float);
     // 源静音切换。
     callback source-mute-toggled(int);
     // 按卡片行号、目标设备下标和勾选状态上报。
@@ -363,6 +369,7 @@ export component PageHost inherits Rectangle {
         source-active <=> root.source-active;
         source-peak-values <=> root.source-peak-values;
         source-volumes <=> root.source-volumes;
+        source-preview-volumes <=> root.source-preview-volumes;
         source-peak-dbs <=> root.source-peak-dbs;
         source-volume-dbs <=> root.source-volume-dbs;
         source-muted <=> root.source-muted;
@@ -402,6 +409,9 @@ export component PageHost inherits Rectangle {
         }
         source-volume-edited(index, value) => {
             root.source-volume-edited(index, value);
+        }
+        source-preview-volume-edited(index, value) => {
+            root.source-preview-volume-edited(index, value);
         }
         source-mute-toggled(index) => { root.source-mute-toggled(index); }
         source-output-toggled(index, target, checked) => {
@@ -460,6 +470,7 @@ export component PageHost inherits Rectangle {
         duration-seconds <=> root.duration-seconds;
         playing <=> root.playing;
         paused <=> root.paused;
+        preview-volume <=> root.preview-volume;
         category-menu-open <=> root.category-menu-open;
         entry-menu-open <=> root.entry-menu-open;
         category-menu-x <=> root.category-menu-x;
@@ -500,6 +511,7 @@ export component PageHost inherits Rectangle {
         pause-toggle => { root.pause-toggle(); }
         previous => { root.previous(); }
         next => { root.next(); }
+        preview-volume-edited(value) => { root.preview-volume-edited(value); }
         search-edited(value) => { root.search-edited(value); }
         sort-column(index) => { root.sort-column(index); }
         page-changed(value) => { root.page-changed(value); }

@@ -34,6 +34,7 @@
 - `set_volume(v)`、`set_mic_volume(v)`、`set_sfx_volume(v)`、`set_master_volume(v)`：设置各自 0–1 线性增益。
 - `volume()`、`mic_volume()`、`sfx_volume()`、`is_running()`：读取运行期源增益/状态。
 - `set_monitor_default(enabled)` / `set_monitor_volume(v)`：启用系统默认设备试听及设置试听音量。
+- `set_mic_preview_volume(v)` / `set_mic_preview_source(Some(id)|None)`：本机麦克风监听的独立线性增益与物理录音端选择；与路由麦克风增益分离，空闲时也可监听。
 - `play_file(entry, start_hns, target)` 启动音频库流；`PlaybackTarget::Both` 同时送路由和本机监听，`Monitor` 仅监听，`Route` 仅送活动路由。
 - `stop_file()` 停止播放；`file_state()` 返回播放快照，位置单位为 100 ns。
 - `play_file_source(entry, slot, looped, start_hns, paused)` 从 100 ns 媒体位置替换指定路由文件槽并保留暂停态；`file_source_state(slot)` 返回停止/播放/暂停/完成，`file_source_position_hns(slot)` 返回 100 ns 播放位置。同槽停止或再次 seek 会使较早的后台解码结果失效。
@@ -44,6 +45,7 @@
 音频源行的输出下拉绑定全局设备选择；多选输出 ID 保存于 `OutputConfig.device_ids`。
 进程行启用只改变 `UiCache.disabled_pids`；文件行启用只改变对应槽位启用状态，不启动全局转发。文件卡片按所属精确分类处理上一首/下一首；四种模式保存在 `RouteConfig.audio_source_play_modes`，自然结束由 50 ms 轮询只处理一次。
 源行静音为运行期操作，不改写持久化音量；源音量滑块更新 AudioEngine 增益和配置。Popover 峰值标记为 dBFS；增益 dB 为相对 100% 音量倍率。
+文件卡片预览增益按 `MixConfig.file_preview_volumes` 的槽位保存，缺失槽沿用 `AppConfig.preview_volume`；麦克风预览增益保存于 `MixConfig.mic_preview_volume`，默认 0 避免首次启动产生扬声器回授。编辑卡片预览音量不改 `mix.sfx_volumes` 或 `mix.mic`。
 内部命令通道、ring 和 WASAPI session 不属于 UI API。
 
 ## 音频库领域 API
@@ -67,6 +69,7 @@ bridge 以分类、大小写不敏感名称搜索、名称排序和每页 20 条
 
 `config::load()` / `config::save()` 操作 `%APPDATA%\\Miccat\\config.json`。
 `AppConfig.theme_index` 保存 0 浅色、1 深色、2 淡粉；旧配置缺失该字段时使用浅色默认值。
+旧配置缺失 `file_preview_volumes` 时按卡片回退全局试听值，缺失 `mic_preview_volume` 时监听保持关闭；调整任一值仍使用 300 ms 防抖写盘。
 保存失败只记 tracing；UI 修改经 `SaveQueue` 防抖，并在退出时 flush。
 
 `Error::user_message()` 返回 UI 短句；底层 HRESULT/IO 原因通过 `Display` 和 tracing 记录。

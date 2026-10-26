@@ -24,6 +24,7 @@ fn source_row_builders_keep_parallel_models_aligned() {
         status: "".into(),
         active: false,
         volume: 1.0,
+        preview_volume: 0.5,
         peak: 0.0,
         output_selection: vec![true],
         output_label: "默认设备".into(),

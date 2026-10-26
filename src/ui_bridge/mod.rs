@@ -103,9 +103,12 @@ pub fn run_ui() -> Result<(), Error> {
     let hotkey = Rc::new(RefCell::new(persisted.hotkeys.toggle_route));
     engine.set_volume(persisted.mix.process);
     engine.set_mic_volume(persisted.mix.mic);
+    engine.set_mic_preview_volume(persisted.mix.mic_preview_volume);
     ui.set_master_volume((persisted.mix.master * 100.0).clamp(0.0, 100.0));
     engine.set_master_volume(persisted.mix.master);
     engine.set_sfx_volume(persisted.mix.sfx);
+    engine.set_monitor_volume(persisted.preview_volume);
+    ui.set_preview_volume((persisted.preview_volume * 100.0).clamp(0.0, 100.0));
     for (slot, volume) in persisted.mix.process_volumes.iter().copied().enumerate() {
         engine.set_process_volume(slot, volume);
     }
@@ -138,6 +141,16 @@ pub fn run_ui() -> Result<(), Error> {
         config.route.mix_mic = false;
         config.route.mic_id = None;
         save_queue.schedule();
+    }
+    // 麦克风本机试听可以在未启动转发时工作；设备 ID 来自已恢复的真实录音端。
+    let preview_mic = cache
+        .borrow()
+        .mic_ids
+        .get(ui.get_mic_index().max(0) as usize)
+        .filter(|id| !id.is_empty())
+        .cloned();
+    if let Err(error) = engine.set_mic_preview_source(preview_mic.as_deref()) {
+        tracing::warn!("恢复麦克风本机试听失败：{error}");
     }
     library::update_audio_categories(&ui, &cache, &app_config.borrow());
     update_audio_list(&ui, &cache);

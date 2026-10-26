@@ -259,6 +259,12 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
                     active: false,
                     paused: false,
                     volume: persisted.mix.sfx,
+                    preview_volume: persisted
+                        .mix
+                        .file_preview_volumes
+                        .first()
+                        .copied()
+                        .unwrap_or(persisted.preview_volume),
                     peak: 0.0,
                     output_selection,
                     output_label,
@@ -294,6 +300,7 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
                     },
                     active: persisted.route.mix_mic,
                     volume: persisted.mix.mic,
+                    preview_volume: persisted.mix.mic_preview_volume,
                     peak: 0.0,
                     output_selection,
                     output_label,

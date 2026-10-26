@@ -115,6 +115,7 @@ pub fn run_render_loop(
     sfx_rings: Vec<Arc<SpscRing>>,
     process_volumes: Vec<Arc<AtomicU32>>,
     mic_volume: Option<Arc<AtomicU32>>,
+    mic_preview: Option<(Arc<SpscRing>, Arc<AtomicU32>, Arc<AtomicBool>)>,
     sfx_volumes: Vec<Arc<AtomicU32>>,
     master: Arc<AtomicU32>,
     route_peak: Option<Arc<AtomicU32>>,
@@ -136,6 +137,8 @@ pub fn run_render_loop(
     let mut tmp = vec![0.0f32; buffer_frames as usize * channels];
     let mut mic_tmp = vec![0.0f32; buffer_frames as usize * channels];
     let mut sfx_tmp = vec![0.0f32; buffer_frames as usize * channels];
+    let mut preview_tmp =
+        mic_preview.as_ref().map(|_| vec![0.0f32; buffer_frames as usize * channels]);
     let mut failed = None;
 
     // 事件只表示设备可能有空间；每次仍以 padding 计算可写帧数，避免越界写入。
@@ -234,6 +237,17 @@ pub fn run_render_loop(
         // 避免额外同步开销。
         if let Some(peak) = &route_peak {
             peak.fetch_max(output_peak.to_bits(), Ordering::Relaxed);
+        }
+        // 本机监听在总线增益和转发峰值之后混入：master 只调路由，
+        // 本机听到的麦克风大小只由独立的 preview gain 调节。
+        if let (Some((ring, gain, active)), Some(preview)) = (&mic_preview, &mut preview_tmp) {
+            let n = ring.pop(&mut preview[..samples]);
+            if active.load(Ordering::Acquire) {
+                let volume = f32::from_bits(gain.load(Ordering::Relaxed)).clamp(0.0, 1.0);
+                for i in 0..n {
+                    tmp[i] = (tmp[i] + preview[i] * volume).clamp(-1.0, 1.0);
+                }
+            }
         }
         // 设备可能返回空指针；此时仍完成环消费，避免源端因未写出而失去节拍。
         // 只有拿到有效目标地址才写设备；空地址仍释放本轮帧数，保持 ring 与设备进度一致。

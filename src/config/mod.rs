@@ -234,6 +234,12 @@ pub struct MixConfig {
     /// 各音频卡片的独立增益；缺省时使用 sfx。
     #[serde(default)]
     pub sfx_volumes: Vec<f32>,
+    /// 与音频卡片槽位对齐的本机试听增益；缺省沿用全局试听音量。
+    #[serde(default)]
+    pub file_preview_volumes: Vec<f32>,
+    /// 麦克风仅送往本机播放设备的监听增益，不影响转发。
+    #[serde(default)]
+    pub mic_preview_volume: f32,
     /// 最终总增益。
     pub master: f32,
 }
@@ -248,6 +254,8 @@ impl Default for MixConfig {
             mic: 1.0,
             sfx: 1.0,
             sfx_volumes: Vec::new(),
+            file_preview_volumes: Vec::new(),
+            mic_preview_volume: 0.0,
             master: 1.0,
         }
     }
@@ -418,5 +426,18 @@ impl Default for AppConfig {
             windows: WindowConfig::default(),
             debug: DebugConfig::default(),
         }
+    }
+}
+
+/// 本机试听配置读取；缺失卡片槽位继承全局音频库增益。
+impl AppConfig {
+    /// 按文件卡片槽位返回监听增益，损坏或旧版数值限制在合法线性范围。
+    pub(crate) fn file_preview_gain(&self, slot: usize) -> f32 {
+        self.mix
+            .file_preview_volumes
+            .get(slot)
+            .copied()
+            .unwrap_or(self.preview_volume)
+            .clamp(0.0, 1.0)
     }
 }

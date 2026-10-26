@@ -68,6 +68,7 @@ impl PreviewEngine {
                         Vec::new(),
                         vec![volume],
                         None,
+                        None,
                         Vec::new(),
                         Arc::new(AtomicU32::new(1.0f32.to_bits())),
                         None,

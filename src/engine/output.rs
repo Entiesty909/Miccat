@@ -50,6 +50,20 @@ fn same_driver_conflict(device_ids: &[String]) -> Option<String> {
     None
 }
 
+/// 本机监听只允许物理系统默认播放端，避免把麦克风直接送回虚拟设备。
+pub(super) fn physical_default_render_id() -> Option<String> {
+    let id = crate::audio::device::default_render_id().ok()?;
+    let destinations = crate::audio::device::list_destinations(true).ok()?;
+    if destinations.iter().any(|device| {
+        device.capture_id.is_none() && device.render_id == id && !device.virtual_driver
+    }) {
+        Some(id)
+    } else {
+        tracing::warn!("没有可用的物理系统默认播放端，已禁用麦克风本机试听");
+        None
+    }
+}
+
 /// 只在建图时计算一次掩码；越界目标索引不会匹配任何实际目标。
 fn source_target_mask(
     routes: Option<&SourceOutputRoutes>,
@@ -110,9 +124,21 @@ impl AudioEngine {
         device_ids: &[String],
         routes: Option<SourceOutputRoutes>,
     ) -> Result<(), Error> {
-        // 先回收旧图的生产者、fanout 和 render 线程，避免新旧环并存或并发写入。
-        // 重建输出会先停止所有依赖它的源，旧线程 join 后才允许替换环。
-        self.stop();
+        // 先归还空闲试听设备，再关闭旧路由；否则驱动可能拒绝第二次打开同一端点。
+        self.mic_preview.pause();
+        self.stop_output_graph();
+        let result = self.build_outputs_inner(device_ids, routes);
+        if result.is_err() {
+            self.mic_preview.resume();
+        }
+        result
+    }
+
+    fn build_outputs_inner(
+        &self,
+        device_ids: &[String],
+        routes: Option<SourceOutputRoutes>,
+    ) -> Result<(), Error> {
         // 空设备列表不能形成有效输出图，必须在访问 clients[0] 前返回错误。
         if device_ids.is_empty() {
             return Err(Error::RenderInit("no output devices"));
@@ -125,6 +151,11 @@ impl AudioEngine {
         // canonical 格式来自首个目标；其他目标在 fanout 线程中独立转换。
         // COM 只需在当前装配线程初始化；打开出来的 client 随后交给各自 render 线程使用。
         let _com = com::init_mta()?;
+        // 同一端点已在转发图中时直接混入该 render 线程，不再打开第二个 WASAPI client。
+        let default_id = physical_default_render_id();
+        let routed_default = default_id
+            .as_ref()
+            .and_then(|id| device_ids.iter().position(|route| route == id));
         // 预留目标数量，避免逐个打开设备时反复扩容 client 所有权表。
         let mut clients = Vec::with_capacity(device_ids.len());
         for id in device_ids {
@@ -134,6 +165,28 @@ impl AudioEngine {
                     .map_err(|error| crate::audio::render::describe_open_failure(id, error))?,
             );
         }
+        // 不在转发图中的默认播放端只承载本机麦克风试听；驱动拒绝额外 client
+        // 时保留原有转发图，不让试听设备故障阻断用户的其他音源。
+        let local_index = if routed_default.is_none() {
+            if let Some(id) = default_id.as_deref() {
+                match open_render_device(id) {
+                    Ok(client) => {
+                        clients.push(client);
+                        Some(clients.len() - 1)
+                    }
+                    Err(error) => {
+                        tracing::warn!("麦克风本机试听设备打开失败（{id}）：{error}");
+                        None
+                    }
+                }
+            } else {
+                tracing::warn!("麦克风本机试听：取不到系统默认播放设备");
+                None
+            }
+        } else {
+            None
+        };
+        let preview_index = routed_default.or(local_index);
         // 所有源先混到首个目标的 canonical 格式，再由 fanout 转成各目标格式。
         let canonical = clients[0].format;
         // WASAPI mix format 供源端转换使用，不能用目标的可播放格式替代。
@@ -166,19 +219,26 @@ impl AudioEngine {
                 ((target.sample_rate as usize).saturating_mul(target.channels as usize) / 2)
                     .max(8192);
             // 这些环接收 fanout 已转换的数据；源环仍只由 fanout 读取。
-            let target_process: Vec<Arc<SpscRing>> = (0..super::PROCESS_SLOTS)
+            let target_process: Vec<Arc<SpscRing>> =
+                (0..if local_index == Some(target_index) { 0 } else { super::PROCESS_SLOTS })
                 .map(|_| Arc::new(SpscRing::with_capacity_samples(target_capacity)))
                 .collect();
             // 物理麦在每个目标保留独立环，路由关闭时不会消费或清空其他目标。
             let target_mic = Arc::new(SpscRing::with_capacity_samples(target_capacity));
+            let preview_mic = (preview_index == Some(target_index))
+                .then(|| Arc::new(SpscRing::with_capacity_samples(target_capacity)));
             // 每个 SFX 槽独立转发，停止一张音频卡片不会影响其余槽位。
-            let target_sfx: Vec<Arc<SpscRing>> = (0..super::SFX_SLOTS)
+            let target_sfx: Vec<Arc<SpscRing>> =
+                (0..if local_index == Some(target_index) { 0 } else { super::SFX_SLOTS })
                 .map(|_| Arc::new(SpscRing::with_capacity_samples(target_capacity)))
                 .collect();
             // 每个目标都计算独立的路由布尔向量，fanout 只据此决定写入。
             // route 掩码只决定 fanout 是否写入目标环，不改变源环或其他目标的状态。
-            let (process_enabled, file_enabled, mic_enabled) =
-                source_target_mask(routes.as_ref(), target_index);
+            let (process_enabled, file_enabled, mic_enabled) = if local_index == Some(target_index) {
+                (vec![false; super::PROCESS_SLOTS], vec![false; super::SFX_SLOTS], false)
+            } else {
+                source_target_mask(routes.as_ref(), target_index)
+            };
             // 每个目标只接收自己的路由掩码；未指定路由时保持兼容行为，全部源均启用。
             // 每个目标线程独立报告设备错误；共享状态是 UI 读取的唯一错误来源。
             // render 线程持有设备 client 与目标环，独立处理阻塞写入和设备断开状态。
@@ -187,6 +247,8 @@ impl AudioEngine {
                 client,
                 target_process.clone(),
                 target_mic.clone(),
+                preview_mic.clone(),
+                local_index != Some(target_index),
                 target_sfx.clone(),
                 process_volumes.clone(),
                 sfx_volumes.clone(),
@@ -201,6 +263,7 @@ impl AudioEngine {
                 process_rings: target_process,
                 // 物理麦的目标格式环；是否写入由 mic_enabled 决定。
                 mic_ring: target_mic,
+                mic_preview_ring: preview_mic,
                 // 各 SFX 槽的目标格式环，与 sfx_enabled 一一对应。
                 sfx_rings: target_sfx,
                 // 每个进程槽的目标开关，fanout 据此决定是否复制该槽。
@@ -225,6 +288,8 @@ impl AudioEngine {
         // 克隆源环的 Arc 只增加共享所有权，不复制音频数据或改变生产者位置。
         let process_source = process_rings.clone();
         let mic_source = mic_ring.clone();
+        let mic_active = self.mic_active.clone();
+        let mic_preview_volume = self.mic_preview_volume.clone();
         let sfx_source = sfx_rings.clone();
         // fanout 只负责分发，目标 render 的阻塞和设备时钟由各自线程处理。
         // fanout 是唯一向目标环分发的线程，render 线程只消费自己的目标环。
@@ -236,6 +301,8 @@ impl AudioEngine {
                     process_source,
                     mic_source,
                     sfx_source,
+                    mic_active,
+                    mic_preview_volume,
                     fanout_targets,
                     fanout_stop,
                     canonical,
@@ -324,6 +391,7 @@ impl AudioEngine {
         self.set_status(EngineStatus::Running);
         // Release 发布完成状态，状态查询端以对应的 Acquire 读取运行标志。
         self.running.store(true, Ordering::Release);
+        self.route_active.store(true, Ordering::Release);
         Ok(())
     }
 }

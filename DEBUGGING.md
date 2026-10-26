@@ -71,6 +71,7 @@ Live Preview 只保留属性、模型和回调；改变 Rust 代码直接使用�
 - 切歌/停止进度异常：检查 `AudioEngine::play_file()`、`stop_file()` 和 `file_state()`；
   状态回写由 `ui_bridge/status.rs` 完成。
 - 本机试听无声：检查 `engine/monitor.rs` 的默认输出打开结果和 preview render 线程。
+- 文件卡片转发正常但本机试听音量无效：检查 `MixConfig.file_preview_volumes[slot]`、`route_preview_slot`、`AudioEngine::set_monitor_volume()`；音频库顶栏单独使用 `AppConfig.preview_volume`。麦克风卡片试听无声先检查有效物理麦选择、本机监听增益是否大于 0、默认播放端是否可用；转发增益 `mix.mic` 不等于试听增益。
 - 进程退出/设备拔出：确认状态更新为 `ProcessExited` / `DeviceGone`，相关线程收到 stop 并 join。
 - 启用物理麦后停止/切换导致 UI 卡死：检查 `AudioEngine::set_mic_source()` 是否把 stop 原子保存到 `SourceThreads.mic_stop`；`stop_mic_source()` 必须先 store stop，再 join。捕获循环等待事件最多 80ms 后应退出。
 
@@ -101,6 +102,7 @@ Live Preview 只保留属性、模型和回调；改变 Rust 代码直接使用�
 - 路由和设置页刷新共用异步列表刷新：worker 枚举进程/物理麦/输出设备，`status.rs` 在 UI 线程应用整组结果；进程图标只在列表刷新时读取，不在 50 ms 状态轮询中读取。
 - 麦克风下拉变更通过 `mic-mix-changed` 保存当前 ID；选“不混入”时混麦自动关闭。
 - 路由文件卡片状态、进度或切歌异常：未运行/未启用时读取 `file_state()` 的本机试听状态；运行中已启用时读取 `file_source_state(slot)` 和 `file_source_position_hns(slot)`。前后切歌检查当前条目的精确分类；自然完成由 `audio_finished_handled` 每槽消费一次。启用文件卡片或启动路由不能自动播放静止文件；播放中的本机试听在路由启动后从当前媒体位置恢复并在启用时接入文件槽。seek 同步重建本机流和已启用路由槽；暂停、停止需同时覆盖两者。试音输出设备由 `ensure_monitor_default(true)` 准备，若图重建后有 UI 进度却无声，先查默认监听端与解码错误。
+- 双音量悬浮层只应在文件/麦克风卡片显示，点击卡片音量按钮再分别拖动两条滑块：转发目标音量不随预览滑块变化，本机监听不随转发滑块变化。进程卡片不应弹出此层；两处百分比来自 `source-preview-volumes` 与 `source-volumes` 各自的行模型。
 - 配对虚拟设备两端冲突：检查本次启动快照中已启用的进程、文件及麦克风输出目标；禁用卡片的设备不能进入 `routed_outputs` 的 `output_ids`，两端都启用仍应拒绝。
 - 卡片文案或对齐异常：进程标题来自真实进程名，副标题只显示 PID；文件标题来自 `AudioEntry.name`（音频库备注名），分类留在条目/悬停信息；麦克风副标题为真实设备友好名。图标在卡片高度居中，模式图标不常驻文字，按钮说明使用原生 Tooltip；已启用卡片左侧固定蓝色竖线。
 - 添加源音频/麦克风输出选择：检查弹层 `file-output-selected` / `mic-output-selected` 布尔模型与 `UiCache.dests` 顺序一致，提交时按 `selection_id()` 存入文件槽 `file_output_ids` 或麦克风 `mic_output_ids`；虚拟麦的录音端 ID 不能在 UI 层提前合并为扬声器 render ID。运行中卡片目标下拉禁用。

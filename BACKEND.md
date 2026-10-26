@@ -33,6 +33,7 @@ AudioEngine::set_mic_source(mic_id)
 AudioEngine::set_volume(value) / set_mic_volume(value) / set_sfx_volume(value)
 AudioEngine::set_master_volume(value)
 AudioEngine::volume() / process_volume(slot) / mic_volume() / sfx_volume_for_slot(slot)
+AudioEngine::set_mic_preview_volume(value) / set_mic_preview_source(mic_id)
 AudioEngine::play_file(entry, start_hns, target)
 AudioEngine::play_file_source(entry, slot, looped, start_hns, paused)
 AudioEngine::stop_file_source(slot)
@@ -70,6 +71,7 @@ PID → Process Loopback capture → 源 SPSC ring
 - `play_file()` 按 `PlaybackTarget::{Both, Monitor, Route}` 分别监听+路由、仅监听、仅路由；
   `set_monitor_volume()` 只调整本机 monitor，不改变路由 SFX 增益。
 - 路由文件源增益仍走 `set_sfx_volume()`，与本机监听音量是独立控制。
+路由卡片本机文件试听从 `MixConfig.file_preview_volumes[slot]` 读取独立增益，旧槽回退到 `AppConfig.preview_volume`；播放页顶栏滑块编辑全局试听值，转发 SFX 槽仍只看 `mix.sfx_volumes`。麦克风监听采用独立增益与本机播放端，`MixConfig.mic_preview_volume` 默认为零；不会修改 `mix.mic` 或转发麦克风掩码。麦克风监听空闲时可独立于转发运行，启停链路不得阻塞 Slint 回调。
 - 音频库分类、索引、递归变更和分类图标路径迁移由 `src/library.rs` 处理；条目名称与图标由 `AppConfig` 持久化。
 - 音频条目编辑只修改 `AudioEntry.name`、`icon_glyph`、`icon_path`；不重命名磁盘文件。
 

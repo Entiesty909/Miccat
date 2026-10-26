@@ -68,6 +68,7 @@ audio/com ─────────────→ platform::com
   - `src/ui_bridge/sources.rs`：将进程、当前音频文件和物理麦克风投影为路由源行；文件行同时投影分类、播放模式、100 ns 位置和进度，`update_dynamic` 只写实时峰值/音量/状态/进度，不重建静态模型。
  - `UiCache` 的 `process_volumes` / `audio_volumes` 与对应输出 ID 按卡片槽位保存；`audio_play_modes` 与文件槽对齐，完成态去重标记只用于 50 ms 轮询。
 - `AudioEngine` 为最多 4 个进程槽和 4 个文件槽保留独立原子增益；SFX 槽位状态区分停止、播放、暂停和完成，并以独立 `AtomicU64` 发布 100 ns 播放位置。用户拖动文件槽进度时按媒体位置重建该槽，命令代数保护较新的 seek/stop 不被延迟解码覆盖。
+文件卡片的本机试听覆盖值保存在 `MixConfig.file_preview_volumes`，缺省沿用 `AppConfig.preview_volume`；麦克风本机监听增益保存在 `MixConfig.mic_preview_volume`，默认静音。转发文件槽和物理麦增益仍由原字段独立控制。
 - `UiCache.route_audio_entry`：待加入路由或当前路由使用的音频条目实际下标；仍是桥接派生状态，不替代引擎播放状态。
 - `UiCache.route_file_enabled`：用户为文件源选择的启用状态；与全局路由启停和文件播放器播放状态分离。
 - `UiCache.route_audio_entries`、`route_audio_enabled` 与 `audio_play_modes`：多个文件槽的当前库条目、启用状态和播放模式；前后切歌及自然续播只在条目所属精确分类内选择，不保存 PCM。
@@ -92,6 +93,7 @@ UI / 50 ms 状态轮询
 │  └─ monitor source/render (when local preview is enabled)
 └─ config change → 300 ms single-shot debounce → serial config writer
 ```
+麦克风监听只取物理麦源，独立本机增益不回写转发环；进程捕获与监听无关。空闲时有有效麦克风选择且监听音量大于零才创建本机监听链路，停止路由后恢复该链路。
 
 Capture、fanout、render 热循环使用预分配缓冲和固定容量 SPSC ring；不得分配扩容、写文件、
 访问 UI 或执行阻塞锁。解码通过有界同步通道分块交付。

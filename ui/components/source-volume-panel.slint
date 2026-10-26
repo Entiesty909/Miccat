@@ -1,0 +1,74 @@
+//! 路由文件和麦克风共用的双音量悬浮面板；只上报百分比，不持有音频状态。
+
+import { Theme } from "../theme.slint";
+import { SliderRow } from "slider-row.slint";
+
+// 两条音量分别交给卡片宿主；本组件不访问转发引擎或监听设备。
+export component SourceVolumePanel inherits Rectangle {
+    // 转发线性音量百分比，由源卡片提供。
+    in-out property <float> forward-volume: 100;
+    // 仅本机可听的线性音量百分比，由源卡片提供。
+    in-out property <float> preview-volume: 0;
+    // 修改转发音量，宿主更新对应源槽。
+    callback forward-edited(float);
+    // 修改本机预览音量，宿主更新独立监听分支。
+    callback preview-edited(float);
+    // 点击关闭图标时请求宿主关闭 PopupWindow。
+    callback close-requested();
+
+    background: Theme.content-card;
+    border-color: Theme.borderStrong;
+    border-width: 1px;
+    border-radius: 10px;
+    VerticalLayout {
+        padding: 14px;
+        spacing: 10px;
+        // 标题只属于悬浮层，不参与源卡片布局。
+        HorizontalLayout {
+            height: 34px;
+            spacing: 8px;
+            Text {
+                text: "\u{E767}";
+                width: 24px;
+                font-family: "Segoe MDL2 Assets";
+                font-size: 18px;
+                color: Theme.accent;
+                vertical-alignment: center;
+            }
+            Text {
+                text: "音量控制";
+                color: Theme.text;
+                font-size: 16px;
+                font-weight: 700;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+            Rectangle {
+                width: 28px;
+                height: 28px;
+                background: transparent;
+                Text {
+                    text: "×";
+                    color: Theme.text2;
+                    font-size: 22px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.close-requested(); }
+                }
+            }
+        }
+        SliderRow {
+            label: "转发音量";
+            value <=> root.forward-volume;
+            edited(value) => { root.forward-edited(value); }
+        }
+        SliderRow {
+            label: "预览音量";
+            value <=> root.preview-volume;
+            edited(value) => { root.preview-edited(value); }
+        }
+    }
+}

@@ -92,6 +92,8 @@ export component MainWindow inherits Window {
     in-out property <[bool]> source-active: [];
     // 每槽位音量百分比。
     in-out property <[float]> source-volumes: [];
+    // 文件/麦克风本机预览音量，按可见源行对齐。
+    in-out property <[float]> source-preview-volumes: [];
     // 每槽位音量 dB 文本。
     in-out property <[string]> source-volume-dbs: [];
     // 每槽位峰值数值。
@@ -325,8 +327,10 @@ export component MainWindow inherits Window {
     callback file-output-changed(int);
     // 切换指定源启用状态。
     callback source-active-toggled(int, bool);
-    // 修改指定源音量，单位百分比。
+    // 修改指定源转发音量，单位百分比。
     callback source-volume-edited(int, float);
+    // 只修改文件或麦克风卡片的本机预览音量，不改变转发增益。
+    callback source-preview-volume-edited(int, float);
     // 切换指定源静音。
     callback source-mute-toggled(int);
     // 执行指定源菜单动作码。
@@ -524,6 +528,7 @@ export component MainWindow inherits Window {
                 source-statuses <=> root.source-statuses;
                 source-active <=> root.source-active;
                 source-volumes <=> root.source-volumes;
+                source-preview-volumes <=> root.source-preview-volumes;
                 source-peak-values <=> root.source-peak-values;
                 source-peak-dbs <=> root.source-peak-dbs;
                 source-volume-dbs <=> root.source-volume-dbs;
@@ -587,6 +592,7 @@ export component MainWindow inherits Window {
                 duration-seconds <=> root.audio-duration-seconds;
                 playing <=> root.player-playing;
                 paused <=> root.player-paused;
+                preview-volume <=> root.preview-volume;
                 category-menu-open <=> root.audio-category-menu-open;
                 entry-menu-open <=> root.audio-entry-menu-open;
                 category-menu-x <=> root.audio-category-menu-x;
@@ -628,6 +634,9 @@ export component MainWindow inherits Window {
                     root.source-active-toggled(index, value);
                 }
                 source-volume-edited(index, value) => { root.source-volume-edited(index, value); }
+                source-preview-volume-edited(index, value) => {
+                    root.source-preview-volume-edited(index, value);
+                }
                 source-mute-toggled(index) => { root.source-mute-toggled(index); }
                 source-output-toggled(index, target, checked) => {
                     root.source-output-toggled(index, target, checked);

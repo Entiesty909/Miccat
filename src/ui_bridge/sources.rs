@@ -31,6 +31,8 @@ pub(super) struct SourceRows {
     active: Vec<bool>,
     /// UI 百分比形式的线性音量值，范围通常为 0 到 100。
     volumes: Vec<f32>,
+    /// 文件/麦克风的本机监听增益百分比；进程行固定为零且不显示控件。
+    preview_volumes: Vec<f32>,
     /// 与 `volumes` 对应的分贝显示文本，避免 Slint 重复计算。
     volume_dbs: Vec<slint::SharedString>,
     /// 与 `peak_values` 对应的分贝显示文本。
@@ -92,8 +94,10 @@ pub(super) struct FileRowInput {
     pub(super) active: bool,
     /// 是否暂停。
     pub(super) paused: bool,
-    /// 线性增益。
+    /// 转发线性增益。
     pub(super) volume: f32,
+    /// 本卡片本机试听线性增益。
+    pub(super) preview_volume: f32,
     /// 最近峰值。
     pub(super) peak: f32,
     /// 与枚举设备下标对齐的多选结果。
@@ -118,6 +122,8 @@ pub(super) struct MicrophoneRowInput {
     pub(super) active: bool,
     /// 线性增益。
     pub(super) volume: f32,
+    /// 物理麦仅送往本机播放设备的线性增益。
+    pub(super) preview_volume: f32,
     /// 最近峰值。
     pub(super) peak: f32,
     /// 与枚举设备下标对齐的多选结果。
@@ -138,6 +144,7 @@ impl SourceRows {
         self.statuses.push(input.status.into());
         self.active.push(input.active);
         self.volumes.push(input.volume * 100.0);
+        self.preview_volumes.push(0.0);
         self.volume_dbs.push(gain_db(input.volume * 100.0));
         self.peak_values.push(input.peak);
         self.peak_dbs.push(peak_db(input.peak));
@@ -163,6 +170,7 @@ impl SourceRows {
         self.statuses.push(input.status.into());
         self.active.push(input.active);
         self.volumes.push(input.volume * 100.0);
+        self.preview_volumes.push(input.preview_volume * 100.0);
         self.volume_dbs.push(gain_db(input.volume * 100.0));
         self.peak_values.push(input.peak);
         self.peak_dbs.push(peak_db(input.peak));
@@ -190,6 +198,7 @@ impl SourceRows {
         self.statuses.push(input.status.into());
         self.active.push(input.active);
         self.volumes.push(input.volume * 100.0);
+        self.preview_volumes.push(input.preview_volume * 100.0);
         self.volume_dbs.push(gain_db(input.volume * 100.0));
         self.peak_values.push(input.peak);
         self.peak_dbs.push(peak_db(input.peak));
@@ -216,6 +225,7 @@ impl SourceRows {
             self.statuses.len(),
             self.active.len(),
             self.volumes.len(),
+            self.preview_volumes.len(),
             self.volume_dbs.len(),
             self.peak_dbs.len(),
             self.peak_values.len(),
@@ -274,6 +284,9 @@ impl SourceRows {
         });
         set_if_changed(&ui.get_source_volumes(), self.volumes.clone(), |values| {
             ui.set_source_volumes(ModelRc::new(VecModel::from(values)));
+        });
+        set_if_changed(&ui.get_source_preview_volumes(), self.preview_volumes.clone(), |values| {
+            ui.set_source_preview_volumes(ModelRc::new(VecModel::from(values)));
         });
         set_if_changed(
             &ui.get_source_volume_dbs(),
@@ -464,6 +477,7 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
                 .get(slot)
                 .copied()
                 .unwrap_or_else(|| state.engine.sfx_volume_for_slot(slot));
+            let preview_volume = state.app_config.borrow().file_preview_gain(slot);
             let (output_selection, output_label) = device_selection(
                 &state.cache.borrow().dests,
                 settings.file_output_ids.get(slot).unwrap_or(&fallback_ids),
@@ -480,6 +494,7 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
                 active: enabled,
                 paused,
                 volume,
+                preview_volume,
                 peak: if playing {
                     state.engine.sfx_peak()
                 } else {
@@ -523,6 +538,7 @@ pub(super) fn update(ui: &MainWindow, state: &AppState) {
             status: if mix_mic { "已连接" } else { "未启用" }.into(),
             active: mix_mic,
             volume: state.engine.mic_volume(),
+            preview_volume: state.app_config.borrow().mix.mic_preview_volume,
             peak,
             output_selection: mic_output_selection,
             output_label: mic_output_label,

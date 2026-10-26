@@ -108,6 +108,7 @@ fn register_double_click(ui: &MainWindow, state: &AppState) {
 fn register_seek(ui: &MainWindow, state: &AppState) {
     let engine = state.engine.clone();
     let cache = state.cache.clone();
+    let app_config = state.app_config.clone();
     let ui_weak = ui.as_weak();
     ui.on_audio_progress_seek(move |position| {
         let current = engine.file_state();
@@ -137,6 +138,10 @@ fn register_seek(ui: &MainWindow, state: &AppState) {
         engine.stop_file();
         let target = cache.borrow().playback_target;
         start_ui(&ui, &engine, &entry, target_hns, target);
+        if let Some(slot) = cache.borrow().route_preview_slot {
+            let config = app_config.borrow().file_preview_gain(slot);
+            engine.set_monitor_volume(config);
+        }
         if let Some(slot) = cache.borrow().route_preview_slot
             && engine.is_running()
             && cache.borrow().route_audio_enabled.get(slot) == Some(&true)
@@ -176,6 +181,7 @@ fn register_stop(ui: &MainWindow, state: &AppState) {
 fn register_pause(ui: &MainWindow, state: &AppState) {
     let engine = state.engine.clone();
     let cache = state.cache.clone();
+    let app_config = state.app_config.clone();
     let ui_weak = ui.as_weak();
     ui.on_player_pause_toggle(move || {
         let Some(ui) = ui_weak.upgrade() else {
@@ -186,6 +192,9 @@ fn register_pause(ui: &MainWindow, state: &AppState) {
             let paused = cache.borrow_mut().paused_audio.take();
             if let Some((entry, position, target)) = paused {
                 start_ui(&ui, &engine, &entry, position, target);
+                if let Some(slot) = cache.borrow().route_preview_slot {
+                    engine.set_monitor_volume(app_config.borrow().file_preview_gain(slot));
+                }
                 ui.set_player_paused(false);
                 sync_route_card_pause(&engine, &cache, false);
             }
@@ -319,6 +328,8 @@ fn start_ui(
     // 输出打开是异步边界，先确保设备可用再投递解码任务，避免假播放状态。
     // 同步确保试听设备就绪：异步打开与随后的解码投递有竞态，
     // 会表现为「显示播放中但没有声音」。
+    // 音频库播放使用全局试听音量；路由卡片播放随后覆写自己的本机分支。
+    engine.set_monitor_volume((ui.get_preview_volume() / 100.0).clamp(0.0, 1.0));
     engine.ensure_monitor_default(target != PlaybackTarget::Route || ui.get_preview_enabled());
     match engine.play_file(entry, start_hns, target) {
         Ok(()) => {

@@ -6,6 +6,8 @@
 本批文件播放补充验收（2026-10-23）：文件转发开关移到设置区第三行，窄窗口让出百分比显示宽度，进程/麦克风开关位置不动。未启用转发仍可本机试听、暂停、切歌与循环；播放中启用或启动路由时从当前进度接入，不自动播放原本静止的文件；关闭转发仅撤掉路由槽。播放器顶部控制条与卡片对同一活动文件的暂停/停止同步，不改变其它文件卡片。
 本批路由输出补充验收（2026-10-23）：三类卡片原输出区域改为可展开的多选设备，按可见端点的稳定 ID 保存；配对扬声器与虚拟麦克风互不连带勾选，运行时才映射到同一 render。路由启动只收集已启用源的设备，禁用卡片的配对虚拟端点不进入冲突校验。单独启动只使用当前卡片目标。播放页文件默认设备单独保存，新建文件源采用该默认值，既有文件卡片互不覆盖；读旧 `file_output_id` 时迁移默认值与原首槽目标。
 
+本批补充验收（2026-10-23，音量入口与试听）：音频库顶栏“添加音频”在最左，之后依次为四个上下居中的播放图标和本机试听滑块，搜索栏不再重复放添加按钮。文件卡片的四个播放按钮后增加 🔈，麦克风卡片原转发音量行也提供音量入口；悬浮层可分别调整转发音量与本机预览音量。文件本机增益按卡片槽位保存，麦克风本机增益独立于转发、默认 0 以防止启动时回授；进程声源与布局不改。
+
 改动文件：
 - `src/audio/sfx.rs`、`src/engine.rs`、`src/engine/{output,playback}.rs`、`src/cli/mod.rs`：为每个 SFX 槽发布播放状态和 100 ns 位置，保留独立暂停/恢复/停止；定点起播和代际校验避免旧解码覆盖新 seek。
 - `src/config/mod.rs`、`src/ui_bridge/cache.rs`、`src/ui_bridge/persist.rs`：按文件槽持久化四种播放模式，并维持条目、模式、完成态数组对齐。
@@ -15,6 +17,8 @@
 - `src/ui_bridge/theme.rs`、`src/ui_bridge/theme/composite.rs`：主题图片异步预合成、防抖重算和停用后的过期回写拦截，其他独立窗口保持原背景。
 - `src/ui_bridge/callbacks/route/{sources,tests}.rs`、`src/ui_bridge/cache.rs`：麦克风卡片跳过未混入哨兵并保留已选设备，麦克风静音缓存恢复增益；源卡片静音入口沿用原引擎回调。
 - `ARCHITECTURE.md`、`BACKEND.md`、`API.md`、`FRONTEND.md`、`DEBUGGING.md`、`PROJECT.md`：同步队列、定位播放、输出冲突、卡片、诊断入口及粉色渲染契约。
+
+- 本批音量入口续改：`ui/pages/{player,route}.slint`、`ui/components/{audio-transport,source-row,source-volume-panel,page-host}.slint`、`ui/app-window.slint` 接入顶栏与双音量悬浮层；`src/ui_bridge/{sources,mod}.rs`、`src/ui_bridge/callbacks/{player,settings,route,route_start}.rs`、`src/ui_bridge/callbacks/route/{audio_queue,sources}.rs`、`src/config/{mod,store}.rs` 保存并应用独立监听增益；`src/engine/{monitor,fanout,output}.rs` 和 `src/audio/render.rs` 提供物理麦本机监听分支。同步 `ARCHITECTURE.md`、`BACKEND.md`、`API.md`、`FRONTEND.md`、`DEBUGGING.md`。
 
 怎么跑：
 - `CARGO_TARGET_DIR=%TEMP%\miccat-agent-build scripts\build-dev.cmd fmt -- --check`
@@ -36,5 +40,7 @@
 2026-10-23 本批续验：`fmt`、Debug `build` 与 49 项测试通过，1280×800 路由快照确认文件开关处于第三行、转发音量百分比不重合，进程/麦克风保留右侧原开关。一次性双声道 PCM16 WAV 从 0.35 秒起播并消费 36480 个采样，对比文件为 0/36480 不匹配；真实用户 MP4 的同一探针产生 1873/37434 不匹配，压缩格式寻址未由此通过。真实设备的卡片试听与播放中切入输出尚未人工听感验收；快照、探针和单测不替代该场景。`source-row.slint` 518 行超过 450 行审查阈值，仍承担三类共用卡片与文件控制；未新增超过硬上限的文件。
 2026-10-23 路由目标续验：`fmt -- --check`、Debug `build`、62 项单测通过；`--list-devices` 实际枚举 Realtek、VB-CABLE 与 Steam 的 render/录音端。1280×800 路由快照显示三张卡片的输出下拉仍占原位置，勾选目标友好名称在各自卡片上展示，文件开关位于音量下方且百分比不重叠。测试覆盖进程槽与文件槽多选隔离、最后一只目标不能误取消、禁用卡片不打开配对端点、配置旧单选迁移与保存回读。播放页默认设备另存 `file_default_output_id`，不再覆盖首个文件槽；输出回调拆至 `route/sources/outputs.rs` 后 `sources.rs` 为 708 行、输出模块 150 行，`source-row.slint` 为 516 行仍承担三类共享布局。真实虚拟设备同时转发与物理下拉点击/试听未在自动化快照中验证；历史注释遗漏与 `app-window.slint` 超硬阈值尚未由本切片解决。
 2026-10-23 本批补验：`fmt -- --check`、Debug `build` 和 65 项测试通过；新增用例检查同 render 的虚拟扬声器/麦克风以各自可见 ID 单选与双选后，卡片勾选投影一致。`--list-devices` 在实机枚举 VB-CABLE、Steam 及物理设备；1280×800 路由快照与 698×620 添加文件/麦克风窗口快照确认源卡片仍在原位置、输出控件显示友好名。独立对话框多选提交和实际音频双端路由未用物理点击/听感验证。按设备身份映射职责拆出 `sources/output_selection.rs`、测试迁 `sources/tests.rs`，文件上下文页码映射回 `library.rs`；`sources.rs` 降至 778 行，未新增超过 800 行硬阈值文件。`source-row.slint` 519 行、`add-source-panel.slint` 569 行、`sources.rs` 778 行、`window_lifecycle.rs` 612 行均超过审查阈值；`library.rs` 510 行超常规目标但不达审查阈值。共享卡片、添加源窗口、源行投影、独立窗口生命周期和音频库索引各有职责，不为行数机械拆分。
+
+2026-10-23 音量入口补充实测：待运行本轮构建、UI 快照和音频验证后填写真实命令与结果。
 
 下一步：真实设备验证配对端点路由、分类续播、物理窗口的菜单悬停提示与粉色模式滚动手感；同批卡片调整继续更新本记录，不另建阶段文档。

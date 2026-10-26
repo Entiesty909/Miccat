@@ -311,6 +311,32 @@ mod tests {
         );
         assert_eq!(decoded.output.mic_output_ids, config.output.mic_output_ids);
     }
+    /// 旧配置维持原有文件试听增益，新卡片覆盖不能污染其它卡片或麦克风转发。
+    #[test]
+    fn preview_gains_round_trip_independently_and_old_mix_stays_readable() {
+        let mut config = AppConfig::default();
+        config.preview_volume = 0.6;
+        config.mix.file_preview_volumes = vec![0.2, 0.8];
+        config.mix.mic_preview_volume = 0.3;
+        config.mix.mic = 0.9;
+        config.mix.sfx_volumes = vec![0.7, 0.4];
+        let encoded = serde_json::to_value(&config).expect("serialize preview gains");
+        let decoded: AppConfig = serde_json::from_value(encoded.clone()).expect("read preview gains");
+        assert_eq!(decoded.file_preview_gain(0), 0.2);
+        assert_eq!(decoded.file_preview_gain(1), 0.8);
+        assert_eq!(decoded.file_preview_gain(2), 0.6);
+        assert_eq!(decoded.mix.mic_preview_volume, 0.3);
+        assert_eq!(decoded.mix.mic, 0.9);
+        assert_eq!(decoded.mix.sfx_volumes, [0.7, 0.4]);
+
+        let mut legacy = encoded;
+        legacy["mix"].as_object_mut().expect("mix object").remove("file_preview_volumes");
+        legacy["mix"].as_object_mut().expect("mix object").remove("mic_preview_volume");
+        let restored: AppConfig = serde_json::from_value(legacy).expect("read old mix");
+        assert_eq!(restored.file_preview_gain(0), 0.6);
+        assert_eq!(restored.mix.mic_preview_volume, 0.0);
+    }
+
 }
 
 /// 解析当前用户配置文件位置；APPDATA 缺失时退回工作目录。

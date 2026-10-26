@@ -22,12 +22,15 @@ pub(super) struct FanoutTarget {
     process_rings: Vec<Arc<SpscRing>>,
     /// 该目标的麦克风输入环，使用目标专属的格式转换器写入。
     mic_ring: Arc<SpscRing>,
+    /// 单独写往默认播放设备的物理麦试听环。
+    mic_preview_ring: Option<Arc<SpscRing>>,
     /// 该目标的 SFX 槽输入环；索引与 `sfx_converters`、`sfx_enabled` 一一对应。
     sfx_rings: Vec<Arc<SpscRing>>,
     /// 每个进程槽独立的重采样/声道转换器，与 `process_rings` 对齐。
     converters: Vec<Converter>,
     /// 麦克风专用转换器，避免跨目标共享有状态转换器。
     mic_converter: Converter,
+    mic_preview_converter: Option<Converter>,
     /// 每个 SFX 槽独立转换器，与 `sfx_rings` 对齐。
     sfx_converters: Vec<Converter>,
     /// 进程槽是否应写入该目标；长度与 `process_rings` 对齐。
@@ -53,11 +56,13 @@ impl FanoutTarget {
             process_rings: target.process_rings.clone(),
             mic_ring: target.mic_ring.clone(),
             sfx_rings: target.sfx_rings.clone(),
+            mic_preview_ring: target.mic_preview_ring.clone(),
             // 转换器数量必须与对应输入环数量一致，后续才能按槽位直接索引。
             converters: (0..target.process_rings.len())
                 .map(|_| Converter::new(src, dst))
                 .collect(),
             mic_converter: Converter::new(src, dst),
+            mic_preview_converter: target.mic_preview_ring.as_ref().map(|_| Converter::new(src, dst)),
             sfx_converters: (0..target.sfx_rings.len())
                 .map(|_| Converter::new(src, dst))
                 .collect(),
@@ -78,6 +83,8 @@ pub(super) fn spawn_target_render(
     client: crate::audio::render::RenderClient,
     process: Vec<Arc<SpscRing>>,
     mic: Arc<SpscRing>,
+    mic_preview_ring: Option<Arc<SpscRing>>,
+    routed: bool,
     sfx: Vec<Arc<SpscRing>>,
     process_volumes: Vec<Arc<AtomicU32>>,
     sfx_volumes: Vec<Arc<AtomicU32>>,
@@ -87,8 +94,11 @@ pub(super) fn spawn_target_render(
 ) -> Result<JoinHandle<()>, Error> {
     // 将共享增益句柄复制到目标线程；AtomicU32 允许 render 线程无锁读取最新值。
     let mic_volume = engine.mic_volume.clone();
+    let mic_preview = mic_preview_ring.map(|ring| {
+        (ring, engine.mic_preview_volume.clone(), engine.mic_active.clone())
+    });
     let master = engine.master.clone();
-    let route_peak = engine.route_peak.clone();
+    let route_peak = routed.then(|| engine.route_peak.clone());
     thread::Builder::new()
         .name("wasapi-render-target".into())
         .spawn(move || {
@@ -97,16 +107,21 @@ pub(super) fn spawn_target_render(
             run_render_loop(
                 client,
                 process,
-                Some(mic),
+                routed.then_some(mic),
                 sfx,
                 process_volumes,
                 Some(mic_volume),
+                mic_preview,
                 sfx_volumes,
                 master,
-                Some(route_peak),
+                route_peak,
                 stop,
                 move |e| {
                     // render 错误由回调统一映射为引擎状态，供控制线程观察。
+                    if !routed {
+                        tracing::warn!("麦克风本机试听播放设备中断：{e}");
+                        return;
+                    }
                     let mapped = match e {
                         Error::DeviceNotFound => EngineStatus::DeviceGone,
                         other => EngineStatus::Error(other.user_message()),
@@ -127,6 +142,8 @@ pub(super) fn run_fanout(
     source: Vec<Arc<SpscRing>>,
     mic: Arc<SpscRing>,
     sfx: Vec<Arc<SpscRing>>,
+    mic_active: Arc<AtomicBool>,
+    mic_preview_volume: Arc<AtomicU32>,
     mut targets: Vec<FanoutTarget>,
     stop: Arc<AtomicBool>,
     format: AudioFormat,
@@ -157,9 +174,11 @@ pub(super) fn run_fanout(
             let FanoutTarget {
                 process_rings,
                 mic_ring,
+                mic_preview_ring,
                 sfx_rings,
                 converters,
                 mic_converter,
+                mic_preview_converter,
                 sfx_converters,
                 process_enabled,
                 mic_enabled,
@@ -179,6 +198,14 @@ pub(super) fn run_fanout(
             if *mic_enabled {
                 mic_converter.convert_f32(&mic_block, frames, scratch);
                 mic_ring.push_paced(scratch, *lead, &stop);
+            }
+            // 与转发麦克风共用唯一 canonical 源块；独立转换器和环不影响转发增益。
+            if let (Some(ring), Some(converter)) = (mic_preview_ring, mic_preview_converter)
+                && mic_active.load(Ordering::Acquire)
+                && f32::from_bits(mic_preview_volume.load(Ordering::Relaxed)) > 0.0
+            {
+                converter.convert_f32(&mic_block, frames, scratch);
+                ring.push_paced(scratch, *lead, &stop);
             }
             // SFX 槽逐个分发，停止或暂停某槽不会清空其他槽的环。
             for (index, block) in sfx_blocks.iter().enumerate() {

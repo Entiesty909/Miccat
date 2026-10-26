@@ -22,6 +22,8 @@ export component AudioTransport inherits Rectangle {
     in property <string> current-position: "";
     // 当前媒体时长，单位为秒；非正值时禁止拖动。
     in property <float> duration-seconds: 0;
+    // 本机试听音量，单位百分比。
+    in-out property <float> preview-volume: 50;
     // 请求播放上一条可用条目。
     callback previous();
     // 请求在播放与暂停之间切换。
@@ -32,6 +34,10 @@ export component AudioTransport inherits Rectangle {
     callback next();
     // 用户释放滑块后提交归一化进度，宿主负责换算为秒并 seek。
     callback progress-seek(float);
+    // 请求添加音频文件。
+    callback add-files();
+    // 修改本机试听音量，参数为百分比。
+    callback preview-volume-edited(float);
 
     height: 44px;
     width: 100%;
@@ -44,52 +50,97 @@ export component AudioTransport inherits Rectangle {
         padding-left: 8px;
         padding-right: 8px;
         spacing: 5px;
-        alignment: LayoutAlignment.center;
-        // 空闲或已到列表首项时禁止上一首；播放请求仍只上报宿主。
-        PmButton {
-            label: "\u{E892}";
-            icon-only: true;
-            icon-transparent: true;
-            hint: "上一曲";
-            button-width: 30px;
-            button-height: 30px;
-            enabled: (root.playing || root.paused) && root.entry-index > 0;
-            clicked => { root.previous(); }
+        // 添加入口放在播放工具栏最左侧，和列表搜索框不重复。
+        VerticalLayout {
+            width: 88px;
+            height: 100%;
+            alignment: center;
+            PmButton {
+                label: "添加音频";
+                filled: true;
+                clicked => { root.add-files(); }
+            }
         }
-        // 暂停保留播放上下文，按钮只切换状态而不重置进度。
-        PmButton {
-            label: root.paused ? "\u{E768}" : "\u{E769}";
-            icon-only: true;
-            icon-transparent: true;
-            hint: root.paused ? "播放" : "暂停";
-            button-width: 30px;
-            button-height: 30px;
-            enabled: root.playing || root.paused;
-            clicked => { root.pause-toggle(); }
+        // 为四个播放按钮提供固定高度的居中行，避免贴在播放条顶边。
+        VerticalLayout {
+            width: 135px;
+            height: 100%;
+            alignment: center;
+            HorizontalLayout {
+                width: 135px;
+                height: 30px;
+                spacing: 5px;
+                PmButton {
+                    label: "\u{E892}";
+                    icon-only: true;
+                    icon-transparent: true;
+                    hint: "上一曲";
+                    button-width: 30px;
+                    button-height: 30px;
+                    enabled: (root.playing || root.paused) && root.entry-index > 0;
+                    clicked => { root.previous(); }
+                }
+                PmButton {
+                    label: root.paused ? "\u{E768}" : "\u{E769}";
+                    icon-only: true;
+                    icon-transparent: true;
+                    hint: root.paused ? "播放" : "暂停";
+                    button-width: 30px;
+                    button-height: 30px;
+                    enabled: root.playing || root.paused;
+                    clicked => { root.pause-toggle(); }
+                }
+                PmButton {
+                    label: "\u{E71A}";
+                    icon-only: true;
+                    icon-transparent: true;
+                    hint: "停止";
+                    button-width: 30px;
+                    button-height: 30px;
+                    enabled: root.playing || root.paused;
+                    clicked => { root.stop(); }
+                }
+                PmButton {
+                    label: "\u{E893}";
+                    icon-only: true;
+                    icon-transparent: true;
+                    hint: "下一曲";
+                    button-width: 30px;
+                    button-height: 30px;
+                    enabled: (root.playing || root.paused)
+                        && root.entry-index >= 0
+                        && root.entry-index < root.entry-count - 1;
+                    clicked => { root.next(); }
+                }
+            }
         }
-        // 停止按钮在播放或暂停态可用，宿主负责释放当前播放流。
-        PmButton {
-            label: "\u{E71A}";
-            icon-only: true;
-            icon-transparent: true;
-            hint: "停止";
-            button-width: 30px;
-            button-height: 30px;
-            enabled: root.playing || root.paused;
-            clicked => { root.stop(); }
-        }
-        // 空闲或已到列表末项时禁止下一首，避免常驻控件误启动播放。
-        PmButton {
-            label: "\u{E893}";
-            icon-only: true;
-            icon-transparent: true;
-            hint: "下一曲";
-            button-width: 30px;
-            button-height: 30px;
-            enabled: (root.playing || root.paused)
-                && root.entry-index >= 0
-                && root.entry-index < root.entry-count - 1;
-            clicked => { root.next(); }
+        // 独立于播放进度，滑动即提交既有本机预览音量 API。
+        VerticalLayout {
+            width: 130px;
+            height: 100%;
+            alignment: center;
+            HorizontalLayout {
+                width: 130px;
+                height: 30px;
+                spacing: 5px;
+                Text {
+                    text: "\u{E767}";
+                    width: 20px;
+                    font-family: "Segoe MDL2 Assets";
+                    color: Theme.text2;
+                    font-size: 16px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                Slider {
+                    horizontal-stretch: 1;
+                    minimum: 0;
+                    maximum: 100;
+                    value <=> root.preview-volume;
+                    changed(value) => { root.preview-volume-edited(value); }
+                    released(value) => { root.preview-volume-edited(value); }
+                }
+            }
         }
         Text {
             text: root.playing || root.paused ? root.current-position : "00:00";

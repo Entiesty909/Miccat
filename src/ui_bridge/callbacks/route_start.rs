@@ -66,6 +66,9 @@ fn resume_route_preview(
     let Some((slot, entry, position)) = preview else {
         return;
     };
+    state
+        .engine
+        .set_monitor_volume(state.app_config.borrow().file_preview_gain(slot));
     state.engine.ensure_monitor_default(true);
     if let Err(error) = state
         .engine

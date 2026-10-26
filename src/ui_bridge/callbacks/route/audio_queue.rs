@@ -178,6 +178,10 @@ fn play_slot(ui: &MainWindow, state: &AppState, slot: usize, entry_index: usize)
         entry
     };
     ui.set_player_paused(false);
+    // 文件监听以卡片增益为准；只修改本机 render 的增益，不影响路由 SFX 槽。
+    state
+        .engine
+        .set_monitor_volume(state.app_config.borrow().file_preview_gain(slot));
     state.engine.ensure_monitor_default(true);
     if let Err(error) = state.engine.play_file(&entry, 0, PlaybackTarget::Monitor) {
         state.cache.borrow_mut().route_preview_slot = None;

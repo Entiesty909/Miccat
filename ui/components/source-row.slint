@@ -5,6 +5,7 @@ import { MarqueeComboBox } from "marquee-combo-box.slint";
 import { PmButton } from "button.slint";
 import { Slider } from "std-widgets.slint";
 import { SliderRow } from "slider-row.slint";
+import { SourceVolumePanel } from "source-volume-panel.slint";
 import { ForwardSwitch } from "forward-switch.slint";
 
 // 三类源共用同一横向骨架；文件源在信息区与设置区之间插入播放控制。
@@ -41,6 +42,8 @@ export component SourceRow inherits Rectangle {
     in property <string> selected-output-label: "";
     // 当前槽位转发音量，单位百分比。
     in-out property <float> volume: 100;
+    // 本机监听音量独立于转发音量，单位百分比。
+    in-out property <float> preview-volume: 100;
     // 文件播放模式：0 顺序、1 列表循环、2 单曲循环、3 随机。
     in property <int> play-mode: 0;
     // 文件播放进度，范围 0..=1。
@@ -53,6 +56,20 @@ export component SourceRow inherits Rectangle {
     property <float> seek-draft: 0;
     // 拖动期间暂不让定时轮询覆盖滑块。
     property <bool> seeking-progress: false;
+    // 双音量悬浮层的相对卡片定位，随按钮点击更新。
+    property <length> volume-popup-x: 0px;
+    // 双音量悬浮层纵向锚点，可跨越卡片边界显示。
+    property <length> volume-popup-y: 0px;
+    // 相同按钮再次点击关闭；Slint PopupWindow 不参与卡片排版。
+    function toggle-volume-popup(button-x: length, button-y: length) {
+        if volume-popup.is-open {
+            volume-popup.close();
+        } else {
+            root.volume-popup-x = max(0px, min(button-x, root.width - 290px));
+            root.volume-popup-y = button-y + 40px;
+            volume-popup.show();
+        }
+    }
     // 菜单打开态只用于强调右上角入口。
     in property <bool> actions-open: false;
     // 点击后先翻转上三角，再由计时器请求弹出菜单。
@@ -85,6 +102,8 @@ export component SourceRow inherits Rectangle {
     callback active-toggled(bool);
     // 转发音量变化。
     callback volume-edited(float);
+    // 本机监听分支的音量变化。
+    callback preview-volume-edited(float);
     // 进程/麦克风静音变化。
     callback mute-toggled();
     // 设备勾选变化由 bridge 按设备 ID 写回该卡片，不改变其他卡片。
@@ -228,13 +247,13 @@ export component SourceRow inherits Rectangle {
             alignment: LayoutAlignment.center;
             HorizontalLayout {
                 height: 42px;
-                spacing: 8px;
+                spacing: 3px;
                 alignment: LayoutAlignment.center;
                 PmButton {
                     label: "\u{E892}";
                     icon-only: true;
                     icon-transparent: true;
-                    button-width: 38px;
+                    button-width: 32px;
                     hint: "上一曲";
                     enabled: true;
                     clicked => { root.previous(); }
@@ -243,7 +262,7 @@ export component SourceRow inherits Rectangle {
                     label: root.status == "播放中" ? "\u{E769}" : "\u{E768}";
                     icon-only: true;
                     icon-transparent: true;
-                    button-width: 42px;
+                    button-width: 36px;
                     hint: root.status == "播放中" ? "暂停" : "播放";
                     enabled: true;
                     clicked => { root.pause(); }
@@ -251,7 +270,7 @@ export component SourceRow inherits Rectangle {
                 PmButton {
                     label: "\u{E893}";
                     icon-only: true;
-                    button-width: 38px;
+                    button-width: 32px;
                     icon-transparent: true;
                     hint: "下一曲";
                     enabled: true;
@@ -262,9 +281,23 @@ export component SourceRow inherits Rectangle {
                     label: root.mode-icon;
                     icon-only: true;
                     icon-transparent: true;
-                    button-width: 38px;
+                    button-width: 32px;
                     hint: root.mode-label;
                     clicked => { root.play-mode-cycled(); }
+                }
+                // 与四个播放按钮并列；悬浮层不属于滚动内容，不会被裁切。
+                PmButton {
+                    label: "\u{E767}";
+                    icon-only: true;
+                    icon-transparent: true;
+                    button-width: 30px;
+                    hint: "转发与预览音量";
+                    clicked => {
+                        root.toggle-volume-popup(
+                            self.absolute-position.x - root.absolute-position.x,
+                            self.absolute-position.y - root.absolute-position.y
+                        );
+                    }
                 }
             }
             // 滑动时显示草稿位置，松开后才把定位交给引擎；停播时不会误启动。
@@ -393,6 +426,19 @@ export component SourceRow inherits Rectangle {
                     value <=> root.volume;
                     edited(value) => { root.volume-edited(value); }
                 }
+                if root.kind == 2: PmButton {
+                    label: "\u{E767}";
+                    icon-only: true;
+                    icon-transparent: true;
+                    button-width: 30px;
+                    hint: "转发与预览音量";
+                    clicked => {
+                        root.toggle-volume-popup(
+                            self.absolute-position.x - root.absolute-position.x,
+                            self.absolute-position.y - root.absolute-position.y
+                        );
+                    }
+                }
                 Rectangle {
                     horizontal-stretch: 1;
                     background: transparent;
@@ -450,6 +496,22 @@ export component SourceRow inherits Rectangle {
                 enabled: !root.route-running;
                 toggled(value) => { root.active-toggled(value); }
             }
+        }
+    }
+    volume-popup := PopupWindow {
+        x: root.volume-popup-x;
+        y: root.volume-popup-y;
+        width: 290px;
+        height: 170px;
+        close-policy: close-on-click-outside;
+        SourceVolumePanel {
+            width: 100%;
+            height: 100%;
+            forward-volume <=> root.volume;
+            preview-volume <=> root.preview-volume;
+            forward-edited(value) => { root.volume-edited(value); }
+            preview-edited(value) => { root.preview-volume-edited(value); }
+            close-requested => { volume-popup.close(); }
         }
     }
 

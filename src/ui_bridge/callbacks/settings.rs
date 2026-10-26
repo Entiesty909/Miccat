@@ -29,9 +29,12 @@ fn register_1(ui: &MainWindow, state: &AppState) {
         let save_queue = state.save_queue.clone();
         let engine = engine.clone();
         let app_config = app_config.clone();
+        let cache = state.cache.clone();
         ui.on_preview_volume_edited(move |v| {
             let value = (v / 100.0).clamp(0.0, 1.0);
-            engine.set_monitor_volume(value);
+            if cache.borrow().route_preview_slot.is_none() {
+                engine.set_monitor_volume(value);
+            }
             app_config.borrow_mut().preview_volume = value;
             save_queue.schedule();
         });

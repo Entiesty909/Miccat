@@ -46,6 +46,8 @@ export component RoutePage inherits Rectangle {
     in-out property <[string]> source-volume-dbs: [];
     // 每槽位音量百分比，保持卡片状态互不共享。
     in-out property <[float]> source-volumes: [];
+    // 每槽位本机监听音量百分比，独立于转发增益。
+    in-out property <[float]> source-preview-volumes: [];
     // 每槽位静音状态。
     in-out property <[bool]> source-muted: [];
     // 每张卡片的设备勾选模型，与 outputs 下标对齐。
@@ -114,6 +116,8 @@ export component RoutePage inherits Rectangle {
     callback source-active-toggled(int, bool);
     // 指定槽位音量变化，单位百分比。
     callback source-volume-edited(int, float);
+    // 指定槽位本机监听音量变化，单位百分比。
+    callback source-preview-volume-edited(int, float);
     // 指定槽位静音切换。
     callback source-mute-toggled(int);
     // 指定槽位菜单动作码。
@@ -273,6 +277,9 @@ export component RoutePage inherits Rectangle {
                         volume: index < root.source-volumes.length
                             ? root.source-volumes[index]
                             : 100;
+                        preview-volume: index < root.source-preview-volumes.length
+                            ? root.source-preview-volumes[index]
+                            : 100;
                         // 启停状态按稳定槽位下标回传，避免列表刷新时误改相邻源。
                         active-toggled(value) => {
                             root.source-active-toggled(index, value);
@@ -280,6 +287,9 @@ export component RoutePage inherits Rectangle {
                         // 音量编辑只提交当前槽位，避免共享增益状态。
                         volume-edited(value) => {
                             root.source-volume-edited(index, value);
+                        }
+                        preview-volume-edited(value) => {
+                            root.source-preview-volume-edited(index, value);
                         }
                         // 静音、菜单和播放控制均按同一槽位转发。
                         mute-toggled => { root.source-mute-toggled(index); }

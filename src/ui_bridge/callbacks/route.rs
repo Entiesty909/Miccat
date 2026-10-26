@@ -247,6 +247,10 @@ fn register_2(ui: &MainWindow, state: &AppState) {
             save_queue.schedule();
             // 配置变更进入去抖队列；不要在 UI 回调中直接写文件或等待后台 IO。
             drop(config);
+            // 本机监听源按当前物理设备选择保持独立；关闭转发不关闭试听。
+            if let Err(error) = engine.set_mic_preview_source(mic_id.as_deref()) {
+                super::super::diagnostics::report_error(&ui, &error);
+            }
             // 运行中热切换麦克风：停旧开新，复用已建立的输出。
             // 运行中只替换麦克风输入，复用已有输出链；失败时保留错误诊断而不破坏其他源。
             if ui.get_running() {

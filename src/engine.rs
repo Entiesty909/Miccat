@@ -72,6 +72,8 @@ pub(super) struct TargetState {
     pub(super) process_rings: Vec<Arc<SpscRing>>,
     /// 物理麦克风对应的目标格式 SPSC 环。
     pub(super) mic_ring: Arc<SpscRing>,
+    /// 独立的本机麦克风试听环；只有系统默认播放端持有。
+    pub(super) mic_preview_ring: Option<Arc<SpscRing>>,
     /// 每个 SFX 槽对应的目标格式 SPSC 环。
     pub(super) sfx_rings: Vec<Arc<SpscRing>>,
     /// 进程槽是否路由到该目标；长度与 `process_rings` 对齐。
@@ -121,6 +123,8 @@ struct SourceThreads {
     mic_stop: Option<Arc<AtomicBool>>,
     /// 麦克风捕获线程写入的峰值。
     mic_peak: Option<Arc<AtomicU32>>,
+    /// 该捕获线程对应的设备 ID，供后台试听去重。
+    mic_source_id: Option<String>,
     /// 麦克风捕获线程句柄。
     mic: Option<JoinHandle<()>>,
     /// 向 SFX mixer 发送播放、停止和暂停命令的发送端。
@@ -137,6 +141,55 @@ struct SourceThreads {
     sfx: Option<JoinHandle<()>>,
 }
 
+/// 给已建好的路由输出图附加物理麦捕获；只生产 canonical 环，不参与路由选择。
+fn start_route_mic_capture(
+    id: &str,
+    ring: Arc<SpscRing>,
+    format: AudioFormat,
+    mix: windows::Win32::Media::Audio::WAVEFORMATEX,
+    sources: &Mutex<SourceThreads>,
+    active: Arc<AtomicBool>,
+) -> Result<(), Error> {
+    let _com = com::init_mta()?;
+    let mic = open_mic_capture(id, Some(&mix))?;
+    let conv = Converter::new(mic.format, AudioFormat {
+        sample_rate: format.sample_rate,
+        channels: format.channels,
+        kind: SampleKind::F32,
+    });
+    let stop = Arc::new(AtomicBool::new(false));
+    let peak = Arc::new(AtomicU32::new(0.0f32.to_bits()));
+    let thread_stop = stop.clone();
+    let thread_peak = peak.clone();
+    let thread_active = active.clone();
+    active.store(true, Ordering::Release);
+    let thread = thread::Builder::new()
+        .name("wasapi-mic".into())
+        .spawn(move || {
+            let _com = com::init_mta();
+            run_capture_loop(mic, ring, conv, thread_stop, Some(thread_peak), |error| {
+                thread_active.store(false, Ordering::Release);
+                tracing::warn!("物理麦克风捕获失败：{error}");
+            });
+        })
+        .map_err(|_| {
+            active.store(false, Ordering::Release);
+            Error::CaptureInit("spawn mic thread")
+        })?;
+    if let Ok(mut state) = sources.lock() {
+        state.mic_stop = Some(stop);
+        state.mic_peak = Some(peak);
+        state.mic_source_id = Some(id.to_owned());
+        state.mic = Some(thread);
+        Ok(())
+    } else {
+        stop.store(true, Ordering::Release);
+        let _ = thread.join();
+        active.store(false, Ordering::Release);
+        Err(Error::CaptureInit("mic source lock poisoned"))
+    }
+}
+
 /// 音频引擎的唯一状态持有者；输出、源线程和播放状态均从此处派生。
 pub struct AudioEngine {
     /// 每个进程槽独立的线性增益原子，render 线程无锁读取。
@@ -147,6 +200,10 @@ pub struct AudioEngine {
     volume: Arc<AtomicU32>,
     /// 物理麦克风源增益。
     mic_volume: Arc<AtomicU32>,
+    /// 本机麦克风试听增益，不参与任何转发目标的麦克风增益。
+    mic_preview_volume: Arc<AtomicU32>,
+    /// 捕获源是否仍在运行，防止关麦后残留的目标环样本继续播放。
+    mic_active: Arc<AtomicBool>,
     /// 兼容旧 API 的 SFX 默认增益。
     sfx_volume: Arc<AtomicU32>,
     /// 最终输出总线增益。
@@ -159,14 +216,22 @@ pub struct AudioEngine {
     status: Arc<Mutex<EngineStatus>>,
     /// 本机试听输出的共享句柄。
     monitor: monitor::SharedMonitor,
+    /// 空闲时独立运行的物理麦试听控制线程，不更改输出图的状态。
+    mic_preview: monitor::MicPreviewController,
+    /// 串行化路由麦克风捕获的热切换与输出图停止。
+    mic_capture_guard: Arc<Mutex<()>>,
+    /// 图完全提交之后才允许后台试听启动其中的捕获源。
+    route_active: Arc<AtomicBool>,
+    /// 转发中的捕获源不得被试听工作线程替换。
+    mic_forwarding: Arc<AtomicBool>,
     /// 文件播放状态及取消令牌。
     playback: Arc<Mutex<playback::PlaybackControl>>,
     /// 路由文件槽最近播放请求的代次，后台解码完成时据此丢弃旧 seek 请求。
     file_source_generations: Vec<Arc<Mutex<u64>>>,
     /// 当前输出图；取出后才能安全停止并替换所有线程。
-    output: Mutex<Option<OutputState>>,
+    output: Arc<Mutex<Option<OutputState>>>,
     /// 当前各类源线程及其命令通道。
-    sources: Mutex<SourceThreads>,
+    sources: Arc<Mutex<SourceThreads>>,
 }
 
 /// 默认创建一个尚未启动的引擎。
@@ -182,19 +247,43 @@ impl AudioEngine {
     /// 分配固定槽位及其无锁增益，并建立空的输出、源和试听状态。
     pub fn new() -> Self {
         let default_gain = || Arc::new(AtomicU32::new(1.0f32.to_bits()));
+        let mic_preview_volume = Arc::new(AtomicU32::new(0.0f32.to_bits()));
+        let output = Arc::new(Mutex::new(None));
+        let sources = Arc::new(Mutex::new(SourceThreads::default()));
+        let mic_capture_guard = Arc::new(Mutex::new(()));
+        let route_active = Arc::new(AtomicBool::new(false));
+        let mic_forwarding = Arc::new(AtomicBool::new(false));
+        let mic_active = Arc::new(AtomicBool::new(false));
+        let mic_preview = monitor::MicPreviewController::new(
+            mic_preview_volume.clone(),
+            monitor::RouteMicContext {
+                output: output.clone(),
+                sources: sources.clone(),
+                guard: mic_capture_guard.clone(),
+                route_active: route_active.clone(),
+                mic_forwarding: mic_forwarding.clone(),
+                mic_active: mic_active.clone(),
+            },
+        );
         Self {
             process_volumes: (0..PROCESS_SLOTS).map(|_| default_gain()).collect(),
             sfx_volumes: (0..SFX_SLOTS).map(|_| default_gain()).collect(),
             volume: default_gain(),
             mic_volume: default_gain(),
+            mic_preview_volume: mic_preview_volume.clone(),
+            mic_active,
             sfx_volume: default_gain(),
             master: default_gain(),
             route_peak: Arc::new(AtomicU32::new(0.0f32.to_bits())),
             running: Arc::new(AtomicBool::new(false)),
             status: Arc::new(Mutex::new(EngineStatus::Idle)),
-            output: Mutex::new(None),
-            sources: Mutex::new(SourceThreads::default()),
+            output,
+            sources,
             monitor: monitor::shared(),
+            mic_preview,
+            mic_capture_guard,
+            route_active,
+            mic_forwarding,
             playback: playback::shared(),
             file_source_generations: (0..FILE_SOURCE_SLOTS)
                 .map(|_| Arc::new(Mutex::new(0)))
@@ -276,47 +365,56 @@ impl AudioEngine {
         }
         Ok(())
     }
+    /// 更新本机物理麦克风试听增益，绝不改变转发增益或文件试听增益。
+    pub fn set_mic_preview_volume(&self, value: f32) {
+        self.mic_preview_volume
+            .store(value.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
+        self.mic_preview.refresh();
+    }
+
+    /// 异步切换本机试听使用的物理麦；无输出图时只打开默认物理播放端。
+    pub fn set_mic_preview_source(&self, mic_id: Option<&str>) -> Result<(), Error> {
+        self.mic_preview.set_source(mic_id)
+    }
+
     /// 替换物理麦克风源；停止旧线程后将新流接入现有输出环。
     pub fn set_mic_source(&self, mic_id: Option<&str>) -> Result<(), Error> {
         // 先关闭旧生产者，确保替换期间不会有两个线程写入同一麦克风环。
         let _com = com::init_mta()?;
+        let _capture_guard = self.mic_capture_guard.lock()
+            .map_err(|_| Error::CaptureInit("mic source control lock poisoned"))?;
+        self.mic_forwarding.store(mic_id.is_some(), Ordering::Release);
         self.stop_mic_source();
-        let Some(id) = mic_id else {
-            // None 表示明确卸载麦克风，保留其他源和输出图不变。
+        let preview_id = if mic_id.is_none()
+            && f32::from_bits(self.mic_preview_volume.load(Ordering::Relaxed)) > 0.0
+            && self.output.lock().ok().and_then(|o| {
+                o.as_ref().map(|graph| graph.targets.iter().any(|target| target.mic_preview_ring.is_some()))
+            }).unwrap_or(false)
+        {
+            self.mic_preview.selected()
+        } else {
+            None
+        };
+        let Some(id) = mic_id.or(preview_id.as_deref()) else {
+            // None 仅在转发和本机试听都未启用时真正卸载麦克风。
             return Ok(());
         };
         let (_, ring, format, mix) = self.output_routing()?;
-        let mic = open_mic_capture(id, Some(&mix))?;
-        let conv = Converter::new(
-            mic.format,
-            AudioFormat {
-                sample_rate: format.sample_rate,
-                channels: format.channels,
-                kind: SampleKind::F32,
-            },
-        );
-        let stop = Arc::new(AtomicBool::new(false));
-        let peak = Arc::new(AtomicU32::new(0.0f32.to_bits()));
-        let thread_stop = stop.clone();
-        let thread_peak = peak.clone();
-        // 麦克风捕获线程拥有自己的 COM apartment；停止只由原子标志发布。
-        let thread = thread::Builder::new()
-            .name("wasapi-mic".into())
-            .spawn(move || {
-                let _com = com::init_mta();
-                run_capture_loop(mic, ring, conv, thread_stop, Some(thread_peak), |_| {});
-            })
-            .map_err(|_| Error::CaptureInit("spawn mic thread"))?;
-        // 保存句柄与遥测原子，供停止和 UI 峰值读取路径使用。
-        if let Ok(mut s) = self.sources.lock() {
-            s.mic_stop = Some(stop);
-            s.mic_peak = Some(peak);
-            s.mic = Some(thread);
-        }
+        start_route_mic_capture(id, ring, format, mix, &self.sources, self.mic_active.clone())?;
         Ok(())
     }
     /// 停止所有源和输出线程，按依赖顺序释放设备并恢复空闲状态。
     pub fn stop(&self) {
+        self.stop_output_graph();
+        // 转发结束后如果用户仍选中了麦克风且试听音量非零，后台恢复本机监听。
+        self.mic_preview.resume();
+    }
+
+    /// 内部图替换和析构只回收输出；不在设备重新打开前重启独立监听。
+    fn stop_output_graph(&self) {
+        self.route_active.store(false, Ordering::Release);
+        let _capture_guard = self.mic_capture_guard.lock().ok();
+        self.mic_forwarding.store(false, Ordering::Release);
         // 先停止会读写输出环的源线程，再停止 fanout/render，保证 join 时没有新生产者。
         self.stop_file();
         self.stop_process_source();
@@ -382,12 +480,17 @@ impl AudioEngine {
     }
     /// 停止麦克风线程；停止标志与句柄分开取出，避免持锁等待线程退出。
     fn stop_mic_source(&self) {
+        self.mic_active.store(false, Ordering::Release);
         // 停止令牌和句柄一起移出共享表，再在无锁状态下等待线程结束。
         let (s, t) = self
             .sources
             .lock()
             .ok()
-            .map(|mut s| (s.mic_stop.take(), s.mic.take()))
+            .map(|mut s| {
+                s.mic_source_id = None;
+                s.mic_peak = None;
+                (s.mic_stop.take(), s.mic.take())
+            })
             .unwrap_or((None, None));
         if let Some(s) = s {
             s.store(true, Ordering::Release)
@@ -486,6 +589,8 @@ impl AudioEngine {
 impl Drop for AudioEngine {
     /// 释放时复用统一停止路径，保证线程和设备按依赖顺序退出。
     fn drop(&mut self) {
-        self.stop();
+        self.mic_preview.pause();
+        self.stop_output_graph();
+        self.mic_preview.shutdown();
     }
 }

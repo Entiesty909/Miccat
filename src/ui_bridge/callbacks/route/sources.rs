@@ -57,6 +57,73 @@ pub(super) fn register(ui: &MainWindow, state: &AppState) {
     }
     {
         let engine = state.engine.clone();
+        let cache = state.cache.clone();
+        let app_config = state.app_config.clone();
+        let save_queue = state.save_queue.clone();
+        let ui_weak = ui.as_weak();
+        // 卡片监听只修改本机分支；转发的麦克风/SFX 原子增益保持原值。
+        ui.on_source_preview_volume_edited(move |index, percent| {
+            let Some(ui) = ui_weak.upgrade() else { return };
+            let Some(kind) = source_kind(&ui, index) else {
+                return;
+            };
+            let value = (percent / 100.0).clamp(0.0, 1.0);
+            match kind {
+                1 => {
+                    let Some(slot) = source_slot(&ui, index, 1) else {
+                        return;
+                    };
+                    let mut config = app_config.borrow_mut();
+                    if config.mix.file_preview_volumes.len() <= slot {
+                        let fallback = config.preview_volume;
+                        config.mix.file_preview_volumes.resize(slot + 1, fallback);
+                    }
+                    config.mix.file_preview_volumes[slot] = value;
+                    if cache.borrow().route_preview_slot == Some(slot) {
+                        engine.set_monitor_volume(value);
+                    }
+                }
+                2 => {
+                    let selected = {
+                        let cache = cache.borrow();
+                        let ids = &cache.mic_ids;
+                        let current = ui.get_mic_index().max(0) as usize;
+                        ids.get(current)
+                            .filter(|id| !id.is_empty())
+                            .map(|id| (current, id.clone()))
+                            .or_else(|| {
+                                ids.iter()
+                                    .enumerate()
+                                    .find(|(_, id)| !id.is_empty())
+                                    .map(|(index, id)| (index, id.clone()))
+                            })
+                    };
+                    let Some((selected_index, id)) = selected else {
+                        return;
+                    };
+                    ui.set_mic_index(selected_index as i32);
+                    if let Err(error) = engine.set_mic_preview_source(Some(&id)) {
+                        super::super::super::diagnostics::report_error(&ui, &error);
+                        return;
+                    }
+                    let mut config = app_config.borrow_mut();
+                    config.route.mic_id = Some(id);
+                    config.mix.mic_preview_volume = value;
+                    engine.set_mic_preview_volume(value);
+                }
+                _ => return,
+            }
+            if let Ok(row) = usize::try_from(index) {
+                let volumes = ui.get_source_preview_volumes();
+                if row < volumes.row_count() {
+                    volumes.set_row_data(row, value * 100.0);
+                }
+            }
+            save_queue.schedule();
+        });
+    }
+    {
+        let engine = state.engine.clone();
         let app_config = state.app_config.clone();
         let save_queue = state.save_queue.clone();
         let ui_weak = ui.as_weak();
@@ -427,6 +494,12 @@ fn delete_source(
             let mut cache_state = cache.borrow_mut();
             // 删除条目时一起移除该槽的启用、增益、静音恢复值和输出目标，保持数组同长。
             if file_slot < cache_state.route_audio_entries.len() {
+                // 旧配置可能未显式存储前面的槽位，先补齐以免删除时错移后面的增益。
+                let mut config = app_config.borrow_mut();
+                let count = cache_state.route_audio_entries.len();
+                let fallback = config.preview_volume;
+                config.mix.file_preview_volumes.resize(count, fallback);
+                drop(config);
                 cache_state.route_audio_entries.remove(file_slot);
                 remove_slot(&mut cache_state.route_audio_enabled, file_slot);
                 remove_slot(&mut cache_state.audio_play_modes, file_slot);
@@ -435,6 +508,10 @@ fn delete_source(
                 remove_slot(&mut cache_state.audio_muted_volumes, file_slot);
                 remove_slot(
                     &mut app_config.borrow_mut().output.file_output_ids,
+                    file_slot,
+                );
+                remove_slot(
+                    &mut app_config.borrow_mut().mix.file_preview_volumes,
                     file_slot,
                 );
             }
