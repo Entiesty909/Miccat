@@ -156,6 +156,12 @@ impl AudioEngine {
         let routed_default = default_id
             .as_ref()
             .and_then(|id| device_ids.iter().position(|route| route == id));
+        let preview_requested = f32::from_bits(self.mic_preview_volume.load(Ordering::Relaxed))
+            > 0.0
+            && self.mic_preview.selected().is_some();
+        // 试听尚未启用时不额外占用系统默认播放端；运行中调高音量由监听控制线程补开。
+        // 默认播放端已经属于路由图时仍预留独立监听环，避免后续重建输出。
+        let add_local_preview = preview_requested && routed_default.is_none();
         // 预留目标数量，避免逐个打开设备时反复扩容 client 所有权表。
         let mut clients = Vec::with_capacity(device_ids.len());
         for id in device_ids {
@@ -165,9 +171,7 @@ impl AudioEngine {
                     .map_err(|error| crate::audio::render::describe_open_failure(id, error))?,
             );
         }
-        // 不在转发图中的默认播放端只承载本机麦克风试听；驱动拒绝额外 client
-        // 时保留原有转发图，不让试听设备故障阻断用户的其他音源。
-        let local_index = if routed_default.is_none() {
+        let local_index = if add_local_preview {
             if let Some(id) = default_id.as_deref() {
                 match open_render_device(id) {
                     Ok(client) => {
@@ -219,8 +223,11 @@ impl AudioEngine {
                 ((target.sample_rate as usize).saturating_mul(target.channels as usize) / 2)
                     .max(8192);
             // 这些环接收 fanout 已转换的数据；源环仍只由 fanout 读取。
-            let target_process: Vec<Arc<SpscRing>> =
-                (0..if local_index == Some(target_index) { 0 } else { super::PROCESS_SLOTS })
+            let target_process: Vec<Arc<SpscRing>> = (0..if local_index == Some(target_index) {
+                0
+            } else {
+                super::PROCESS_SLOTS
+            })
                 .map(|_| Arc::new(SpscRing::with_capacity_samples(target_capacity)))
                 .collect();
             // 物理麦在每个目标保留独立环，路由关闭时不会消费或清空其他目标。
@@ -228,14 +235,22 @@ impl AudioEngine {
             let preview_mic = (preview_index == Some(target_index))
                 .then(|| Arc::new(SpscRing::with_capacity_samples(target_capacity)));
             // 每个 SFX 槽独立转发，停止一张音频卡片不会影响其余槽位。
-            let target_sfx: Vec<Arc<SpscRing>> =
-                (0..if local_index == Some(target_index) { 0 } else { super::SFX_SLOTS })
+            let target_sfx: Vec<Arc<SpscRing>> = (0..if local_index == Some(target_index) {
+                0
+            } else {
+                super::SFX_SLOTS
+            })
                 .map(|_| Arc::new(SpscRing::with_capacity_samples(target_capacity)))
                 .collect();
             // 每个目标都计算独立的路由布尔向量，fanout 只据此决定写入。
             // route 掩码只决定 fanout 是否写入目标环，不改变源环或其他目标的状态。
-            let (process_enabled, file_enabled, mic_enabled) = if local_index == Some(target_index) {
-                (vec![false; super::PROCESS_SLOTS], vec![false; super::SFX_SLOTS], false)
+            let (process_enabled, file_enabled, mic_enabled) = if local_index == Some(target_index)
+            {
+                (
+                    vec![false; super::PROCESS_SLOTS],
+                    vec![false; super::SFX_SLOTS],
+                    false,
+                )
             } else {
                 source_target_mask(routes.as_ref(), target_index)
             };

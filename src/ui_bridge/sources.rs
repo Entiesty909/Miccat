@@ -285,9 +285,13 @@ impl SourceRows {
         set_if_changed(&ui.get_source_volumes(), self.volumes.clone(), |values| {
             ui.set_source_volumes(ModelRc::new(VecModel::from(values)));
         });
-        set_if_changed(&ui.get_source_preview_volumes(), self.preview_volumes.clone(), |values| {
-            ui.set_source_preview_volumes(ModelRc::new(VecModel::from(values)));
-        });
+        set_if_changed(
+            &ui.get_source_preview_volumes(),
+            self.preview_volumes.clone(),
+            |values| {
+                ui.set_source_preview_volumes(ModelRc::new(VecModel::from(values)));
+            },
+        );
         set_if_changed(
             &ui.get_source_volume_dbs(),
             self.volume_dbs.clone(),

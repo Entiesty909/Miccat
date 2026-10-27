@@ -137,8 +137,9 @@ pub fn run_render_loop(
     let mut tmp = vec![0.0f32; buffer_frames as usize * channels];
     let mut mic_tmp = vec![0.0f32; buffer_frames as usize * channels];
     let mut sfx_tmp = vec![0.0f32; buffer_frames as usize * channels];
-    let mut preview_tmp =
-        mic_preview.as_ref().map(|_| vec![0.0f32; buffer_frames as usize * channels]);
+    let mut preview_tmp = mic_preview
+        .as_ref()
+        .map(|_| vec![0.0f32; buffer_frames as usize * channels]);
     let mut failed = None;
 
     // 事件只表示设备可能有空间；每次仍以 padding 计算可写帧数，避免越界写入。

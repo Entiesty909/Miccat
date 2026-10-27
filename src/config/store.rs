@@ -321,7 +321,8 @@ mod tests {
         config.mix.mic = 0.9;
         config.mix.sfx_volumes = vec![0.7, 0.4];
         let encoded = serde_json::to_value(&config).expect("serialize preview gains");
-        let decoded: AppConfig = serde_json::from_value(encoded.clone()).expect("read preview gains");
+        let decoded: AppConfig =
+            serde_json::from_value(encoded.clone()).expect("read preview gains");
         assert_eq!(decoded.file_preview_gain(0), 0.2);
         assert_eq!(decoded.file_preview_gain(1), 0.8);
         assert_eq!(decoded.file_preview_gain(2), 0.6);
@@ -330,13 +331,18 @@ mod tests {
         assert_eq!(decoded.mix.sfx_volumes, [0.7, 0.4]);
 
         let mut legacy = encoded;
-        legacy["mix"].as_object_mut().expect("mix object").remove("file_preview_volumes");
-        legacy["mix"].as_object_mut().expect("mix object").remove("mic_preview_volume");
+        legacy["mix"]
+            .as_object_mut()
+            .expect("mix object")
+            .remove("file_preview_volumes");
+        legacy["mix"]
+            .as_object_mut()
+            .expect("mix object")
+            .remove("mic_preview_volume");
         let restored: AppConfig = serde_json::from_value(legacy).expect("read old mix");
         assert_eq!(restored.file_preview_gain(0), 0.6);
         assert_eq!(restored.mix.mic_preview_volume, 0.0);
     }
-
 }
 
 /// 解析当前用户配置文件位置；APPDATA 缺失时退回工作目录。

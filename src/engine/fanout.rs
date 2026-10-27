@@ -62,7 +62,10 @@ impl FanoutTarget {
                 .map(|_| Converter::new(src, dst))
                 .collect(),
             mic_converter: Converter::new(src, dst),
-            mic_preview_converter: target.mic_preview_ring.as_ref().map(|_| Converter::new(src, dst)),
+            mic_preview_converter: target
+                .mic_preview_ring
+                .as_ref()
+                .map(|_| Converter::new(src, dst)),
             sfx_converters: (0..target.sfx_rings.len())
                 .map(|_| Converter::new(src, dst))
                 .collect(),
@@ -95,7 +98,11 @@ pub(super) fn spawn_target_render(
     // 将共享增益句柄复制到目标线程；AtomicU32 允许 render 线程无锁读取最新值。
     let mic_volume = engine.mic_volume.clone();
     let mic_preview = mic_preview_ring.map(|ring| {
-        (ring, engine.mic_preview_volume.clone(), engine.mic_active.clone())
+        (
+            ring,
+            engine.mic_preview_volume.clone(),
+            engine.mic_active.clone(),
+        )
     });
     let master = engine.master.clone();
     let route_peak = routed.then(|| engine.route_peak.clone());

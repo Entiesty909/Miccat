@@ -152,11 +152,14 @@ fn start_route_mic_capture(
 ) -> Result<(), Error> {
     let _com = com::init_mta()?;
     let mic = open_mic_capture(id, Some(&mix))?;
-    let conv = Converter::new(mic.format, AudioFormat {
-        sample_rate: format.sample_rate,
-        channels: format.channels,
-        kind: SampleKind::F32,
-    });
+    let conv = Converter::new(
+        mic.format,
+        AudioFormat {
+            sample_rate: format.sample_rate,
+            channels: format.channels,
+            kind: SampleKind::F32,
+        },
+    );
     let stop = Arc::new(AtomicBool::new(false));
     let peak = Arc::new(AtomicU32::new(0.0f32.to_bits()));
     let thread_stop = stop.clone();
@@ -381,15 +384,28 @@ impl AudioEngine {
     pub fn set_mic_source(&self, mic_id: Option<&str>) -> Result<(), Error> {
         // 先关闭旧生产者，确保替换期间不会有两个线程写入同一麦克风环。
         let _com = com::init_mta()?;
-        let _capture_guard = self.mic_capture_guard.lock()
+        let _capture_guard = self
+            .mic_capture_guard
+            .lock()
             .map_err(|_| Error::CaptureInit("mic source control lock poisoned"))?;
-        self.mic_forwarding.store(mic_id.is_some(), Ordering::Release);
+        self.mic_forwarding
+            .store(mic_id.is_some(), Ordering::Release);
         self.stop_mic_source();
         let preview_id = if mic_id.is_none()
             && f32::from_bits(self.mic_preview_volume.load(Ordering::Relaxed)) > 0.0
-            && self.output.lock().ok().and_then(|o| {
-                o.as_ref().map(|graph| graph.targets.iter().any(|target| target.mic_preview_ring.is_some()))
-            }).unwrap_or(false)
+            && self
+                .output
+                .lock()
+                .ok()
+                .and_then(|o| {
+                    o.as_ref().map(|graph| {
+                        graph
+                            .targets
+                            .iter()
+                            .any(|target| target.mic_preview_ring.is_some())
+                    })
+                })
+                .unwrap_or(false)
         {
             self.mic_preview.selected()
         } else {
@@ -400,7 +416,14 @@ impl AudioEngine {
             return Ok(());
         };
         let (_, ring, format, mix) = self.output_routing()?;
-        start_route_mic_capture(id, ring, format, mix, &self.sources, self.mic_active.clone())?;
+        start_route_mic_capture(
+            id,
+            ring,
+            format,
+            mix,
+            &self.sources,
+            self.mic_active.clone(),
+        )?;
         Ok(())
     }
     /// 停止所有源和输出线程，按依赖顺序释放设备并恢复空闲状态。
