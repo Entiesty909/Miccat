@@ -1,11 +1,15 @@
+#[cfg(target_os = "windows")]
 use std::path::PathBuf;
+#[cfg(target_os = "windows")]
 use std::process::Command;
 
 fn main() {
     slint_build::compile("ui/app-window.slint").expect("compile slint");
+    #[cfg(target_os = "windows")]
     embed_application_icon();
 }
 
+#[cfg(target_os = "windows")]
 fn embed_application_icon() {
     println!("cargo:rerun-if-changed=resources/app.rc");
     println!("cargo:rerun-if-changed=resources/icon.ico");
