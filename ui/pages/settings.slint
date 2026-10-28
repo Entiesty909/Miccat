@@ -229,19 +229,42 @@ export component SettingsPage inherits Rectangle {
         sec-about.y,
         sec-diag.y
     ];
-    // ScrollView 的 content-y 是「视口相对内容的偏移」，向下滚动时为负值，
-    // 合法区间为 [-(content-height - visible-height), 0]（见 i-slint-core flickable.rs 的
-    // in-bounds 判定）。这里取反换算成习惯的正向滚动距离，供高亮推导使用。
-    property <length> scroll-offset: -scroll-view.content-y;
-    // 当前激活分组：根据正向滚动距离推导，滚动时自动更新左侧高亮。
-    // 使用纯嵌套三元表达式（无赋值），在纯属性上下文中合法。
-    property <int> active-section:
-        // 滚到最底部时，即使末节无法顶到顶部也强制选中最后一节。
-        (root.scroll-offset + scroll-view.visible-height >= scroll-view.content-height - 2px) ? 4 :
-        (root.scroll-offset + 4px >= root.section-tops[4]) ? 4 :
-        (root.scroll-offset + 4px >= root.section-tops[3]) ? 3 :
-        (root.scroll-offset + 4px >= root.section-tops[2]) ? 2 :
-        (root.scroll-offset + 4px >= root.section-tops[1]) ? 1 : 0;
+    // ScrollView 的 content-y 是「视口相对内容的偏移」，向下滚动时为负值。
+    // 单向镜像到 view-offset（changed 不接受点号路径），便于在 changed 中做 scroll-spy。
+    property <length> view-offset: scroll-view.content-y;
+    // 正向滚动距离（取反 content-y），即视口上沿在内容坐标系中的位置。
+    property <length> scroll-offset: -root.view-offset;
+    // 视口中线在内容坐标系中的位置，scroll-spy 依此推导当前分组。
+    property <length> view-center: root.scroll-offset + scroll-view.visible-height * 0.5;
+    // 当前激活分组（左侧高亮唯一依据）：点击导航时由 goto-section 直接置为对应索引，
+    // 手动滚动时由下方 scroll-spy 依视口位置推导更新。
+    in-out property <int> active-section: 0;
+    // 导航点击触发的程序化滚动期间为 true，抑制 scroll-spy 回写，
+    // 使点击「虚拟线缆 / 关于」这类即便无法顶到视口顶部也能立即正确高亮。
+    // 仅在确实会发生滚动时置位，并在 changed view-offset 处理器内复位（见下），
+    // 不依赖同步复位，避免延迟执行的 spy 把点击高亮覆盖掉。
+    in-out property <bool> nav-lock: false;
+
+    // 手动滚动时依据视口位置更新左侧高亮；导航点击触发的程序化滚动期间
+    // nav-lock 为真，此处只复位锁定并跳过，避免覆盖用户点击选中的分组。
+    // 采用「视口中线所在分组」而非「顶边所在分组」：当底部分组高度不足、无法滚到
+    // 视口最顶部时，中线规则仍能在它进入视口中段时正确高亮，覆盖全部 5 节。
+    changed view-offset => {
+        if root.nav-lock {
+            // 程序化滚动产生的变更：解除锁定即可，不重算高亮。
+            root.nav-lock = false;
+        } else {
+            root.active-section =
+                // 滚到最底部强制选中末节（诊断）。
+                (root.scroll-offset + scroll-view.visible-height >= scroll-view.content-height - 1px) ? 4 :
+                // 顶部附近（几乎未滚动）固定选中第一节（音频设备）。
+                (root.scroll-offset < 8px) ? 0 :
+                (root.view-center >= root.section-tops[4]) ? 4 :
+                (root.view-center >= root.section-tops[3]) ? 3 :
+                (root.view-center >= root.section-tops[2]) ? 2 :
+                (root.view-center >= root.section-tops[1]) ? 1 : 0;
+        }
+    }
 
     // 外部或左侧导航的跳转目标：值变化时驱动右侧滚动到对应分组。
     in-out property <int> target-section: 0;
@@ -249,14 +272,24 @@ export component SettingsPage inherits Rectangle {
         root.goto-section(root.target-section);
     }
 
-    // 点击左侧标签或外部跳转：将对应分组顶到可视区顶部。
-    // content-y 为负向偏移，故写入 -目标距离；目标已在下方夹取到可滚动上限。
+    // 点击左侧标签或外部跳转：将对应分组带入视口并直接置为高亮分组。
+    // content-y 为负向偏移，故写入 -目标距离；目标夹取到可滚动上限（末节高度不足
+    // 顶不到顶部时滚到底）。只有确实会触发滚动时才置 nav-lock，changed 处理器内复位，
+    // 保证点击后立即高亮且不被 scroll-spy 覆盖。
     goto-section(sec) => {
         let i = min(max(sec, 0), 4);
-        // 可滚动的最大距离。末几节高度不足时顶不到视口顶部，故把目标夹到该上限：
-        // content-y 是双向绑定到滚动条的，Flickable 对带绑定的 content-y 不做自动夹取，
-        // 越界会让内容滚出空白区域，所以这里自行限制。
+        // 可滚动的最大距离。末几节高度不足时顶不到视口顶部，夹到该上限即可：
+        // content-y 双向绑定到滚动条，Flickable 对带绑定的 content-y 不做自动夹取，
+        // 越界会让内容滚出空白区域，这里自行限制。
         let max-scroll = max(scroll-view.content-height - scroll-view.visible-height, 0px);
-        scroll-view.content-y = -min(root.section-tops[i], max-scroll);
+        let target = -min(root.section-tops[i], max-scroll);
+        // 点击即高亮：作为左侧选中态的唯一来源，立即生效。
+        root.active-section = i;
+        // 仅当本次滚动确实会改变 content-y 时才锁定；若已在目标位置（含内容不可滚动），
+        // 不置锁，避免锁死后续手动滚动的 scroll-spy。
+        if (scroll-view.content-y != target) {
+            root.nav-lock = true;
+            scroll-view.content-y = target;
+        }
     }
 }

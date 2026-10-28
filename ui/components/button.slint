@@ -93,23 +93,23 @@ export component PmButton inherits Rectangle {
     // 悬停与按下只改变视觉反馈，不修改按钮属性或业务状态。
 
     states [
+        // 选中态 hover 保持淡蓝（accentSoft），不再变深蓝；仅实心按钮 hover 用 accentHover。
         hovered when ta.has-hover && root.enabled: {
             background: root.icon-transparent
                 ? transparent
                 : (root.danger
                     ? Theme.danger
-                    : (root.filled || root.selected
-                        ? Theme.accentHover
-                        : Theme.accentSoft));
+                    : (root.filled ? Theme.accentHover : Theme.accentSoft));
         }
+        // 选中态按下同样保持淡蓝；普通按钮按下用 accentPressed 作为按压反馈。
         pressed when ta.pressed && root.enabled: {
             background: root.icon-transparent
                 ? transparent
                 : (root.danger
                     ? Theme.danger
-                    : (root.filled || root.selected
+                    : (root.filled
                         ? Theme.accentHover
-                        : Theme.accentPressed));
+                        : (root.selected ? Theme.accentSoft : Theme.accentPressed)));
             opacity: 0.82;
         }
     ]

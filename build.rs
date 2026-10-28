@@ -4,13 +4,12 @@ use std::process::Command;
 fn main() {
     // 仅 release 链接为 Windows 窗口子系统，避免双击 exe 弹出控制台黑框；
     // dev/debug 保留控制台，便于查看 tracing 日志。
-    if std::env::var("PROFILE").as_deref() == Ok("release") {
-        println!("cargo:rustc-link-arg=/SUBSYSTEM:WINDOWS");
-    }
     slint_build::compile("ui/app-window.slint").expect("compile slint");
+    #[cfg(target_os = "windows")]
     embed_application_icon();
 }
 
+#[cfg(target_os = "windows")]
 fn embed_application_icon() {
     println!("cargo:rerun-if-changed=resources/app.rc");
     println!("cargo:rerun-if-changed=resources/icon.ico");

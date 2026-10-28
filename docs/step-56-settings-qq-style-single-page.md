@@ -26,6 +26,23 @@
 - 改动：新增 `property <length> scroll-offset: -scroll-view.content-y;`，`active-section` 改用正向滚动距离比较；`goto-section` 改为 `scroll-view.content-y = -min(root.section-tops[i], max-scroll)`，`max-scroll = max(content-height - visible-height, 0px)`。
 - 备注：`always-off` 只隐藏滚动条、不影响 `content-y`，故「不要滚动条」仍由 `always-off` 满足。
 
+### 修复：中段分组（虚拟线缆 / 关于）点击无反应、滚动时左侧不高亮（两版）
+- 现象：点击左侧「虚拟线缆」「关于」无可见高亮，右侧手动上下滚动时这两项的左侧按钮也始终不被选中；「音频设备 / 快捷键 / 诊断」正常。
+- 根因（两处叠加）：
+  1. **scroll-spy 用「顶边 +4px」判定**：当底部分组高度不足、永远滚不到视口最上沿时，无论点击还是手动滚动都推导不出它们索引（只会落到最后一个能到顶的分组）。
+  2. **`nav-lock` 同步复位**：首版在 `goto-section` 里写 `content-y` 后立刻把 `nav-lock` 复位为 `false`；但 `content-y` 变更触发的 `changed view-offset` 是**延迟执行**的，等它真正跑起来锁已解开，scroll-spy 按滚动位置把点击刚设好的 `active-section` 覆盖掉 → 看起来「点了没反应」。Rust 侧未接管 `goto-section`，点按钮走的是 Slint 默认处理函数，链路本身 OK。
+- 改动（最终版，仅 `ui/pages/settings.slint`）：
+  - `active-section` 保持 `in-out`，作为左侧高亮唯一依据；点击 `goto-section(sec)` 先 `root.active-section = i` 立即高亮，再按需滚动。
+  - **`nav-lock` 仅在「本次滚动确实会改变 `content-y`」时置位**，并在 `changed view-offset` 处理器**内部**复位（延迟执行也安全），从而彻底阻断程序化滚动对点击高亮的覆盖；若已在目标位置（含内容不可滚动）则不置锁，避免锁死手动滚动的 spy。
+  - scroll-spy 改用「**视口中线所在分组**」判定（`view-center = scroll-offset + visible-height*0.5`，取中线之上最后一个 `section-tops[k]`），底部兜底强制末节、顶部附近固定第一节；底部分组即使顶不到最顶，进入视口中段时也能正确高亮，覆盖全部 5 节。
+- 验收：点击五个左侧按钮均立即高亮对应分组并滚动；右侧上下滚动时左侧高亮随当前可见分组正确切换，含虚拟线缆与关于。
+
+### 修复：选中态按钮 hover 变深蓝
+- 现象：左侧按钮被选中后，鼠标悬浮其上背景变为深蓝色（`accentHover` #0D66D0）。
+- 根因：`PmButton` 的 `hovered` / `pressed` 状态在 `root.selected` 为真时使用 `Theme.accentHover`（深蓝）。
+- 改动（仅 `ui/components/button.slint` 的状态块）：选中态 hover 与按下均保持 `Theme.accentSoft`（淡蓝）；仅实心（`filled`）按钮 hover 仍用 `accentHover`；非选中普通按钮按下用 `accentPressed`。选中文字颜色仍是 `Theme.accent`（蓝）。
+- 验收：选中按钮常态与悬浮态均为「蓝字 + 淡蓝底」，无深蓝；悬浮非选中按钮为淡蓝底。
+
 ### 关键技术约束（Slint 1.18）
 - 隐藏滚动条用 `ScrollBarPolicy.always-off`；程序化滚动写 `content-y`。
 - 命名元素在属性表达式里用裸名 `sec-general.y`（不能用 `root.xxx`/`parent.xxx`），且声明需在该属性声明点已存在树中，故 `section-tops` 声明在布局之后。
