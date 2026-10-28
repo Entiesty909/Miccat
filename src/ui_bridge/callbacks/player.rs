@@ -257,7 +257,7 @@ fn sync_route_card_pause(engine: &AudioEngine, cache: &Rc<RefCell<UiCache>>, pau
     }
 }
 
-/// 按可见列表相邻项导航，停止旧文件后在同一播放目标启动新条目。
+/// 上一首/下一首：转发运行中且存在启用音频槽位时切转发音源，否则退回库内列表导航。
 fn register_navigation(ui: &MainWindow, state: &AppState) {
     let cache = state.cache.clone();
     let engine = state.engine.clone();
@@ -273,7 +273,7 @@ fn register_navigation(ui: &MainWindow, state: &AppState) {
     });
 }
 
-/// 按方向计算可见索引并启动相邻音频条目。
+/// 按方向导航：转发运行时对启用音源切歌（多路同时切），否则走库内可见列表导航。
 fn navigate(
     ui_weak: &slint::Weak<MainWindow>,
     cache: &Rc<RefCell<UiCache>>,
@@ -283,7 +283,72 @@ fn navigate(
     let Some(ui) = ui_weak.upgrade() else {
         return;
     };
-    // 导航沿 Slint 当前可见顺序移动，越界时保持当前播放状态不变。
+    if engine.is_running() && has_enabled_forwarding(cache) {
+        navigate_forwarding(cache, engine, direction);
+        return;
+    }
+    navigate_library(&ui, cache, engine, direction);
+}
+
+/// 当前是否存在已启用的音频转发槽位。
+fn has_enabled_forwarding(cache: &Rc<RefCell<UiCache>>) -> bool {
+    cache
+        .borrow()
+        .route_audio_enabled
+        .iter()
+        .any(|enabled| *enabled)
+}
+
+/// 对转发任务中每个启用的音频槽位，在音频库相邻条目间切歌并重启该槽位转发；
+/// 多路启用时所有命中槽位同时切歌。已是首/末条目（越界）的槽位保持当前不切。
+fn navigate_forwarding(cache: &Rc<RefCell<UiCache>>, engine: &AudioEngine, direction: i32) {
+    let library_len = cache.borrow().audio_entries.len() as i32;
+    if library_len == 0 {
+        return;
+    }
+    let mut updated: Vec<(usize, usize)> = Vec::new();
+    // 先以只读借用收集需要切换的（槽位，新条目下标），避免在可变借用中同时持有迭代借用。
+    {
+        let cache_ref = cache.borrow();
+        for (slot, enabled) in cache_ref.route_audio_enabled.iter().enumerate() {
+            if !*enabled {
+                continue;
+            }
+            let Some(&current) = cache_ref.route_audio_entries.get(slot) else {
+                continue;
+            };
+            let next = current as i32 + direction;
+            if next < 0 || next >= library_len {
+                continue;
+            }
+            updated.push((slot, next as usize));
+        }
+    }
+    // 单独的可变借用写入新条目下标，再重启各槽位转发。
+    {
+        let mut cache_mut = cache.borrow_mut();
+        for (slot, next) in &updated {
+            cache_mut.route_audio_entries[*slot] = *next;
+        }
+    }
+    for (slot, entry_index) in updated {
+        let entry = cache.borrow().audio_entries.get(entry_index).cloned();
+        let Some(entry) = entry else {
+            continue;
+        };
+        // 先停后播，沿用既有切歌模式重启该槽位文件源转发。
+        let _ = engine.stop_file_source(slot);
+        let _ = engine.play_file_source(&entry, slot, false, 0, false);
+    }
+}
+
+/// 原库内可见列表导航：停止旧文件后在同一播放目标启动相邻条目。
+fn navigate_library(
+    ui: &MainWindow,
+    cache: &Rc<RefCell<UiCache>>,
+    engine: &AudioEngine,
+    direction: i32,
+) {
     let current = ui.get_audio_entry_index();
     let next = current + direction;
     if next < 0 || next >= ui.get_audio_entries().row_count() as i32 {
@@ -298,7 +363,7 @@ fn navigate(
     cache.borrow_mut().paused_audio = None;
     cache.borrow_mut().route_preview_slot = None;
     engine.stop_file();
-    start_ui(&ui, engine, &entry, 0, target);
+    start_ui(ui, engine, &entry, 0, target);
 }
 
 /// 将分页/搜索可见索引解析为缓存中的音频条目副本。

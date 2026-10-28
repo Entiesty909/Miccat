@@ -240,7 +240,9 @@ export component PlayerPage inherits Rectangle {
                 }
                 resized(value) => {
                     if value <= 0px {
+                        // 拖到最左折叠时宽度被拖到近零，展开应回到默认宽度而非残留的零宽。
                         root.sidebar-collapsed = true;
+                        root.sidebar-width = 180px;
                     } else {
                         root.sidebar-collapsed = false;
                         root.sidebar-width = min(value, root.side-space);

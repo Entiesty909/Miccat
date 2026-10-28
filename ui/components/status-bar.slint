@@ -191,20 +191,7 @@ export component StatusBar inherits Rectangle {
             }
         }
 
-        // 诊断按钮也随底栏缩小，不再撑高或挤压其它控件。
-        if DiagState.count > 0: VerticalLayout {
-            width: 48px;
-            height: 100%;
-            alignment: center;
-            PmButton {
-                label: "⚠  \{DiagState.count}";
-                danger: true;
-                button-width: 48px;
-                button-height: 33px;
-                hint: "打开问题中心";
-                clicked => { DiagState.toggle(); }
-            }
-        }
+        // 诊断入口仅保留在设置页「诊断」分组内，底栏不再提供徽标入口。
     }
     // 独立 PopupWindow 让提示能越过主窗口边界，并始终以全局光标为锚点。
     volume-pointer-popup := PopupWindow {

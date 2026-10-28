@@ -154,7 +154,8 @@ pub(crate) fn snapshot_to_file(options: SnapshotOptions<'_>) -> Result<(), Error
     }));
     ui.set_page(page_index);
     if page_index == 2 && settings_section >= 0 {
-        ui.set_settings_section_index(settings_section);
+        // 设置页已改为单页滚动：无 section-index 属性，改走 goto-settings-section 回调。
+        ui.invoke_goto_settings_section(settings_section);
     }
     ui.set_audio_categories(ModelRc::new(VecModel::from(
         super::super::library::audio_categories(&cache),

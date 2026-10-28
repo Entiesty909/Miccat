@@ -44,4 +44,12 @@
 2026-10-26 音量入口续验：`cargo fmt -- --check` 通过；经 `scripts\build-dev.cmd build` 的 Debug 构建通过；`scripts\build-dev.cmd test` 通过 66/66 项单测。`--snapshot-ui --page player --out %TEMP%\miccat-player-volume-final.raw` 与 `--snapshot-ui --page route --out %TEMP%\miccat-route-volume-final.raw` 均生成 1280×800 RGBA 快照并核对：音频库顶栏顺序为“添加音频 → 四个播放图标 → 本机试听滑块”，路由音频卡片四个播放按钮右侧有 🔈 入口，麦克风卡片原转发音量行右侧有 🔈 入口，进程卡片布局未改。双音量滑块的真实拖动、物理麦克风监听听感、转发与本机设备占用组合仍需桌面实机验收；快照和单测不替代该验证。
 行数门禁复核：本批触及的 `src/ui_bridge/sources.rs` 709 行、`src/ui_bridge/callbacks/route/sources.rs` 785 行、`ui/components/page-host.slint` 560 行、`ui/components/source-row.slint` 581 行均为既有职责文件并超过审查阈值；未新增超过硬上限的文件。`scripts\check-lines.ps1` 仍被未触及的 `ui/app-window.slint` 769 行历史硬上限阻断。
 
-下一步：真实设备验证配对端点路由、分类续播、物理窗口的菜单悬停提示与粉色模式滚动手感；同批卡片调整继续更新本记录，不另建阶段文档。
+2026-10-27 路由卡片音量入口精简（用户定点需求）：
+- 进程卡片（kind=0）删除设置区「预览音量」整行（图标 + 禁用占位滑块 + 标签）；该行原为不可交互占位，不向 bridge 上报数值。
+- 音频/文件卡片（kind=1）删除设置区「转发音量」整行（图标 + 滑块 + 标签）；转发音量改为仅由播放区 🔈 双音量浮层调节，设置区第三行的启用转发开关不动。
+- 「转发音量」行改为 `if root.kind != 1` 包裹；原文件专属音量图标分支（kind==1）因不可达已删除，避免死代码。
+- 仅删 UI 元素，未动 bridge 属性/回调：source-preview-volumes、preview-volume-edited、volume、volume-edited 仍由 🔈 浮层使用。
+- 麦克风卡片 🔈 浮层（转发 + 本机预览双滑块 PopupWindow）与三类卡片「启用转发」开关的位置归属，记为待定设计方案，本轮未改代码（方案见对话，待用户拍板）。
+实测：2026-10-27，`slint_build::compile`（build.rs:5）通过；`cargo build` 因本沙箱缺 Windows 10 SDK 的 rc.exe（vcvars 依赖的 reg.exe 被安全策略拦截）未能完成资源嵌入与链接。Slint 编译本身已验证通过，全量构建与 `--snapshot-ui` 复核待用户在本地 `scripts\build-dev.cmd build` 完成。
+
+下一步：真实设备验证配对端点路由、分类续播、物理窗口的菜单悬停提示与粉色模式滚动手感；同批卡片调整继续更新本记录，不另建阶段文档。另：麦克风 🔈 浮层与三类卡片「启用转发」开关的位置方案待用户拍板，拍板前不改代码。

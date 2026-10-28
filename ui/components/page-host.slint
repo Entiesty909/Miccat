@@ -186,8 +186,13 @@ export component PageHost inherits Rectangle {
     in-out property <length> entry-menu-y: 0px;
     // 全局快捷键标签，只读展示。
     in property <string> hotkey-label: "";
-    // 设置分组索引。
-    in-out property <int> settings-section-index: 0;
+    // 设置页分组跳转目标（来自侧栏/状态栏或左侧导航），由已挂载的设置页读取并滚动。
+    in-out property <int> settings-target-section: 0;
+    // 仅记录跳转目标；设置页仅在 page == 2 时挂载并读取该值，故此处不直接调用其方法。
+    callback goto-section(int);
+    goto-section(sec) => {
+        root.settings-target-section = sec;
+    }
     // 输出设备选择数组。
     in-out property <[bool]> device-selected: [];
     // 是否显示全部设备。
@@ -430,7 +435,7 @@ export component PageHost inherits Rectangle {
         }
         // 导航事件切换宿主页面或打开设置，不在组件内改变路由数据。
         open-library => { root.open-library(); }
-        open-settings => { root.settings-requested(1); }
+        open-settings => { root.settings-requested(0); }
     }
     // 音频库页只挂载 page == 1，播放和菜单状态仍由 root 双向持有。
     if root.page == 1: PlayerPage {
@@ -518,16 +523,9 @@ export component PageHost inherits Rectangle {
         entry-hotkey-bind => { root.entry-hotkey-bind(); }
     }
     // 设置页只挂载 page == 2，设备和线缆回调统一转发到宿主。
-    if root.page == 2: SettingsPage {
+    if root.page == 2: settings-page := SettingsPage {
         width: 100%;
         height: 100%;
-        section-index <=> root.settings-section-index;
-        devices <=> root.outputs;
-        device-index <=> root.output-index;
-        device-selected <=> root.device-selected;
-        all-devices <=> root.all-devices;
-        show-set-default-mic <=> root.show-set-default-mic;
-        set-default-mic <=> root.set-default-mic;
         set-default-render <=> root.set-default-render;
         set-default-communications <=> root.set-default-communications;
         dest-hint <=> root.dest-hint;
@@ -538,6 +536,8 @@ export component PageHost inherits Rectangle {
         hotkey-label: root.hotkey-label;
         listening-hotkey <=> root.listening-hotkey;
         about-text <=> root.about-text;
+        // 外部跳转目标：设置页挂载时读取并滚动到对应分组。
+        target-section: root.settings-target-section;
         // 设置页设备与线缆事件只做转发，运行态约束由桥接层执行。
         refresh => { root.refresh(); }
         install-cable => { root.install-cable(); }
@@ -549,9 +549,6 @@ export component PageHost inherits Rectangle {
         hotkey-row-captured(row, text, ctrl, shift, alt) => {
             root.hotkey-row-captured(row, text, ctrl, shift, alt);
         }
-        all-devices-toggled(value) => { root.all-devices-toggled(value); }
-        device-toggled(index, value) => { root.device-toggled(index, value); }
-        set-default-mic-toggled(value) => { root.set-default-mic-toggled(value); }
         set-default-render-toggled(value) => { root.set-default-render-toggled(value); }
         set-default-communications-toggled(value) => {
             root.set-default-communications-toggled(value);

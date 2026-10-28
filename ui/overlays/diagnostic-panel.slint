@@ -3,7 +3,7 @@
 import { ComboBox, ScrollView } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
 import { PmButton } from "../components/button.slint";
-import { DiagRow, UnseenBadge } from "../components/diagnostic-row.slint";
+import { DiagCard, UnseenBadge } from "../components/diagnostic-row.slint";
 
 // 全局问题中心抽屉：展示诊断详情与日志级别，数据和动作由共享状态提供。
 // 诊断面板把列表索引和日志级别编辑统一转发给全局状态，不在 UI 内持久化。
@@ -30,6 +30,8 @@ export component DiagnosticPanel inherits Rectangle {
     in-out property <[string]> hints: [];
     // 当前选择项索引，-1 表示尚未选择有效记录。
     in-out property <int> selected: -1;
+    // 问题列表筛选：0 全部、1 错误、2 警告、3 普通；只作用于 UI 展示。
+    in-out property <int> filter: 0;
     // 默认日志级别，0 关闭到 5 跟踪。
     in-out property <int> debug-master: 3;
     // 日志分类显示名称数组。
@@ -73,6 +75,23 @@ export component DiagnosticPanel inherits Rectangle {
         return 5;
     }
 
+    // 判断列表项 i 是否匹配当前筛选；缺项时按普通级别处理，全部筛选恒真。
+    pure function match-filter(i: int, filter: int, severities: [int]) -> bool {
+        if filter == 0 {
+            return true;
+        }
+        if i >= severities.length {
+            return filter == 3;
+        }
+        if filter == 1 {
+            return severities[i] == 2;
+        }
+        if filter == 2 {
+            return severities[i] == 1;
+        }
+        return severities[i] == 0;
+    }
+
     width: 100%;
     height: 100%;
     background: transparent;
@@ -90,11 +109,6 @@ export component DiagnosticPanel inherits Rectangle {
         width: min(480px, root.width);
         height: 100%;
         background: Theme.card;
-        Rectangle {
-            width: 1px;
-            height: 100%;
-            background: Theme.borderStrong;
-        }
         // 面板内吞掉点击，避免误触遮罩关闭。
         TouchArea { }
 
@@ -167,23 +181,50 @@ export component DiagnosticPanel inherits Rectangle {
                 }
             }
 
-            // 问题页将列表、当前详情和全局操作分区，只有列表与详情内容滚动。
+            // 问题页把筛选、卡片流与全局操作分区：每张卡片内联完整详情，
+            // 免去向「列表 + 详情」两区来回点选，便于快速通读。
             if root.tab == 0: VerticalLayout {
                 vertical-stretch: 1;
                 min-height: 0px;
+                // 筛选条：按严重级别快速收敛，右侧显示总量。
                 Rectangle {
-                    height: 44px;
+                    height: 52px;
                     background: Theme.card;
                     HorizontalLayout {
-                        padding-left: 20px;
-                        padding-right: 20px;
-                        spacing: 8px;
-                        Text {
-                            text: "问题列表";
-                            color: Theme.text;
-                            font-size: 13px;
-                            font-weight: 600;
-                            vertical-alignment: center;
+                        padding-left: 16px;
+                        padding-right: 16px;
+                        spacing: 6px;
+                        PmButton {
+                            label: "全部";
+                            flat: true;
+                            selected: root.filter == 0;
+                            button-width: 64px;
+                            clicked => { root.filter = 0; }
+                        }
+                        PmButton {
+                            label: "错误";
+                            flat: true;
+                            selected: root.filter == 1;
+                            button-width: 64px;
+                            clicked => { root.filter = 1; }
+                        }
+                        PmButton {
+                            label: "警告";
+                            flat: true;
+                            selected: root.filter == 2;
+                            button-width: 64px;
+                            clicked => { root.filter = 2; }
+                        }
+                        PmButton {
+                            label: "普通";
+                            flat: true;
+                            selected: root.filter == 3;
+                            button-width: 64px;
+                            clicked => { root.filter = 3; }
+                        }
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            background: transparent;
                         }
                         Text {
                             text: "\{root.count} 条";
@@ -192,14 +233,23 @@ export component DiagnosticPanel inherits Rectangle {
                             vertical-alignment: center;
                         }
                     }
+                    Rectangle {
+                        y: parent.height - 1px;
+                        width: 100%;
+                        height: 1px;
+                        background: Theme.border;
+                    }
                 }
+                // 卡片流：逐条内联级别、标题、来源、时间与详情，整列滚动。
                 ScrollView {
                     vertical-stretch: 1;
-                    min-height: 100px;
+                    min-height: 0px;
                     VerticalLayout {
                         width: 100%;
+                        padding: 14px;
+                        spacing: 10px;
                         if root.count == 0: Rectangle {
-                            height: 144px;
+                            height: 160px;
                             Text {
                                 text: "暂无问题";
                                 color: Theme.text2;
@@ -209,92 +259,46 @@ export component DiagnosticPanel inherits Rectangle {
                             }
                         }
                         // 逐字段检查长度，避免桥接数据更新不同步时索引越界。
-                        for i in root.count: DiagRow {
+                        for i in root.count: DiagCard {
+                            visible: root.match-filter(
+                                i,
+                                root.filter,
+                                root.severities
+                            );
                             severity: i < root.severities.length
                                 ? root.severities[i]
                                 : 0;
                             title: i < root.titles.length ? root.titles[i] : "";
-                            source: i < root.sources.length ? root.sources[i] : "";
-                            time: i < root.times.length ? root.times[i] : "";
-                            selected: i == root.selected;
-                            // 先更新高亮索引，再通知宿主同步详情。
-                            picked => {
-                                root.selected = i;
-                                root.select(i);
-                            }
-                        }
-                    }
-                }
-                // 未选中记录时不占用详情区，把空间完整留给列表。
-                if root.selected >= 0 && root.selected < root.count: Rectangle {
-                    height: 230px;
-                    background: Theme.field;
-                    Rectangle {
-                        width: 100%;
-                        height: 1px;
-                        background: Theme.borderStrong;
-                    }
-                    VerticalLayout {
-                        padding-left: 20px;
-                        padding-right: 20px;
-                        padding-top: 12px;
-                        padding-bottom: 12px;
-                        spacing: 8px;
-                        Text {
-                            text: "问题详情";
-                            color: Theme.text2;
-                            font-size: 11px;
-                            font-weight: 600;
-                        }
-                        Text {
-                            text: root.selected < root.titles.length
-                                ? root.titles[root.selected]
+                            source: i < root.sources.length
+                                ? root.sources[i]
                                 : "";
-                            color: Theme.text;
-                            font-size: 13px;
-                            font-weight: 600;
-                            overflow: elide;
-                        }
-                        ScrollView {
-                            vertical-stretch: 1;
-                            min-height: 0px;
-                            VerticalLayout {
-                                width: 100%;
-                                spacing: 8px;
-                                Text {
-                                    text: root.selected < root.details.length
-                                        ? root.details[root.selected]
-                                        : "";
-                                    color: Theme.text2;
-                                    font-family: "Consolas";
-                                    font-size: 12px;
-                                    wrap: word-wrap;
-                                }
-                                if root.selected < root.hints.length: Text {
-                                    text: root.hints[root.selected];
-                                    color: Theme.warn;
-                                    font-size: 12px;
-                                    wrap: word-wrap;
-                                }
+                            time: i < root.times.length ? root.times[i] : "";
+                            detail: i < root.details.length
+                                ? root.details[i]
+                                : "";
+                            hint: i < root.hints.length ? root.hints[i] : "";
+                            selected: i == root.selected;
+                            index: i;
+                            // 先更新高亮索引，再通知宿主同步详情。
+                            picked(idx) => {
+                                root.selected = idx;
+                                root.select(idx);
                             }
-                        }
-                        HorizontalLayout {
-                            spacing: 8px;
-                            alignment: end;
-                            // 详情操作只作用于当前选中项，由桥接层执行。
-                            PmButton {
-                                label: "复制详情";
-                                clicked => { root.copy(); }
+                            request-copy(idx) => {
+                                root.selected = idx;
+                                root.select(idx);
+                                root.copy();
                             }
-                            PmButton {
-                                label: "移除这条";
-                                clicked => { root.remove(); }
+                            request-remove(idx) => {
+                                root.selected = idx;
+                                root.select(idx);
+                                root.remove();
                             }
                         }
                     }
                 }
                 Rectangle {
-                    height: 60px;
+                    height: 56px;
                     background: Theme.card;
                     Rectangle {
                         width: 100%;

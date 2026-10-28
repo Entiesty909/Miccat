@@ -1,4 +1,5 @@
-//! 设置页：以参考界面的左侧导航和分组卡片展示现有可用配置。
+//! 设置页：QQ PC 风格的左侧固定导航 + 右侧单页可滚动设置。
+//! 左侧标签固定不动，点击跳转到右侧对应分组；右侧上下滚动时，左侧高亮自动跟随（scroll-spy）。
 
 import { CheckBox, ScrollView } from "std-widgets.slint";
 import { SectionTitle } from "../components/section-title.slint";
@@ -12,18 +13,6 @@ import { HotkeyCard } from "../components/hotkey-card.slint";
 
 // 设置页展示由 Rust bridge 提供的设备、快捷键、线缆和诊断状态；控件事件只通过回调提交。
 export component SettingsPage inherits Rectangle {
-    // 输出设备名称列表，来源于 bridge 的设备枚举。
-    in-out property <[string]> devices: [];
-    // 当前默认输出设备下标。
-    in-out property <int> device-index: 0;
-    // 每个设备是否被选中，和 devices 下标对齐。
-    in-out property <[bool]> device-selected: [];
-    // 是否显示包含物理扬声器的完整设备列表。
-    in-out property <bool> all-devices: false;
-    // 是否允许设置系统默认麦克风。
-    in-out property <bool> show-set-default-mic: false;
-    // 系统默认麦克风开关，停止转发后由宿主恢复。
-    in-out property <bool> set-default-mic: false;
     // 系统默认播放设备开关。
     in-out property <bool> set-default-render: false;
     // 默认通信播放设备开关。
@@ -60,273 +49,156 @@ export component SettingsPage inherits Rectangle {
     callback reset-hotkey-row(int);
     // 将捕获的按键及修饰键回传 bridge。
     callback hotkey-row-captured(int, string, bool, bool, bool);
-    // 切换显示全部设备。
-    callback all-devices-toggled(bool);
-    // 切换单个输出设备选择。
-    callback device-toggled(int, bool);
-    // 切换默认麦克风设置。
-    callback set-default-mic-toggled(bool);
     // 切换系统默认播放设备设置。
     callback set-default-render-toggled(bool);
     // 切换默认通信播放设备设置。
     callback set-default-communications-toggled(bool);
-    // 左侧设置分组索引：0 常规、1 音频设备、2 快捷键、3 线缆、4 关于、5 诊断。
-    in-out property <int> section-index: 0;
+    // 请求跳转到指定分组（0 音频设备、1 快捷键、2 虚拟线缆、3 关于、4 诊断）。
+    // 用于左侧标签点击与来自侧栏/状态栏的外部跳转；只驱动右侧滚动，不改变分组显隐。
+    callback goto-section(int);
 
-    // ScrollView 保留窄窗口下的完整设置内容，横向布局由分组索引决定。
-    ScrollView {
-        width: 100%;
-        height: 100%;
-        HorizontalLayout {
-            padding: 24px;
-            spacing: 18px;
-            Card {
-                width: 220px;
-                VerticalLayout {
-                    Text {
-                        text: "设置";
-                        color: Theme.text;
-                        font-size: 18px;
-                        font-weight: 700;
-                    }
-                    Text {
-                        text: "Miccat";
-                        color: Theme.text2;
-                        font-size: 12px;
-                    }
-                    Rectangle { height: 1px; width: 100%; background: Theme.border; }
-                    // 每个按钮只改变本地分组索引，内容分支随后重建对应卡片。
-                    PmButton {
-                        label: "常规";
-                        selected: root.section-index == 0;
-                        flat: true;
-                        clicked => { root.section-index = 0; }
-                    }
-                    PmButton {
-                        label: "音频设备";
-                        selected: root.section-index == 1;
-                        flat: true;
-                        clicked => { root.section-index = 1; }
-                    }
-                    PmButton {
-                        label: "快捷键";
-                        selected: root.section-index == 2;
-                        flat: true;
-                        clicked => { root.section-index = 2; }
-                    }
-                    PmButton {
-                        label: "虚拟线缆";
-                        selected: root.section-index == 3;
-                        flat: true;
-                        clicked => { root.section-index = 3; }
-                    }
-                    PmButton {
-                        label: "关于";
-                        selected: root.section-index == 4;
-                        flat: true;
-                        clicked => { root.section-index = 4; }
-                    }
-                    PmButton {
-                        label: "诊断";
-                        selected: root.section-index == 5;
-                        flat: true;
-                        clicked => { root.section-index = 5; }
-                    }
-                    Rectangle { vertical-stretch: 1; background: transparent; }
-                    Text {
-                        text: root.running ? "运行中" : "未运行";
-                        color: root.running ? Theme.ok : Theme.text2;
-                        font-size: 12px;
-                    }
-                    Text {
-                        text: "修改后自动保存";
-                        color: Theme.text3;
-                        font-size: 12px;
-                    }
-                }
-            }
+    // 各分组的坐标（section-tops）与当前激活分组（active-section）在布局之后推导，
+    // 见文件末尾 ScrollView 定义之后，确保 sec-audio 等命名元素已进入作用域。
+
+    // 页面本身透明，由主窗口卡片和布局提供底色。
+    background: transparent;
+
+    // 左侧固定导航与右侧可滚动设置横向排列；左侧不参与滚动。
+    HorizontalLayout {
+        spacing: 0px;
+        // 左侧固定导航：始终可见，点击跳转到对应分组。
+        Card {
+            width: 200px;
             VerticalLayout {
-                horizontal-stretch: 1;
-                min-width: 0px;
-                spacing: 14px;
-                HorizontalLayout {
-                    height: 54px;
-                    VerticalLayout {
-                        spacing: 2px;
-                        Text {
-                            text: root.section-index == 0
-                                ? "设置"
-                                : (root.section-index == 1
-                                    ? "音频设备"
-                                    : (root.section-index == 2
-                                        ? "快捷键"
-                                        : (root.section-index == 3
-                                            ? "虚拟线缆"
-                                            : (root.section-index == 4
-                                                ? "关于"
-                                                : "诊断"))));
-                            color: Theme.text;
-                            font-size: 22px;
-                            font-weight: 700;
-                        }
-                        Text {
-                            text: "配置默认设备、快捷键和虚拟音频线缆。";
-                            color: Theme.text2;
-                            font-size: 13px;
-                        }
-                    }
-                    Rectangle { horizontal-stretch: 1; background: transparent; }
-                    Text {
-                        text: root.running ? "运行中不可修改设备" : "";
-                        color: Theme.warn;
-                        font-size: 12px;
-                        vertical-alignment: TextVerticalAlignment.center;
-                    }
+                spacing: 6px;
+                padding: 16px;
+                Text {
+                    text: "设置";
+                    color: Theme.text;
+                    font-size: 18px;
+                    font-weight: 700;
                 }
-                // 常规分组总是提供运行状态；默认音频卡片在常规/设备两组复用。
-                if root.section-index == 0: Card {
-                    SectionTitle { label: "常规"; }
-                    HorizontalLayout {
-                        height: 42px;
-                        Text {
-                            text: "当前状态";
-                            width: 140px;
-                            color: Theme.text;
-                            vertical-alignment: TextVerticalAlignment.center;
-                        }
-                        Text {
-                            text: root.running ? "正在转发" : "未运行";
-                            color: root.running ? Theme.ok : Theme.text2;
-                            vertical-alignment: TextVerticalAlignment.center;
-                        }
-                    }
-                    Text {
-                        text: "音频路由状态和配置保存由程序自动管理。";
-                        color: Theme.text2;
-                        font-size: 12px;
-                    }
+                Rectangle { height: 1px; width: 100%; background: Theme.border; }
+                PmButton {
+                    label: "音频设备";
+                    selected: root.active-section == 0;
+                    flat: true;
+                    clicked => { root.goto-section(0); }
                 }
-                // 默认音频卡片在常规和音频设备分组可见，运行时禁用设备变更。
-                if root.section-index == 0 || root.section-index == 1: Card {
-                    SectionTitle { label: "默认音频"; }
-                    HorizontalLayout {
-                        height: 42px;
-                        Text {
-                            text: "输出设备";
-                            width: 140px;
-                            color: Theme.text;
-                            vertical-alignment: TextVerticalAlignment.center;
-                        }
-                        Text {
-                            text: root.dest-hint;
-                            horizontal-stretch: 1;
-                            color: Theme.text2;
-                            overflow: elide;
-                            vertical-alignment: TextVerticalAlignment.center;
-                        }
-                        PmButton {
-                            label: "刷新设备";
-                            // 刷新按钮只请求宿主重新枚举设备，运行中保持禁用。
+                PmButton {
+                    label: "快捷键";
+                    selected: root.active-section == 1;
+                    flat: true;
+                    clicked => { root.goto-section(1); }
+                }
+                PmButton {
+                    label: "虚拟线缆";
+                    selected: root.active-section == 2;
+                    flat: true;
+                    clicked => { root.goto-section(2); }
+                }
+                PmButton {
+                    label: "关于";
+                    selected: root.active-section == 3;
+                    flat: true;
+                    clicked => { root.goto-section(3); }
+                }
+                PmButton {
+                    label: "诊断";
+                    selected: root.active-section == 4;
+                    flat: true;
+                    clicked => { root.goto-section(4); }
+                }
+                  Rectangle { vertical-stretch: 1; background: transparent; }
+            }
+        }
+        // 右侧单页可滚动设置：所有分组在同一滚动区内，无逐标签子页。
+        scroll-view := ScrollView {
+            // 隐藏滚动条，符合要求。
+            vertical-scrollbar-policy: ScrollBarPolicy.always-off;
+            horizontal-scrollbar-policy: ScrollBarPolicy.always-off;
+            content := VerticalLayout {
+                padding: 24px;
+                spacing: 18px;
+                // 0 音频设备
+                sec-audio := VerticalLayout {
+                    SectionTitle { label: "音频设备"; }
+                    Card {
+                        CheckBox {
+                            text: "设为系统默认播放设备";
+                            checked <=> root.set-default-render;
+                            // 系统默认播放设备开关交由宿主执行平台设置。
                             enabled: !root.running;
-                            clicked => { root.refresh(); }
+                            toggled => { root.set-default-render-toggled(self.checked); }
                         }
-                    }
-                    VerticalLayout {
-                        spacing: 3px;
-                        for name[index] in root.devices: CheckBox {
-                            text: name;
-                            checked: index < root.device-selected.length
-                                ? root.device-selected[index]
-                                : false;
-                            // 每个设备复选框按索引回传选择变化，保持并行数组对齐。
+                        CheckBox {
+                            text: "设为默认通信播放设备";
+                            checked <=> root.set-default-communications;
+                            // 默认通信播放设备开关交由宿主执行平台设置。
                             enabled: !root.running;
-                            toggled => { root.device-toggled(index, self.checked); }
+                            toggled => { root.set-default-communications-toggled(self.checked); }
                         }
                     }
-                    CheckBox {
-                        text: "显示全部播放设备（含物理扬声器）";
-                        checked <=> root.all-devices;
-                        // 显示全部设备开关改变设备列表筛选范围。
+                }
+                // 1 快捷键
+                sec-hotkey := VerticalLayout {
+                    SectionTitle { label: "快捷键"; }
+                    HotkeyCard {
+                        toggle-label: root.hotkey-label;
+                        toggle-listening: root.listening-hotkey;
                         enabled: !root.running;
-                        toggled => { root.all-devices-toggled(self.checked); }
-                    }
-                    CheckBox {
-                        text: "设为系统默认播放设备";
-                        checked <=> root.set-default-render;
-                        // 系统默认播放设备开关交由宿主执行平台设置。
-                        enabled: !root.running;
-                        toggled => { root.set-default-render-toggled(self.checked); }
-                    }
-                    CheckBox {
-                        text: "设为默认通信播放设备";
-                        checked <=> root.set-default-communications;
-                        // 默认通信播放设备开关交由宿主执行平台设置。
-                        enabled: !root.running;
-                        toggled => { root.set-default-communications-toggled(self.checked); }
-                    }
-                    if root.show-set-default-mic: CheckBox {
-                        text: "设为默认麦克风（停止转发后还原）";
-                        checked <=> root.set-default-mic;
-                        // 默认麦克风开关只提交用户意图，恢复时机由宿主管理。
-                        enabled: !root.running;
-                        toggled => { root.set-default-mic-toggled(self.checked); }
+                        begin-toggle => { root.begin-hotkey-capture(); }
+                        reset-toggle => { root.reset-hotkey(); }
+                        begin-row(row) => { root.begin-hotkey-row(row); }
+                        reset-row(row) => { root.reset-hotkey-row(row); }
                     }
                 }
-                // 快捷键卡片复用于常规和快捷键分组，捕获态由 bridge 驱动。
-                if root.section-index == 0 || root.section-index == 2: HotkeyCard {
-                    toggle-label: root.hotkey-label;
-                    toggle-listening: root.listening-hotkey;
-                    enabled: !root.running;
-                    begin-toggle => { root.begin-hotkey-capture(); }
-                    reset-toggle => { root.reset-hotkey(); }
-                    begin-row(row) => { root.begin-hotkey-row(row); }
-                    reset-row(row) => { root.reset-hotkey-row(row); }
-                }
-                // 线缆/关于横排只在相关分组显示，条件保证卡片不会占用隐藏分组空间。
-                if root.section-index == 0
-                    || root.section-index == 3
-                    || root.section-index == 4: HorizontalLayout {
-                    height: 138px;
-                    if root.section-index == 0 || root.section-index == 3: Card {
-                        horizontal-stretch: 1;
-                        SectionTitle { label: "虚拟线缆"; }
-                        Text {
-                            text: root.cable-installed
-                                ? "VB-CABLE 已检测到"
-                                : root.cable-text;
-                            color: root.cable-installed ? Theme.ok : Theme.text2;
-                            font-size: 13px;
-                            vertical-alignment: TextVerticalAlignment.center;
-                        }
+                // 2 虚拟线缆
+                sec-cable := VerticalLayout {
+                    SectionTitle { label: "虚拟线缆"; }
+                    Card {
+                        VerticalLayout {
+                            spacing: 10px;
+                            Text {
+                                text: root.cable-installed
+                                    ? "VB-CABLE 已检测到"
+                                    : root.cable-text;
+                                color: root.cable-installed ? Theme.ok : Theme.text2;
+                                font-size: 13px;
+                                vertical-alignment: TextVerticalAlignment.center;
+                            }
                             // 已安装时提供升级和卸载；按钮 enabled 受后台任务生命周期保护。
-                        if root.cable-installed: HorizontalLayout {
-                            spacing: 8px;
-                            PmButton {
-                                label: root.cable-busy ? "处理中…" : "升级到最新版";
-                                // 安装/升级按钮请求后台线缆任务，忙碌态由 bridge 回写。
+                            if root.cable-installed: HorizontalLayout {
+                                spacing: 8px;
+                                PmButton {
+                                    label: root.cable-busy ? "处理中…" : "升级到最新版";
+                                    // 安装/升级按钮请求后台线缆任务，忙碌态由 bridge 回写。
+                                    enabled: !root.cable-busy;
+                                    clicked => { root.install-cable(); }
+                                }
+                                PmButton {
+                                    label: "卸载";
+                                    danger: true;
+                                    // 卸载按钮请求后台线缆任务，避免在 UI 回调内执行同步操作。
+                                    enabled: !root.cable-busy;
+                                    clicked => { root.uninstall-cable(); }
+                                }
+                                Rectangle { horizontal-stretch: 1; background: transparent; }
+                            }
+                            // 未安装时只显示安装入口，避免对不存在的设备发送卸载请求。
+                            if !root.cable-installed: PmButton {
+                                label: root.cable-busy ? "处理中…" : "安装 VB-CABLE";
+                                // 未安装时只提交安装请求，不创建卸载入口。
                                 enabled: !root.cable-busy;
                                 clicked => { root.install-cable(); }
                             }
-                            PmButton {
-                                label: "卸载";
-                                danger: true;
-                                // 卸载按钮请求后台线缆任务，避免在 UI 回调内执行同步操作。
-                                enabled: !root.cable-busy;
-                                clicked => { root.uninstall-cable(); }
-                            }
-                            Rectangle { horizontal-stretch: 1; background: transparent; }
-                        }
-                        // 未安装时只显示安装入口，避免对不存在的设备发送卸载请求。
-                        if !root.cable-installed: PmButton {
-                            label: root.cable-busy ? "处理中…" : "安装 VB-CABLE";
-                            // 未安装时只提交安装请求，不创建卸载入口。
-                            enabled: !root.cable-busy;
-                            clicked => { root.install-cable(); }
                         }
                     }
-                    if root.section-index == 0 || root.section-index == 4: Card {
-                        horizontal-stretch: 1;
-                        SectionTitle { label: "关于"; }
+                }
+                // 3 关于
+                sec-about := VerticalLayout {
+                    SectionTitle { label: "关于"; }
+                    Card {
                         Text {
                             text: root.about-text;
                             color: Theme.text2;
@@ -335,10 +207,56 @@ export component SettingsPage inherits Rectangle {
                         }
                     }
                 }
-                // 诊断卡片由全局诊断状态驱动，常规页也保留摘要入口。
-                if root.section-index == 0 || root.section-index == 5: DiagnosticsCard { }
-                Rectangle { vertical-stretch: 1; background: transparent; }
+                // 4 诊断
+                sec-diag := VerticalLayout {
+                    SectionTitle { label: "诊断"; }
+                    DiagnosticsCard { }
+                }
+                // 底部留白，保证最后一节也能滚到接近顶部。
+                Rectangle { height: 24px; background: transparent; }
             }
         }
+    }
+
+    // 各分组在滚动内容中的内容坐标（相对内容顶部的 y），用于点击跳转与 scroll-spy。
+    // 声明于布局之后，sec-audio 等命名元素已进入作用域；用裸名而非 root.sec-*.y 访问。
+    // 裸名 sec-audio.y 对应的是其相对父级 content 的坐标，与 scroll-view.content-y 同坐标系。
+    // 分组顺序：0 音频设备、1 快捷键、2 虚拟线缆、3 关于、4 诊断。
+    property <[length]> section-tops: [
+        sec-audio.y,
+        sec-hotkey.y,
+        sec-cable.y,
+        sec-about.y,
+        sec-diag.y
+    ];
+    // ScrollView 的 content-y 是「视口相对内容的偏移」，向下滚动时为负值，
+    // 合法区间为 [-(content-height - visible-height), 0]（见 i-slint-core flickable.rs 的
+    // in-bounds 判定）。这里取反换算成习惯的正向滚动距离，供高亮推导使用。
+    property <length> scroll-offset: -scroll-view.content-y;
+    // 当前激活分组：根据正向滚动距离推导，滚动时自动更新左侧高亮。
+    // 使用纯嵌套三元表达式（无赋值），在纯属性上下文中合法。
+    property <int> active-section:
+        // 滚到最底部时，即使末节无法顶到顶部也强制选中最后一节。
+        (root.scroll-offset + scroll-view.visible-height >= scroll-view.content-height - 2px) ? 4 :
+        (root.scroll-offset + 4px >= root.section-tops[4]) ? 4 :
+        (root.scroll-offset + 4px >= root.section-tops[3]) ? 3 :
+        (root.scroll-offset + 4px >= root.section-tops[2]) ? 2 :
+        (root.scroll-offset + 4px >= root.section-tops[1]) ? 1 : 0;
+
+    // 外部或左侧导航的跳转目标：值变化时驱动右侧滚动到对应分组。
+    in-out property <int> target-section: 0;
+    changed target-section => {
+        root.goto-section(root.target-section);
+    }
+
+    // 点击左侧标签或外部跳转：将对应分组顶到可视区顶部。
+    // content-y 为负向偏移，故写入 -目标距离；目标已在下方夹取到可滚动上限。
+    goto-section(sec) => {
+        let i = min(max(sec, 0), 4);
+        // 可滚动的最大距离。末几节高度不足时顶不到视口顶部，故把目标夹到该上限：
+        // content-y 是双向绑定到滚动条的，Flickable 对带绑定的 content-y 不做自动夹取，
+        // 越界会让内容滚出空白区域，所以这里自行限制。
+        let max-scroll = max(scroll-view.content-height - scroll-view.visible-height, 0px);
+        scroll-view.content-y = -min(root.section-tops[i], max-scroll);
     }
 }

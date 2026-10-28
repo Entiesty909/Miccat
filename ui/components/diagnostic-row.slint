@@ -1,8 +1,9 @@
-//! 问题中心的行与徽标：级别圆点、未读徽标、单条问题行。
+//! 问题中心的卡片与徽标：级别圆点、未读徽标、单条诊断卡片。
 
 import { Theme } from "../theme.slint";
+import { PmButton } from "button.slint";
 
-// 严重级别圆点：severity 由诊断数据提供，0 灰、1 黄、2 红。
+// 严重级别圆点：severity 由诊断数据提供，0 普通、1 警告、2 错误。
 export component SeverityDot inherits Rectangle {
     // 诊断级别枚举值；0 普通、1 警告、2 错误。
     in property <int> severity: 0;
@@ -37,9 +38,10 @@ export component UnseenBadge inherits Rectangle {
     }
 }
 
-// 单条问题行：展示来源数据并把选择动作交由问题中心处理。
-export component DiagRow inherits Rectangle {
-    // 当前记录的严重级别。
+// 单条诊断卡片：把级别、标题、来源、时间与完整详情内联在一张卡里，
+// 免去「列表—详情」两区来回切换；操作按钮把动作派发给问题中心。
+export component DiagCard inherits Rectangle {
+    // 当前记录的严重级别；0 普通、1 警告、2 错误。
     in property <int> severity: 0;
     // 诊断标题。
     in property <string> title: "";
@@ -47,65 +49,88 @@ export component DiagRow inherits Rectangle {
     in property <string> source: "";
     // 记录发生时间的展示文本。
     in property <string> time: "";
+    // 完整详情文本，等宽字体展示以便对照。
+    in property <string> detail: "";
+    // 处理建议文本，警示色高亮。
+    in property <string> hint: "";
     // 与问题中心选中索引同步的视觉状态。
     in property <bool> selected: false;
-    // 点击该行时通知父级更新当前选择项。
-    callback picked();
-    height: 64px;
+    // 当前记录对应的列表索引，用于派发带索引的动作。
+    in property <int> index: -1;
+    // 点击卡片主体时通知父级更新当前选择项。
+    callback picked(int);
+    // 请求复制当前记录详情，携带记录索引。
+    callback request-copy(int);
+    // 请求移除当前记录，携带记录索引。
+    callback request-remove(int);
+
     background: root.selected ? Theme.accentSoft : Theme.card;
+    border-radius: Theme.radiusCard;
+    // 左侧严重级别竖条：撑满卡片高度，红/黄/灰直观区分。
     Rectangle {
-        y: parent.height - 1px;
-        width: 100%;
-        height: 1px;
-        background: Theme.border;
+        width: 4px;
+        height: 100%;
+        border-radius: 2px;
+        background: root.severity == 2
+            ? Theme.danger
+            : (root.severity == 1 ? Theme.warn : Theme.text3);
     }
-    HorizontalLayout {
-        padding-left: 18px;
-        padding-right: 18px;
-        spacing: 12px;
-        VerticalLayout {
-            width: 8px;
-            height: 100%;
-            alignment: center;
-            SeverityDot { severity: root.severity; }
-        }
-        VerticalLayout {
-            horizontal-stretch: 1;
-            min-width: 0px;
-            alignment: center;
-            spacing: 4px;
-            Text {
-                text: root.title;
-                color: Theme.text;
-                font-size: 13px;
-                font-weight: root.selected ? 600 : 400;
-                overflow: elide;
-            }
-            HorizontalLayout {
-                spacing: 6px;
-                Text {
-                    text: root.source;
-                    color: Theme.text2;
-                    font-size: 11px;
-                    overflow: elide;
-                    horizontal-stretch: 1;
-                }
-                Text {
-                    text: root.time;
-                    color: Theme.text3;
-                    font-size: 11px;
-                    overflow: elide;
-                    horizontal-alignment: right;
-                }
-            }
-        }
-    }
-    // 行级命中区覆盖整行，点击只报告选择而不直接改诊断数据。
+    // 卡片主体在竖条右侧；整卡点击只选不删，按钮浮于其上可单独点。
     ta := TouchArea {
+        width: 100%;
+        height: 100%;
         mouse-cursor: pointer;
-        clicked => { root.picked(); }
+        clicked => { root.picked(root.index); }
     }
-    states [
-        hovered when ta.has-hover: { background: Theme.accentSoft; }
-    ]
+    VerticalLayout {
+        x: 4px;
+        padding-left: 14px;
+        padding-right: 14px;
+        padding-top: 12px;
+        padding-bottom: 12px;
+        spacing: 6px;
+        Text {
+            text: root.title;
+            color: Theme.text;
+            font-size: 13px;
+            font-weight: 600;
+            wrap: word-wrap;
+        }
+        Text {
+            text: root.source + " · " + root.time;
+            color: Theme.text3;
+            font-size: 11px;
+            wrap: word-wrap;
+        }
+        if root.detail != "": Text {
+            text: root.detail;
+            color: Theme.text2;
+            font-family: "Consolas";
+            font-size: 12px;
+            wrap: word-wrap;
+        }
+        if root.hint != "": Text {
+            text: root.hint;
+            color: Theme.warn;
+            font-size: 12px;
+            wrap: word-wrap;
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: end;
+            PmButton {
+                label: "复制";
+                flat: true;
+                button-width: 64px;
+                clicked => { root.request-copy(root.index); }
+            }
+            PmButton {
+                label: "移除";
+                flat: true;
+                danger: true;
+                button-width: 64px;
+                clicked => { root.request-remove(root.index); }
+            }
+        }
+    }
 }

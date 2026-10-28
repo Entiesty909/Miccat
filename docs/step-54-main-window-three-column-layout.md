@@ -29,3 +29,11 @@
 - 未进行真实鼠标拖动/拖出窗口跟随、逐项刷新点击或人为移除活动文件的桌面验收。
 
 下一步：总音量跨窗口拖动与文件/设备失效桌面验收；这批布局/状态栏回归继续更新本记录。
+
+## 2026-10-27 修复：分类栏拖到最左折叠后展开宽度
+
+- 现象：把分类栏分隔条一直往左拖到折叠（符号变 `><`），再点展开按钮只展开到被拖到的近零宽度，而不是默认 180px。
+- 根因：`LibrarySplitter` 拖动到 0 的过程中，`PlayerPage` 的 `resized` 回调在最后几个正值帧把 `sidebar-width` 一路写到近零，随后才翻 `sidebar-collapsed`；重新展开时 `visible-sidebar-width = min(sidebar-width, side-space)` 取到的是那个近零残留值。
+- 改动（`ui/pages/player.slint`）：分类栏（左侧 `LibrarySplitter`）`resized` 回调在 `value <= 0px` 折叠分支里把 `sidebar-width` 复位为默认 180px，展开即回到默认宽度；非折叠分支维持原拖动逻辑。`sidebar-width`/`detail-width` 仅在 `player.slint` 内使用，无 Rust 持久化，复位不影响其他状态。
+- 详情栏（右侧 `LibrarySplitter`，`reverse-delta: true`）存在同一模式，但本轮按用户要求只修了左侧分类栏；如需一致可照同样方式处理。
+- 验证：`cargo check` 通过 Slint 编译（仅因沙箱缺 `rc.exe` 在 `build.rs:21` 资源嵌入处失败，与本次改动无关）。

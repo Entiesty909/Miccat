@@ -341,7 +341,7 @@ export component SourceRow inherits Rectangle {
             background: Theme.border;
         }
 
-        // 右侧设置区与参考图一致按输出、转发音量、预览音量排列。
+        // 右侧设置区按输出设备、转发音量排列；本机预览音量只在 🔈 浮层内调整。
         VerticalLayout {
             horizontal-stretch: 1;
             min-width: 250px;
@@ -382,10 +382,10 @@ export component SourceRow inherits Rectangle {
                     background: transparent;
                 }
             }
-            HorizontalLayout {
+            if root.kind != 1: HorizontalLayout {
                 height: 36px;
                 spacing: 10px;
-                // 进程和麦克风的原音量图标兼任静音入口；文件音量图标仍只展示。
+                // 进程和麦克风的原音量图标兼任静音入口；文件卡片不在此行显示转发音量。
                 if root.kind != 1: Rectangle {
                     width: 18px;
                     height: 36px;
@@ -404,13 +404,6 @@ export component SourceRow inherits Rectangle {
                         mouse-cursor: pointer;
                         clicked => { root.mute-toggled(); }
                     }
-                }
-                if root.kind == 1: Text {
-                    text: "\u{E767}";
-                    font-family: "Segoe MDL2 Assets";
-                    color: Theme.text2;
-                    font-size: 18px;
-                    vertical-alignment: center;
                 }
                 Text {
                     text: "转发音量";
@@ -451,37 +444,6 @@ export component SourceRow inherits Rectangle {
                     active: root.active;
                     enabled: true;
                     toggled(value) => { root.active-toggled(value); }
-                }
-            }
-            if root.kind == 0: HorizontalLayout {
-                height: 36px;
-                spacing: 10px;
-                Text {
-                    text: "\u{E767}";
-                    font-family: "Segoe MDL2 Assets";
-                    color: Theme.text3;
-                    font-size: 18px;
-                    vertical-alignment: center;
-                }
-                Text {
-                    text: "预览音量";
-                    width: 72px;
-                    color: Theme.text3;
-                    font-size: 13px;
-                    vertical-alignment: center;
-                }
-                // 本轮仅提供不可交互占位，不向 bridge 上报或保存数值。
-                SliderRow {
-                    width: 300px;
-                    horizontal-stretch: 0;
-                    show-label: false;
-                    enabled: false;
-                    value: 0;
-                    value-text: "-";
-                }
-                Rectangle {
-                    horizontal-stretch: 1;
-                    background: transparent;
                 }
             }
         }

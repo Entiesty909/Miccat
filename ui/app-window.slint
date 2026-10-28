@@ -205,8 +205,9 @@ export component MainWindow inherits Window {
     // 名称/时长排序列与方向均按当前筛选结果刷新。
     in-out property <int> audio-sort-column-index: 0;
     in-out property <bool> audio-sort-ascending: true;
-    // 设置页当前分组索引。
-    in-out property <int> settings-section-index: 0;
+    // 设置页分组跳转通过 goto-section 回调链路实现，不再使用分组索引属性。
+    // 供 Rust（--snapshot-ui --page settings --section N）直接跳转到指定分组。
+    callback goto-settings-section(int);
     // 播放器循环开关。
     in-out property <bool> player-loop: false;
     // 播放进度比例。
@@ -507,7 +508,8 @@ export component MainWindow inherits Window {
                 min-width: 0px;
                 vertical-stretch: 1;
             // PageHost 按当前页索引装配路由、音频库或设置页，未选中的页面不处理输入。
-            PageHost {
+            // 具名实例，供根级 goto-settings-section 回调转发分组跳转。
+            page-host := PageHost {
                 width: 100%;
                 vertical-stretch: 1;
                 min-height: 0px;
@@ -600,7 +602,7 @@ export component MainWindow inherits Window {
                 entry-menu-x <=> root.audio-entry-menu-x;
                 entry-menu-y <=> root.audio-entry-menu-y;
                 hotkey-label: root.hotkey-label;
-                settings-section-index <=> root.settings-section-index;
+                // 设置分组跳转改走 goto-section 回调链路（见 settings-requested）。
                 device-selected <=> root.device-selected;
                 all-devices <=> root.all-devices;
                 show-set-default-mic <=> root.show-set-default-mic;
@@ -649,7 +651,7 @@ export component MainWindow inherits Window {
                 // 设置页请求同时写入目标分组，确保跳转后直接定位到对应设置区域。
                 settings-requested(section) => {
                     root.page = 2;
-                    root.settings-section-index = section;
+                    self.goto-section(section);
                 }
                 source-previous(index) => { root.source-previous(index); }
                 source-next-track(index) => { root.source-next-track(index); }
@@ -766,4 +768,10 @@ export component MainWindow inherits Window {
     }
     // 全局覆盖层随主窗口创建并由状态属性控制显示，不单独持有业务状态。
     GlobalOverlays { }
+    // 外部（Rust/快照）请求跳转设置页分组：切到设置页并写入 PageHost 的跳转目标。
+    // 处理器置于布局之后，具名的 page-host 此时已进入作用域。
+    goto-settings-section(sec) => {
+        root.page = 2;
+        page-host.goto-section(sec);
+    }
 }
